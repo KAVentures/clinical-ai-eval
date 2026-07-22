@@ -1,0 +1,57 @@
+# configs/judge_panel.toml  (EVAL_STANDARD.md §7, §11)
+#
+# The judge panel is READ FROM CONFIG, never hardcoded (§11 "Known reconciliation
+# needed before build"). The runtime enforces the ">=2 DIFFERENT-provider" rule
+# from this file: a panel whose distinct `provider` count is < min_distinct_providers
+# is rejected before any scoring runs.
+#
+# The two upstream repos hardcoded different panels:
+#   evidence-sufficiency: openai / anthropic / xai / google (incl. Grok)
+#   reconciliation:       gpt-5.5 / claude-opus-4-8 / gemini-3.1-pro
+# Neither is baked in here. Swap `judges` for whatever panel a given run uses.
+#
+# `mock = true` selects the deterministic offline judge (no keys, no network) and
+# forces the run's conformance ceiling to L0/NON_CONFORMANT for any CLAIM (§0),
+# because a synthetic judge cannot support a conclusion. Real judges resolve via
+# caeval/providers.py (keys loaded at runtime from a git-ignored file; never here).
+
+min_distinct_providers = 2
+
+# Deterministic offline panel used by the demo / smoke run. Two DISTINCT mock
+# "providers" with different permissiveness so judge disagreement is real and the
+# high-sensitivity/low-specificity screen behavior is reproduced (§7).
+[[judges]]
+name = "mock_strict"
+provider = "mock_a"
+model = "det-strict-v1"
+mock = true
+
+[[judges]]
+name = "mock_lenient"
+provider = "mock_b"
+model = "det-lenient-v1"
+mock = true
+
+# ---------------------------------------------------------------------------
+# Real panel (commented out). Uncomment and set MEDROBUST_KEYS_PATH to a
+# git-ignored keys file to run L1. Must keep >=2 DISTINCT providers, and the
+# primary pair must NOT be two models from the same provider (same-provider
+# preference is a known confound, §7).
+# ---------------------------------------------------------------------------
+# [[judges]]
+# name = "gpt-5.5"
+# provider = "openai"
+# model = "gpt-5.5"
+# mock = false
+#
+# [[judges]]
+# name = "opus-4.8"
+# provider = "anthropic"
+# model = "claude-opus-4-8"
+# mock = false
+#
+# [[judges]]
+# name = "gemini-3.1-pro"
+# provider = "google"
+# model = "gemini-3.1-pro"
+# mock = false

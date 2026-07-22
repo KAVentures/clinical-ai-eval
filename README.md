@@ -1,0 +1,127 @@
+# clinical-ai-eval — reference harness for EVAL_STANDARD.md
+
+A runnable, offline reference implementation of the **Clinical AI Evaluation
+Protocol** (`EVAL_STANDARD.md`, v0.1) for **text-based** clinical AI, patient- and
+clinician-facing. It turns the four upstream research repos' published methods into
+a reproducible process an agent can execute: intake → suite selection → controlled
+perturbations → **validity audit** → **paired** scoring → **multi-judge** panel →
+disagreement → **blinded human-review queue** → evidence package.
+
+The primary output is a **screen plus an evidence package, never a
+deployment-readiness verdict** (§0). Every report says so in its first paragraph and
+declares its conformance level.
+
+## What makes this conformant (the two non-negotiables, §0)
+1. **Safety and helpfulness are scored separately and never collapsed.** The report
+   never emits one "safety score"; it reports safety, helpfulness, and the
+   `excessive_abstention` guard as separate axes, per judge.
+2. **The evaluator is part of the measurement.** ≥2 *different-provider* judges,
+   per-item disagreement reported, and a human-review queue for any headline. The
+   `≥2 distinct providers` rule is enforced at runtime from `configs/judge_panel.toml`.
+
+## Quick start (offline, no keys, no downloads)
+```bash
+cd clinical_ai_eval
+python3 -m caeval.cli demo      # intake + paired multi-judge run + mock L2 adjudication
+python3 -m caeval.cli arms      # harness self-validation across three subject arms (§12)
+python3 -m caeval.cli inspect   # profile, suite selection, and judge-panel status
+python3 -m unittest tests_unit.test_harness tests_unit.test_stages   # 33 self-tests
+```
+`demo`/`arms` use a **synthetic (mock) judge panel** and a **deliberately-defective
+mock subject**. Everything is clearly labeled synthetic and is `NON_CONFORMANT` for
+any claim — it exercises the full L1+L2 machinery so the pipeline is demonstrably correct.
+
+## The §10 stages (disk workspaces, generation separable from judging)
+```bash
+python3 -m caeval.cli init  --workspace out/ws            # scaffold target.yaml + keys template
+python3 -m caeval.cli run   --arm flawed --workspace out/ws   # generate responses + score + package
+python3 -m caeval.cli run   --family conflicting_evidence --arm flawed   # the 2nd family
+python3 -m caeval.cli judge --workspace out/ws --panel configs/judge_panel.toml  # re-score frozen responses (swap panel, no re-gen)
+python3 -m caeval.cli adjudicate --workspace out/ws --mock    # L2: agreement + judge-vs-human sens/spec
+python3 -m caeval.cli report --workspace out/ws              # re-emit the evidence package
+```
+`judge` re-scores the **frozen** subject responses with a different panel without
+regenerating them — the cost-saving path (§7). `adjudicate` ingests filled
+`human_review.csv` files, computes inter-rater agreement and judge-vs-human
+sensitivity/specificity/PPV, and upgrades the run to **L2** within audited scope.
+
+### The self-validation result (§12 steps 4–6)
+`arms` runs the same battery against three versions of the subject and shows the
+harness (4) detects the injected defect, (5) recognizes a genuine repair, and (6)
+does **not** reward abstention:
+
+| arm | unsafe_overconfident | harmful_tx | identifies_missing | excessive_abstention (variants) | (originals) |
+|---|---|---|---|---|---|
+| flawed | 86% | 86% | 23% | 0% | 0% |
+| repaired | 0% | 0% | 100% | 0% | 0% |
+| over_abstaining | 0% | 0% | 0% | **100%** | **100%** |
+
+The `over_abstaining` row is the point: a system that just refuses everything scores
+"safe" on overconfidence but lights up the `excessive_abstention` guard — which is
+exactly why safety and helpfulness must not be collapsed.
+
+## Going to L1 (real automated screen) and L2 (findings)
+1. Put a git-ignored keys file next to the package (`API_KEYS.local.md`) with lines
+   like `OPENAI_API_KEY = ...`, or set `MEDROBUST_KEYS_PATH`.
+2. Edit `configs/judge_panel.toml` to a real panel with **≥2 different providers**
+   (the primary pair must not be two models from one provider — §7). The
+   `≥2-distinct-provider` rule is enforced at runtime *before* keys are even loaded.
+3. Point the subject at your product with a `--subject` JSON spec (adapters:
+   `mock` / `openai` / `anthropic` / `xai` / `google` / `http` / `manual`), e.g.
+   `{"kind":"http","url":"https://.../answer","prompt_field":"q","answer_path":"data.text"}`.
+   A real subject receives **only** the perturbed case text — never the perturbation metadata.
+4. `run` → send `human_review.csv` to clinicians → `adjudicate --reviews a.csv b.csv`.
+   L1 conclusions must be worded "automated screen suggests," never as findings;
+   **L2** (findings within audited scope) requires the queue adjudicated with
+   inter-rater agreement reported.
+
+## Implemented test families
+- **`missing_information`** (§12 reference family) — remove_labs/imaging/exam, make_minimal_hpi, renal-dosing.
+- **`conflicting_evidence`** — canonical `add_conflict`; detects whether the system flags an injected contradiction.
+
+Other families named in the profile table are reported **REQUIRED-BUT-NOT-RUN** with
+a concrete `blocked_reason` (they need a RAG corpus, scribe transcripts, a
+patient-triage case bank, two product versions, or a consistency-scoring mode) —
+scope is honest, never silently dropped.
+
+## Layout & provenance (§11)
+Each module names the ONE upstream implementation it canonicalizes:
+
+| module | canonical source |
+|---|---|
+| `caeval/perturbations.py` | clinical-evidence-sufficiency-llm/src/perturbations.py |
+| `caeval/validity.py` | health-ai-readiness-robustness/scripts/perturbation_validity.py |
+| `caeval/score.py` + `prompts/judge_prompt.txt` | clinical-evidence-sufficiency-llm/src/score_outputs.py + prompts/judge_prompt.txt |
+| `caeval/providers.py` | clinical-ai-reconciliation/judge/providers.py |
+| `caeval/disagreement.py` | clinical-ai-reconciliation/judge/export_disagreement.py |
+| `caeval/reliability.py` | clinical-evidence-sufficiency-llm/src/reliability.py |
+| `caeval/review.py` + `caeval/blinding.py` | clinical-ai-reconciliation/judge/sample_human_study.py + judge/blinding.py |
+| `caeval/harm_ontology.py` | Gu et al., Nature Medicine (health-AI-readiness) Table 1 |
+
+```
+clinical_ai_eval/
+  EVAL_STANDARD.md            # the spec (source of truth)
+  selection_rules.yaml        # §4 rule-based suite selection (inspectable, with blocked_reason)
+  configs/judge_panel.toml    # §7/§11 panel; ≥2-distinct-provider rule read from here
+  prompts/judge_prompt.txt    # §6 judge rubric (+ excessive_abstention guard)
+  tests/<family>/family.yaml  # §3 test families (missing_information, conflicting_evidence)
+  pyproject.toml, requirements.txt   # packaging; console script `clinical-ai-eval`
+  caeval/                     # harness package: perturbations, validity, score, providers,
+                              #   disagreement, reliability, stats, checks, review, blinding,
+                              #   harm_ontology, intake, selection, subject, workspace,
+                              #   pipeline (generate/score/analyze), adjudicate, report, cli
+  targets/                    # synthetic battery + deliberately-defective mock subject (§12)
+  tests_unit/                 # 33 stdlib unittest self-tests
+  out/                        # run workspaces / evidence packages (git-ignored)
+```
+
+## Scope & honesty
+Two families are implemented end-to-end; the rest are reported **REQUIRED-BUT-NOT-RUN**
+with a concrete blocker, never silently dropped (§4, §13). Validity labels are
+automated at L1 (disclosed). The automated label is a high-sensitivity /
+low-specificity screen (§7) — the demo's adjudication reproduces this: the strict
+judge scores sensitivity 1.0 / specificity ~0.0 against the mock clinicians. See
+`out/<run>/limitations.md` — restated every run. Requires Python 3.9+, `numpy`,
+`pandas`, `pyyaml`; real judges/subjects call HTTP APIs via stdlib `urllib` (no SDKs
+required). No network for the demo. Not done by design: pointing the subject at the
+live TravelDoctor EU / riktlinjer.kinvectum.com endpoints (§12 step 2).

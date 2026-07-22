@@ -1,0 +1,6 @@
+# Runtime deps for the harness. The demo/arms/adjudicate paths use ONLY these
+# plus the Python 3.9+ stdlib (no sklearn, no statsmodels, no tomllib, no vendor
+# SDKs — real judges/subjects call HTTP APIs via urllib).
+numpy>=1.24
+pandas>=2.0
+PyYAML>=6.0

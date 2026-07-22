@@ -1,0 +1,9 @@
+# Never commit API keys or run outputs.
+API_KEYS.local.md
+*.local.md
+*.local
+.env
+out/
+**/__pycache__/
+*.pyc
+.DS_Store

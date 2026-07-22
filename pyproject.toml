@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clinical-ai-eval"
+version = "0.1.0"
+description = "Reference harness for the EVAL_STANDARD.md clinical-AI evaluation protocol (text-based, patient- and clinician-facing)."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "see repository" }
+authors = [{ name = "Koyar Afrasyab, M.D.", email = "koyar@kinvectum.com" }]
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# Real judges/subjects call HTTP APIs via stdlib urllib; no SDK is required.
+# Install these only if you prefer the vendor SDKs elsewhere in your workflow.
+llm = ["openai", "anthropic", "google-genai"]
+
+[project.scripts]
+# Runs from the checkout (data files tests/ prompts/ configs/ are repo-relative;
+# set CAEVAL_HOME if the package is installed away from its data).
+clinical-ai-eval = "caeval.cli:main"
+
+[tool.setuptools]
+packages = ["caeval", "targets"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml", "*.toml", "*.txt"]

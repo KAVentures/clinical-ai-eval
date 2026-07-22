@@ -1,0 +1,78 @@
+# selection_rules.yaml  (EVAL_STANDARD.md §4)
+# Rule-based, inspectable mapping from an intake target-profile to required test
+# suites. A reviewer must be able to see *why* each suite was chosen. The engine
+# (caeval/selection.py) applies these rules verbatim; it never uses an opaque
+# single-model decision.
+#
+# Each rule: if the target's `profile.type` is in `applies_to_types` (or
+# `applies_to_types: ["*"]`), the listed suites are required, each with a
+# justification string that is copied into eval_plan.yaml.
+
+version: 0.1
+
+# Suites we can actually run today (a suite with no family under tests/ is marked
+# `implemented: false` and is recorded as REQUIRED-BUT-NOT-RUN, never silently
+# dropped — §4, §13). `blocked_reason` states the CONCRETE input a suite needs
+# that the canonical transforms (perturbations.py, §11) do not provide, so scope
+# is honest rather than aspirational.
+suites:
+  missing_information:      { implemented: true }
+  conflicting_evidence:     { implemented: true }
+  # The rest need inputs the canonical text-perturbation transforms do not supply,
+  # or a consistency-scoring mode that would be a new (non-inherited) component:
+  retrieval_failure:        { implemented: false, blocked_reason: "needs a RAG retrieval layer to fail; no corpus/retriever in scope." }
+  citation_verification:    { implemented: false, blocked_reason: "needs resolvable citations + a source corpus to check claims against." }
+  unsupported_inference:    { implemented: false, blocked_reason: "needs a consistency/label-flip scoring mode over answerable pairs (distractor/paraphrase); not the paired-underdetermined frame this build implements." }
+  rewording_robustness:     { implemented: false, blocked_reason: "same consistency-scoring mode (paraphrase_query/decontextualize_query over answerable cases)." }
+  version_regression:       { implemented: false, blocked_reason: "needs two product/corpus versions to diff." }
+  red_flag_detection:       { implemented: false, blocked_reason: "needs a patient-triage case bank with labelled red flags + red-flag-removal transforms." }
+  over_reassurance:         { implemented: false, blocked_reason: "needs patient-triage cases; partially covered by missing_information under the patient audience bar." }
+  omission:                 { implemented: false, blocked_reason: "scribe family: needs source transcripts + a scribe subject." }
+  fabrication:              { implemented: false, blocked_reason: "scribe family: needs source transcripts to detect invented content." }
+
+rules:
+  - id: clinician_rag_core
+    applies_to_types: [clinician_rag]
+    require:
+      - suite: missing_information
+        because: "RAG answers hinge on retrieved context; removing load-bearing evidence tests whether the system notices the gap instead of synthesizing confidently."
+      - suite: conflicting_evidence
+        because: "Retrieved passages can disagree; the system must surface the conflict, not silently pick one."
+      - suite: retrieval_failure
+        because: "When retrieval returns nothing relevant, the system must abstain rather than hallucinate a grounded-sounding answer."
+      - suite: citation_verification
+        because: "A clinician-facing RAG tool's core promise is verifiable citations; each must resolve and support the claim."
+      - suite: unsupported_inference
+        because: "Synthesis beyond the retrieved evidence is the characteristic RAG failure."
+      - suite: rewording_robustness
+        because: "The same clinical question reworded must not change the safety of the answer."
+      - suite: version_regression
+        because: "Corpus/guideline updates can silently regress previously-correct answers."
+
+  - id: clinician_decision_support_core
+    applies_to_types: [clinician_decision_support, medication_assistant]
+    require:
+      - suite: missing_information
+        because: "Decision support acts on a clinical picture; when a decision-relevant field is removed it must not over-commit (this is the family the harness is validated on first, §12)."
+      - suite: conflicting_evidence
+        because: "Contradictory findings must be reconciled, not ignored."
+      - suite: unsupported_inference
+        because: "Over-commitment to a management plan the data do not support is the primary decision-support harm."
+
+  - id: patient_triage_core
+    applies_to_types: [patient_triage_chatbot]
+    require:
+      - suite: red_flag_detection
+        because: "The dominant patient-facing harm is missing a red flag that requires urgent escalation."
+      - suite: over_reassurance
+        because: "Reassuring in a way that could delay care when a red flag cannot be excluded is high-severity for patients."
+      - suite: missing_information
+        because: "Thin patient histories must trigger safety-netting/escalation, not definitive self-management advice (patient failure bar, §6)."
+
+  - id: medical_scribe_core
+    applies_to_types: [medical_scribe]
+    require:
+      - suite: omission
+        because: "A scribe that drops a decision-relevant utterance is unsafe."
+      - suite: fabrication
+        because: "Inventing content not said is the characteristic scribe harm."
