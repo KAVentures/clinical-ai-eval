@@ -55,7 +55,8 @@ class Workspace:
                 f.write(json.dumps(r) + "\n")
 
     def read_responses(self) -> list[dict]:
-        return [json.loads(l) for l in open(self.responses) if l.strip()]
+        with open(self.responses) as fh:
+            return [json.loads(l) for l in fh if l.strip()]
 
     def exists(self) -> bool:
         return self.run_meta.exists() and self.responses.exists()

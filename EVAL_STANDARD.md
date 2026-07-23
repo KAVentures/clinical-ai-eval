@@ -1,6 +1,13 @@
 **Clinical AI Evaluation Protocol and Agent-Executable Test Harness**
 Scope of this version: **text-based** clinical AI systems, both **patient-facing** and **clinician-facing**.
 Author / maintainer: Koyar Afrasyab, M.D. — Kinvectum AB
+
+> **STATUS: candidate specification / pre-standard (v0.1).** This is NOT a ratified
+> standard and has not undergone external, multi-stakeholder development or independent
+> clinical validation. The word "standard" in the filename is aspirational. The current
+> reference implementation implements two families (missing-information,
+> conflicting-evidence) for clinician-facing text systems; see `CORRECTIONS.md`.
+
 Status: reference specification (v0.1). This is the single source of truth. Coding agents (Claude Code, Codex, etc.) build and execute against *this file plus the machine-readable definitions it points to* — not against the four upstream research repos directly. Those repos are provenance, not build inputs.
 
 ---

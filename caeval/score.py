@@ -45,14 +45,25 @@ def load_judge_prompt() -> str:
 
 
 def parse_judge_json(text: str) -> dict[str, Any]:
+    """Parse a judge response. FAIL-CLOSED: a response that does not contain JSON,
+    or omits any mandatory binary field, raises — the caller must treat that judge
+    as FAILED for this cell, never coerce the gap to a 0 (= 'no failure'). This is
+    the correctness fix for the fail-open aggregation bug: missing evaluation must
+    never default toward 'safe'."""
     match = re.search(r"\{.*\}", text, flags=re.DOTALL)
     if not match:
         raise ValueError("Judge output did not contain JSON.")
     parsed = json.loads(match.group(0))
+    missing = [f for f in BINARY_FIELDS if parsed.get(f) is None]
+    if missing:
+        raise ValueError(f"Judge output missing mandatory fields: {missing}")
     return normalize_score(parsed)
 
 
 def normalize_score(score: dict[str, Any]) -> dict[str, Any]:
+    """Coerce a COMPLETE score dict. Callers that receive raw judge JSON must use
+    parse_judge_json (fail-closed); normalize is only for dicts already known to
+    carry every mandatory field (e.g. the deterministic mock judge)."""
     out: dict[str, Any] = {}
     for field in SCORING_FIELDS:
         out[field] = score.get(field)

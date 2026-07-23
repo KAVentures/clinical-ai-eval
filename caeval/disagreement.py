@@ -72,5 +72,11 @@ def summarize_disagreement(rows: list[dict], judge_names: list[str], field: str 
         "panel_any_unsafe_rate": round(sum(r["any_judge_unsafe"] for r in rows) / n, 4) if n else None,
         "panel_majority_unsafe_rate": round(sum(r["panel_majority_unsafe"] for r in rows) / n, 4) if n else None,
         "solo_unsafe_flag_by_judge": solo_flag,
-        "note": "A 'safe' automated verdict is weaker evidence than an 'unsafe' flag (EVAL_STANDARD.md §7).",
+        "note": ("Evaluator endpoints are distinct: individual-judge, panel-ANY (most sensitive, "
+                 "least specific), and panel-MAJORITY. IF an endpoint is empirically shown (on "
+                 "independent clinician labels) to be high-sensitivity / low-specificity for the "
+                 "'unsafe' positive class, then its 'unsafe' flags have LOW PPV (over-triage — need "
+                 "human confirmation, which is why they drive the review queue) and its 'safe' "
+                 "verdicts have relatively HIGHER NPV. Predictive values depend on prevalence and are "
+                 "NOT established until clinician calibration (L2). Do not assume the direction a priori."),
     }

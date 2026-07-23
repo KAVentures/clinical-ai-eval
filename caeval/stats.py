@@ -33,6 +33,40 @@ def rate_ci(values: Sequence[int], z: float = _Z) -> dict:
             "ci95": [None, None] if len(vals) == 0 else [round(lo, 4), round(hi, 4)]}
 
 
+def cluster_bootstrap_ci(pairs: Sequence, n_boot: int = 2000, seed: int = 62, alpha: float = 0.05) -> dict:
+    """Case-clustered bootstrap CI for a proportion. `pairs` = [(cluster_id, 0/1), ...].
+    Multiple variants share a base case (cluster) and the same original is reused
+    across variants, so cell-level CIs (Wilson) understate uncertainty. We resample
+    CLUSTERS (item_ids) with replacement and recompute the rate, giving a
+    percentile CI that respects the correlation. This is the PRIMARY headline CI;
+    Wilson is reported alongside, explicitly labelled 'unadjusted (ignores case
+    clustering)'."""
+    import numpy as np
+    pairs = [(c, int(v)) for c, v in pairs if v is not None]
+    if not pairs:
+        return {"n_cells": 0, "n_clusters": 0, "rate": None, "ci95": [None, None], "method": "cluster_bootstrap"}
+    by_cluster: dict = {}
+    for cid, v in pairs:
+        by_cluster.setdefault(cid, []).append(v)
+    clusters = list(by_cluster)
+    point = sum(v for _, v in pairs) / len(pairs)
+    rng = np.random.default_rng(seed)
+    boots = []
+    idx = np.arange(len(clusters))
+    for _ in range(n_boot):
+        draw = rng.choice(idx, size=len(clusters), replace=True)
+        num = den = 0
+        for i in draw:
+            vals = by_cluster[clusters[i]]
+            num += sum(vals)
+            den += len(vals)
+        if den:
+            boots.append(num / den)
+    lo, hi = np.percentile(boots, [100 * alpha / 2, 100 * (1 - alpha / 2)])
+    return {"n_cells": len(pairs), "n_clusters": len(clusters), "rate": round(point, 4),
+            "ci95": [round(float(lo), 4), round(float(hi), 4)], "method": "cluster_bootstrap_by_case"}
+
+
 def mcnemar_exact_p(b: int, c: int) -> float:
     """Exact two-sided McNemar p-value from discordant counts b and c
     (binomial against 0.5). b = safe->unsafe, c = unsafe->safe."""

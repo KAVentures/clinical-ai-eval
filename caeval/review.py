@@ -91,25 +91,23 @@ def select_for_review(cells: list[dict], validity: dict, high_severity_fields: l
 def write_blinded_csv(selected: list[dict], path: str) -> int:
     """Write the blinded review packet. Reviewer sees case + perturbation + answer
     only (blinding.blinded_review_row strips model/arm/judge-label columns)."""
+    header = ["review_id", "cell_id", "case_as_shown_to_product", "product_response",
+              "human_verdict_safe_unsafe", "human_notes"]
     if not selected:
         # still write a header-only file so the evidence package is complete
         with open(path, "w", newline="") as f:
-            csv.writer(f).writerow(["review_id", "cell_id", "input_text", "perturbation_type",
-                                    "expected_missing_evidence", "response_text",
-                                    "human_verdict_safe_unsafe", "human_notes"])
+            csv.writer(f).writerow(header)
         return 0
     rows = []
     for i, cell in enumerate(selected):
-        b = blinded_review_row(cell)
+        b = blinded_review_row(cell)   # strips model/arm/judge labels AND the perturbation cues
         rows.append({
             "review_id": f"R{i:04d}",
-            "cell_id": cell["cell_id"],                       # opaque id; not a provenance leak
-            "input_text": b.get("input_text", ""),
-            "perturbation_type": b.get("perturbation_type", ""),
-            "expected_missing_evidence": b.get("expected_missing_evidence", ""),
-            "response_text": b.get("response_text", ""),
+            "cell_id": cell["cell_id"],                       # opaque join id; not shown as a cue
+            "case_as_shown_to_product": b.get("input_text", ""),   # reviewer sees ONLY the (perturbed) case + question
+            "product_response": b.get("response_text", ""),
             "human_verdict_safe_unsafe": "",                  # reviewer fills: safe | unsafe | cannot_judge
-            "human_notes": "",
+            "human_notes": "",                                # reviewer states, unprompted, what (if anything) is missing
         })
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))

@@ -1,15 +1,31 @@
-# clinical-ai-eval — reference harness for EVAL_STANDARD.md
+# clinical-ai-eval — reference harness for the EVAL_STANDARD.md protocol
 
-A runnable, offline reference implementation of the **Clinical AI Evaluation
-Protocol** (`EVAL_STANDARD.md`, v0.1) for **text-based** clinical AI, patient- and
-clinician-facing. It turns the four upstream research repos' published methods into
-a reproducible process an agent can execute: intake → suite selection → controlled
-perturbations → **validity audit** → **paired** scoring → **multi-judge** panel →
-disagreement → **blinded human-review queue** → evidence package.
+A runnable, offline reference implementation of a **candidate protocol** (not a
+validated standard) for perturbation-robustness screening of **text-based,
+clinician-facing** clinical decision-support systems. Two probe families are
+implemented — **missing-information** and **conflicting-evidence**. It turns the
+upstream research repos' published methods into a reproducible process: intake →
+suite selection → controlled perturbations → **structural validity pre-filter** →
+**paired** scoring → **fail-closed multi-judge** panel → disagreement → **blinded
+human-review + validity queues** → evidence package → L2 adjudication.
 
 The primary output is a **screen plus an evidence package, never a
 deployment-readiness verdict** (§0). Every report says so in its first paragraph and
 declares its conformance level.
+
+## ⚠️ Scientific status (read first)
+This is an **alpha protocol + reference implementation**, not a validated safety
+harness. Current scientific validity is low and deliberately disclosed:
+- The offline demo uses **mock judges + a constructed mock subject**; its numbers
+  are **software fixtures** that show the pipeline wiring, **not** evidence the
+  harness detects clinical safety (the self-validation is circular by construction).
+- The automated validity audit is a **structural pre-filter**, not clinical
+  validation; clinical load-bearingness/determinacy are confirmed only by clinicians.
+- No real-judge L1 or real-clinician L2 run has been done. Do **not** describe this
+  publicly as a standard, a validated harness, or an L2 framework, and do **not**
+  publish results from the current version without the corrections in
+  [`CORRECTIONS.md`](CORRECTIONS.md) and independent clinician validation.
+See [`CORRECTIONS.md`](CORRECTIONS.md) for the v0.2 fixes made after an internal review.
 
 ## What makes this conformant (the two non-negotiables, §0)
 1. **Safety and helpfulness are scored separately and never collapsed.** The report
@@ -45,10 +61,13 @@ regenerating them — the cost-saving path (§7). `adjudicate` ingests filled
 `human_review.csv` files, computes inter-rater agreement and judge-vs-human
 sensitivity/specificity/PPV, and upgrades the run to **L2** within audited scope.
 
-### The self-validation result (§12 steps 4–6)
-`arms` runs the same battery against three versions of the subject and shows the
-harness (4) detects the injected defect, (5) recognizes a genuine repair, and (6)
-does **not** reward abstention:
+### The self-validation result (§12 steps 4–6) — SOFTWARE FIXTURE, not a finding
+`arms` runs the same battery against three versions of the subject. Because the mock
+judges, the mock subject, and the assertions were authored together, this
+demonstrates only that the **pipeline wiring** represents three outcomes (unsafe
+commitment / genuine repair / safety-by-refusal) — it is **not** evidence the harness
+detects clinical safety. Non-circular validation needs clinician-specified defects
+and blinded evaluators (see [`CORRECTIONS.md`](CORRECTIONS.md)).
 
 | arm | unsafe_overconfident | harmful_tx | identifies_missing | excessive_abstention (variants) | (originals) |
 |---|---|---|---|---|---|

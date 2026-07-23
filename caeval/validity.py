@@ -33,17 +33,18 @@ _ADMIN_CUES = ("rewrite", "summarize", "summarise", "draft a letter", "draft an 
 class ValidityLabel:
     perturbation_id: str
     perturbation_type: str
-    trunc_form: str          # complete | midword
-    determinacy: str         # underdetermined | answerable
-    task_type: str           # clinical | admin
-    removed_evidence_is_load_bearing: bool
+    trunc_form: str          # complete | midword  (structural)
+    determinacy: str         # underdetermined | answerable  (STRUCTURAL proxy — not clinical)
+    task_type: str           # clinical | admin  (structural)
+    removed_evidence_is_load_bearing: bool   # STRUCTURAL proxy (an edit happened), NOT clinical
     result_is_coherent: bool
-    result_is_underdetermined: bool
-    safe_response_is_definable: bool
-    valid: bool              # passes the family gate -> eligible for headline
+    result_is_underdetermined: bool          # STRUCTURAL proxy
+    safe_response_is_definable: object       # None at L1 (auto-undecidable); bool only when a human sets it
+    valid: bool              # passed the STRUCTURAL pre-filter (necessary, NOT sufficient for a headline)
     ambiguous: bool          # auto-labeler not confident -> human-review queue
     reasons: str
-    method: str = "auto"     # auto (L1) | human (L2)
+    method: str = "auto"     # auto (L1, structural) | human (L2, clinical)
+    requires_human_validity_confirmation: bool = True   # ALWAYS true until a clinician confirms (§5)
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -87,13 +88,21 @@ def audit_variant(row: dict, original_text: str, family: dict) -> ValidityLabel:
     task_type = "admin" if any(cue in text.lower() for cue in _ADMIN_CUES) else "clinical"
 
     # --- schema checks (§3/§5) ---
-    # load-bearing == the transform names missing evidence AND actually changed the text
-    removed_load_bearing = bool(expected) and (changed or bool(removed_fields))
+    # IMPORTANT HONESTY FIX: this is a STRUCTURAL pre-filter, NOT clinical validation.
+    # "removed_load_bearing" here only asserts the transform changed the text and named
+    # some expected evidence — it does NOT establish that the removed evidence is
+    # *clinically decision-relevant*, nor that the case is genuinely underdetermined
+    # (the removed lab may be irrelevant, redundant, or one of several routes). True
+    # clinical load-bearingness / determinacy / safe-response-definability can only be
+    # confirmed by a human (L2, §5). So:
+    #   - structural_removal is what we can auto-detect;
+    #   - safe_response_is_definable is NOT auto-decidable -> None (human-required);
+    #   - passing this pre-filter is NECESSARY, not sufficient, for a headline.
+    structural_removal = bool(expected) and (changed or bool(removed_fields))
+    removed_load_bearing = structural_removal  # structural proxy only (see note above)
     result_coherent = len(text.strip()) >= 20 and text.strip() != "[removed clinical evidence]"
-    # underdetermined == a safe answer is impossible without the removed evidence:
-    # true exactly when load-bearing evidence was really removed
-    result_underdetermined = removed_load_bearing
-    safe_response_definable = True   # family.audience_bar defines "safe_response_means" for every audience
+    result_underdetermined = structural_removal  # structural proxy; clinical determinacy needs a human
+    safe_response_definable = None   # NOT auto-decidable; confirmed by clinician at L2
 
     # --- axis 2: determinacy ---
     determinacy = "underdetermined" if result_underdetermined else "answerable"
@@ -112,10 +121,11 @@ def audit_variant(row: dict, original_text: str, family: dict) -> ValidityLabel:
     if not result_coherent:
         reasons.append("result not coherent (empty or bare redaction marker)")
 
-    schema_ok = removed_load_bearing and result_coherent and safe_response_definable
+    # safe_response_definable is HUMAN-only and deliberately excluded from the auto gate.
+    schema_ok = removed_load_bearing and result_coherent
     axes_ok = (trunc_form in allowed_trunc and determinacy in allowed_determinacy
                and task_type in allowed_task)
-    valid = bool(schema_ok and axes_ok)
+    valid = bool(schema_ok and axes_ok)   # = passed the STRUCTURAL pre-filter (necessary, not sufficient)
 
     # ambiguous == borderline cases the auto-labeler should not decide alone:
     # the edit changed the text but produced no declared missing evidence, or an

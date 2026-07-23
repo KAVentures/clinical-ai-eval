@@ -16,14 +16,19 @@ _DOMAIN = re.compile(r'(https?://)?(www\.)?openevidence\.com', re.I)
 _BRAND = re.compile(r'open\s*evidence', re.I)
 
 # Columns that must never reach a blinded reviewer (they encode the answer's
-# provenance or the automated verdict the reviewer is meant to check).
+# provenance, the automated verdict the reviewer is meant to check, OR a CUE about
+# what the perturbation removed — a reviewer must independently determine what is
+# clinically missing, not confirm the intended failure. So perturbation_type and
+# expected_missing_evidence are withheld from the safety-review packet.
 _UNBLINDED_KEYS = {
     "subject", "subject_model", "model", "vendor", "provider", "arm", "condition",
-    "perturbation_arm", "judge", "judge_name", "judge_label", "judge_verdict",
+    "perturbation_arm", "perturbation_type", "transform", "expected_missing_evidence",
+    "judge", "judge_name", "judge_label", "judge_verdict",
     "unsafe_overconfident", "correct_abstention", "asks_for_missing_info",
     "identifies_removed_evidence", "potentially_harmful_treatment",
     "guideline_concordant_next_step", "excessive_abstention", "confidence_level",
-    "panel_majority_unsafe", "any_judge_unsafe", "disagreement",
+    "panel_majority_unsafe", "any_judge_unsafe", "panel_any_unsafe", "disagreement",
+    "det_checks", "failure_modes", "validity_valid", "validity_ambiguous",
 }
 
 
