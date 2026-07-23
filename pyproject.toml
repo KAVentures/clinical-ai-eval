@@ -8,8 +8,9 @@ version = "0.1.0"
 description = "Reference harness for the EVAL_STANDARD.md clinical-AI evaluation protocol (text-based, patient- and clinician-facing)."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "see repository" }
+license = { text = "Apache-2.0" }
 authors = [{ name = "Koyar Afrasyab, M.D.", email = "koyar@kinvectum.com" }]
+classifiers = ["License :: OSI Approved :: Apache Software License"]
 dependencies = [
     "numpy>=1.24",
     "pandas>=2.0",
