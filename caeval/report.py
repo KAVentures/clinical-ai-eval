@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 
 from . import __version__, score as score_mod
+from .version import EVAL_STANDARD_VERSION, SCOPE
 from .review import select_for_review, write_blinded_csv
 from .util import repo_root, stable_hash_text, utc_now_iso
 
@@ -142,7 +143,8 @@ def _provenance(run_result: dict, family: dict) -> dict:
     from .score import load_judge_prompt
     cells = run_result["variant_cells"]
     return {
-        "generated_at": utc_now_iso(), "harness_version": __version__, "eval_standard": "v0.1",
+        "generated_at": utc_now_iso(), "harness_version": __version__,
+        "eval_standard": f"v{EVAL_STANDARD_VERSION}", "scope": SCOPE,
         "git_commit": _git_commit(),
         "target": run_result["subject_spec"], "family_id": run_result["family_id"],
         "inference_settings": {"note": "mock adapters are deterministic (no sampling). For real "
@@ -156,6 +158,8 @@ def _provenance(run_result: dict, family: dict) -> dict:
         "judge_prompt_sha256": stable_hash_text(load_judge_prompt()),
         "scoring_fields": score_mod.SCORING_FIELDS, "review_sampling_seed": 62,
         "panel_agreement": run_result.get("panel_agreement"),
+        "claim_authority": run_result.get("claim_authority"),
+        "plan_binding": run_result.get("plan_binding"),
         "counts": {"cases": run_result["n_cases"], "variants_generated": run_result["n_variants_generated"],
                    "variants_incomplete_eval_excluded": run_result.get("n_variants_incomplete_eval", 0),
                    "variants_auto_screened": run_result["n_variants_auto_screened"],
@@ -239,6 +243,25 @@ def _final_report_md(run_result, family, n_review, selected, adjudication) -> st
           "- 'Auto-screened' means an edit occurred and passed structural checks — NOT that a clinician "
           "confirmed the case is clinically underdetermined. That confirmation happens at L2 "
           "(`validity_review.csv`).", ""]
+
+    # CLAIM AUTHORITY — the weakest of run mode / conformance / family maturity.
+    ca = run_result.get("claim_authority")
+    if ca:
+        L += [f"## Claim authority — **{ca['label']}**", "",
+              f"The effective claim is the WEAKEST of the three axes; the limiting axis here "
+              f"is **{ca['limiting_axis']}**.", "",
+              "| axis | value |", "|---|---|",
+              f"| project mode | `{ca['project_mode']}` |",
+              f"| run conformance | `{ca['run_conformance']}` |",
+              f"| family maturity | `{ca['family_maturity']}` |",
+              f"| **effective claim** | **`{ca['effective_claim']}`** |", "",
+              f"- Permitted: {', '.join(ca['permitted_claims']) or '**none**'}",
+              f"- BLOCKED: {', '.join(ca['blocked_claims'])}", ""]
+    pb = run_result.get("plan_binding")
+    if pb:
+        L += [f"_Bound to validated plan `{pb.get('plan_hash','?')[:16]}` "
+              f"(target {pb.get('target_name')} {pb.get('target_version')}, "
+              f"audience {pb.get('audience')}, family {pb.get('family_id')})._", ""]
 
     # Hazard acceptance criteria + family maturity (predeclared; §6/§9)
     try:

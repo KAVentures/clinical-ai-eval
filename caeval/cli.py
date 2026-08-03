@@ -73,12 +73,20 @@ def _panel_and_keys(panel_path=None):
     return panel, keys
 
 
-def _score_and_report(ws: Workspace, panel, keys, subject_spec, family):
+def _score_and_report(ws: Workspace, panel, keys, subject_spec, family, project=None, binding=None):
     responses = ws.read_responses()
     scored = pipeline.score_responses(responses, panel, keys)
     result = pipeline.analyze(scored, responses, family, subject_spec, panel)
+    if project is not None:
+        from . import claim as claim_mod, maturity as maturity_mod
+        authority = claim_mod.compute(project.mode,
+                                      result["panel"]["conformance_level"],
+                                      maturity_mod.family_maturity(family))
+        result["claim_authority"] = authority.as_dict()
+        result["plan_binding"] = binding or {}
     (ws.path / "analysis.json").write_text(json.dumps({k: v for k, v in result.items() if k != "_response_rows"}))
     pkg = report.build_evidence_package(result, family, str(ws.path))
+    pkg["claim_label"] = (result.get("claim_authority") or {}).get("label", pkg["conformance_level"])
     return result, pkg
 
 
@@ -139,6 +147,13 @@ def cmd_init(args):
 
 
 def cmd_run(args):
+    # ---- PROJECT-BOUND EXECUTION (the workflow-binding fix) ----
+    # When --project is given, every dimension of the run is DERIVED from the
+    # validated project. CLI overrides are refused rather than silently honoured:
+    # planning one assessment and executing another is the defect this prevents.
+    if getattr(args, "project", None):
+        return _run_project_bound(args)
+
     family = pipeline.load_family(args.family)
     cases = _load_cases(args)
     panel, keys = _panel_and_keys(args.panel)
@@ -154,6 +169,68 @@ def cmd_run(args):
     _, pkg = _score_and_report(ws, panel, keys, subject_spec, family)
     print(f"[{subject_spec.get('arm', subject_spec.get('kind'))}] conformance: {pkg['conformance_level']} -> {pkg['final_report_md']}")
     print(f"  review queue: {pkg['n_review_selected']} cells -> {pkg['human_review_csv']}")
+
+
+OVERRIDABLE_BY_PROJECT = ("family", "subject", "cases", "panel", "arm")
+
+
+def _run_project_bound(args):
+    """Execute exactly the assessment the validated project describes."""
+    from . import claim as claim_mod
+    from . import project as project_mod
+    from .study import hash_case_set
+
+    proj = project_mod.load(args.project)
+    proj.require_valid()                       # fail closed on an incomplete intake
+
+    # Refuse overrides: they would decouple execution from the validated plan.
+    supplied = [f for f in OVERRIDABLE_BY_PROJECT
+                if getattr(args, f, None) not in (None, "flawed", "missing_information")]
+    if supplied:
+        raise SystemExit(
+            f"--project binds the run; refusing these overrides: {supplied}. "
+            f"Edit project.yaml instead — an evidence package must describe the "
+            f"assessment that was planned and validated.")
+
+    sel = selection.select_suites(proj.profiles)
+    runnable = sel["runnable_suites"]
+    if not runnable:
+        raise SystemExit(
+            f"no runnable suite for profiles {proj.profiles}: "
+            + "; ".join(f"{b['suite']}: {b['blocked_reason'][:90]}" for b in sel["required_but_not_run"]))
+
+    panel, keys = _panel_and_keys(proj.data.get("panel", {}).get("config"))
+    cases = demo_target.base_cases()          # TODO: locked case packs (next release)
+    case_pack_hash = hash_case_set(cases)
+
+    subject_spec = dict(proj.subject)
+    subject_spec.setdefault("name", proj.target_meta["name"])
+    subject_spec.setdefault("version", proj.target_meta["version"])
+    subject_spec["audience"] = claim_mod._audience_for(proj)
+
+    ws_root = Path(args.workspace) if args.workspace else (Path(proj.path) / "out")
+    results = []
+    for family_id in runnable:
+        family = pipeline.load_family(family_id)
+        binding = claim_mod.build_binding(proj, family_id, [j["name"] for j in panel["judges"]],
+                                          case_pack_hash)
+        ws = Workspace(ws_root / f"run_{family_id}").ensure()
+        (ws.path / "plan_binding.json").write_text(json.dumps(binding, indent=2))
+
+        _generate(ws, subject_spec, family, cases, panel)
+
+        # verify NOTHING drifted between planning and execution
+        actual = claim_mod.build_binding(proj, family_id, [j["name"] for j in panel["judges"]],
+                                         hash_case_set(cases))
+        claim_mod.verify_binding(binding, actual)
+
+        rr, pkg = _score_and_report(ws, panel, keys, subject_spec, family, project=proj,
+                                    binding=binding)
+        results.append((family_id, pkg))
+
+    print(f"project: {proj.name}   mode: {proj.mode}")
+    for family_id, pkg in results:
+        print(f"  [{family_id}] claim: {pkg.get('claim_label')}  -> {pkg['final_report_md']}")
 
 
 def cmd_judge(args):
@@ -434,6 +511,7 @@ def main(argv=None):
     pr.add_argument("--arm", default="flawed", choices=list(demo_target.SUBJECT_ARMS))
     pr.add_argument("--family", default="missing_information")
     pr.add_argument("--panel"); pr.add_argument("--subject"); pr.add_argument("--cases"); pr.add_argument("--workspace")
+    pr.add_argument("--project", help="bind the run to a validated project (refuses overrides)")
     pr.set_defaults(func=cmd_run)
     pj = sub.add_parser("judge"); pj.add_argument("--workspace", required=True); pj.add_argument("--panel")
     pj.set_defaults(func=cmd_judge)

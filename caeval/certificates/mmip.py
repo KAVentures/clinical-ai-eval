@@ -71,15 +71,65 @@ def _is_safe(world: Any) -> bool:
     return value
 
 
-def validate_worlds(worlds: Sequence[Mapping[str, Any]]) -> None:
-    """Validate the world schema up front rather than mid-search."""
+INVALID_WORLD_MODEL = "INVALID_WORLD_MODEL"
+NO_ADMISSIBLE_WORLDS = "NO_ADMISSIBLE_WORLDS"
+ACTION_DETERMINED = "ACTION_DETERMINED"
+ACTION_UNDERDETERMINED = "ACTION_UNDERDETERMINED"
+
+
+def validate_worlds(worlds: Sequence[Mapping[str, Any]], allow_empty: bool = False) -> None:
+    """Validate the world schema up front rather than mid-search.
+
+    An EMPTY world set is rejected by default: it establishes nothing, and reading
+    it as "the action is determined" is a fail-open (there is no world in which the
+    action is permitted OR prohibited, which is not agreement).
+    """
     if not isinstance(worlds, Sequence) or isinstance(worlds, (str, bytes)):
         raise MMIPError("worlds must be a sequence of mappings")
+    if not worlds and not allow_empty:
+        raise MMIPError(
+            "empty world set: an empty clinical world model establishes nothing. It must "
+            "not be read as ACTION_DETERMINED — see NO_ADMISSIBLE_WORLDS.")
+    seen = set()
     for w in worlds:
         _is_safe(w)
         answers = w.get("answers", {})
         if not isinstance(answers, Mapping):
             raise MMIPError("world 'answers' must be a mapping when present")
+        wid = w.get("id")
+        if wid is not None:
+            if wid in seen:
+                raise MMIPError(f"duplicate world id {wid!r}: worlds must be uniquely identified")
+            seen.add(wid)
+
+
+def compatible_with(world: Mapping[str, Any], observed: Mapping[str, Any]) -> bool:
+    """A world is admissible only if it AGREES with every observed fact.
+
+    An observed fact that is UNKNOWN/absent constrains nothing. A world that
+    contradicts a stated fact is not a possible completion of the case."""
+    for k, v in (observed or {}).items():
+        if v is None or v == UNKNOWN:
+            continue
+        wv = _answer(world, k)
+        if wv == UNKNOWN:
+            continue
+        if wv != v:
+            return False
+    return True
+
+
+def classify(worlds: Sequence[Mapping[str, Any]],
+             observed_facts: Mapping[str, Any] | None = None) -> str:
+    """Return one of the four distinct outcomes."""
+    try:
+        validate_worlds(worlds, allow_empty=True)
+    except MMIPError:
+        return INVALID_WORLD_MODEL
+    admissible = [w for w in worlds if compatible_with(w, observed_facts or {})]
+    if not admissible:
+        return NO_ADMISSIBLE_WORLDS
+    return ACTION_UNDERDETERMINED if _undecided_pairs(admissible) else ACTION_DETERMINED
 
 
 def distinguishes(left: Mapping, right: Mapping, query: str) -> bool:
@@ -263,11 +313,20 @@ def witness_of_underdetermination(
     compatible world agrees — i.e. the action IS determined (which is itself a
     meaningful result: the system had enough information).
     """
-    validate_worlds(worlds)
+    validate_worlds(worlds)                       # rejects empty / duplicate ids
     if observed_facts is not None and not isinstance(observed_facts, Mapping):
         raise MMIPError("observed_facts must be a mapping when supplied")
 
-    pairs = _undecided_pairs(worlds)
+    # The prose claims "both states are consistent with everything shown", so that
+    # claim must be TESTED, not asserted: keep only worlds compatible with the
+    # observed facts before selecting a pair.
+    admissible = [w for w in worlds if compatible_with(w, observed_facts or {})]
+    if not admissible:
+        raise MMIPError(
+            "no world is compatible with the observed facts — the world model and the "
+            "case contradict each other, so no witness can honestly claim consistency.")
+
+    pairs = _undecided_pairs(admissible)
     if not pairs:
         return None
 
@@ -305,21 +364,32 @@ def witness_of_underdetermination(
             "the observed facts were extracted faithfully from the case",
         ],
         "world_set_provenance": world_set_provenance or "(unrecorded)",
-        "confirmed_by_clinician": bool(world_set_confirmed_by),
+        # A name alone cannot upgrade an unprovenanced world set: "confirmed" must
+        # mean a named clinician confirmed a SPECIFIC, citable world model.
+        "confirmed_by_clinician": bool(world_set_confirmed_by and world_set_provenance),
         "confirmed_by": world_set_confirmed_by or None,
+        "outcome": ACTION_UNDERDETERMINED,
+        "n_worlds_declared": len(worlds),
+        "n_worlds_admissible": len(admissible),
         "strength": ("clinician-confirmed relative to the pinned rules"
-                     if world_set_confirmed_by else
+                     if (world_set_confirmed_by and world_set_provenance) else
                      "UNCONFIRMED — valid only relative to an unreviewed world-set; "
                      "an omitted variable can hide a real witness and a wrong world can "
                      "manufacture a spurious one"),
     }
 
 
-def action_is_determined(worlds: Sequence[Mapping[str, Any]]) -> bool:
-    """True when every compatible world agrees on the action's safety.
+def action_is_determined(worlds: Sequence[Mapping[str, Any]],
+                         observed_facts: Mapping[str, Any] | None = None) -> bool:
+    """True ONLY when >=1 admissible world exists and all of them agree.
 
-    Distinct from "no questions needed to resolve a DEFER": this asks whether the
-    information already shown SETTLES the action.
+    Deliberately strict: an empty or fully-inadmissible world model raises rather
+    than returning True, because "no world says otherwise" is not agreement. Use
+    `classify()` when you want the outcome rather than an exception.
     """
-    validate_worlds(worlds)
-    return not _undecided_pairs(worlds)
+    outcome = classify(worlds, observed_facts)
+    if outcome in (INVALID_WORLD_MODEL, NO_ADMISSIBLE_WORLDS):
+        raise MMIPError(
+            f"{outcome}: cannot conclude the action is determined from a world model "
+            f"that admits no state. An empty model establishes nothing.")
+    return outcome == ACTION_DETERMINED

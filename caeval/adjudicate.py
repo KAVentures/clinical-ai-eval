@@ -4,8 +4,10 @@ blinded human_review.csv files, joins them to the run's automated labels
 
   * inter-rater agreement across reviewers (Cohen κ / Krippendorff α);
   * judge-vs-human sensitivity / specificity / PPV / NPV, per judge and for the
-    panel — the standing expectation (§7) is that the automated label is a
-    high-sensitivity / low-specificity screen (over-flags unsafe vs clinicians);
+    panel. NO DIRECTION IS ASSUMED: the "high-sensitivity / low-specificity"
+    expectation was RETRACTED in v0.3 (CORRECTIONS.md) — with a blinded judge the
+    measured specificity was 1.0 and the over-flagging belonged to the CUED
+    evaluator. The operating point is measured here, never predicted;
   * whether the mandatory triage queue is completed -> conformance upgrade to L2
     within audited scope.
 
@@ -177,8 +179,10 @@ def _summary_md(level, level_note, completion, inter, vs_human, judge_names, n_u
         c = vs_human[j]
         L.append(f"    - `{j}`: sensitivity {c['sensitivity']}, specificity {c['specificity']}, "
                  f"PPV {c['ppv']}, NPV {c['npv']} (n={c['n']}, tp{c['tp']}/fp{c['fp']}/tn{c['tn']}/fn{c['fn']})")
-    L.append("- Reading: a high-sensitivity / low-specificity judge (catches human-unsafe but over-flags) "
-             "confirms the §7 expectation — the automated 'unsafe' flag over-triages relative to clinicians.")
+    L.append("- Reading: these are MEASURED operating points for this panel on this sample. No "
+             "direction was predicted — the earlier 'high-sensitivity / low-specificity' expectation "
+             "was retracted in v0.3. Interpret sensitivity/specificity together with the base rate; "
+             "PPV and NPV depend on prevalence and do not transfer to another case mix.")
     return "\n".join(L)
 
 

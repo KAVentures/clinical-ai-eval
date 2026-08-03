@@ -1,5 +1,7 @@
 """caeval — reference implementation of the EVAL_STANDARD.md clinical-AI
-evaluation protocol (text-based, patient- and clinician-facing).
+evaluation protocol. Scope of THIS build: text-based, CLINICIAN-facing decision
+support. Patient-facing evaluation is declared but NOT implemented and fails
+closed (see tests/patient_red_flag/family.yaml).
 
 The primary output is a SCREEN plus an EVIDENCE PACKAGE, never a
 deployment-readiness verdict (EVAL_STANDARD.md §0). Every module names the ONE
@@ -17,5 +19,5 @@ Provenance (see EVAL_STANDARD.md §11):
   failure-mode taxonomy      -> Gu et al., Nature Medicine (health-ai-readiness) Table 1 harm ontology
 """
 
-__version__ = "0.1.0"
+from .version import __version__, EVAL_STANDARD_VERSION, SCOPE  # noqa: F401
 CONFORMANCE_LEVELS = ("L0", "L1", "L2")

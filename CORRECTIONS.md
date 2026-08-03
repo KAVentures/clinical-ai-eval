@@ -1,5 +1,67 @@
 # Corrections log
 
+## v0.9 — workflow binding, claim authority, witness hardening (2026-08)
+
+External review: *"the individual components are becoming rigorous, but the
+end-to-end workflow does not yet enforce that the thing planned, executed,
+reviewed and reported is the same assessment."* Correct, and the central risk.
+
+### The workflow-binding defect (P0)
+`plan`/`inspect` consumed `--project`, but **`run` did not**. It independently took
+`--family` / `--subject` / `--cases` / `--panel` and defaulted to the mock subject
+and demo cases — so a user could validate a clinician-facing project, produce an
+appropriate plan, then execute a different family, subject, panel or case set and
+receive an evidence package **not bound to the validated plan**.
+
+`run --project` now DERIVES target identity, audience, subject connector, family
+set, case pack, panel, mode and workspace from the validated project, and
+**refuses CLI overrides** rather than silently honouring them. `caeval/claim.py`
+content-hashes the ten fields that define which assessment this is
+(`plan_fingerprint`), writes `plan_binding.json`, and re-verifies after generation.
+Divergence **BLOCKS** with a field-level diff — it is never a warning. The
+connector fingerprint excludes headers/tokens, so credentials never enter the hash
+or provenance.
+
+Audience is now derived from the intake and a run must bind exactly one; a project
+spanning clinician and patient profiles is refused, because the failure bar and
+high-severity fields differ by audience.
+
+### Claim authority is now an enforced object (P0)
+PRODUCT_V1.md promised the claim is the weakest of run mode / conformance /
+family maturity, "all enforced in code". It was not — the report never received
+the project mode. `caeval/claim.py` computes it centrally, names the **limiting
+axis**, and the object appears in the report and in `provenance.json`. Verified:
+`demonstration + L2 + validated` → `demonstration`, permitting nothing; an
+`experimental` family never permits a clinical finding at any mode or level.
+
+### Witness hardening (P0)
+Two semantic fail-opens in v0.8:
+- `action_is_determined([])` returned **True**. An empty world model establishes
+  nothing, and "no world says otherwise" is not agreement. There are now four
+  distinct outcomes — `INVALID_WORLD_MODEL`, `NO_ADMISSIBLE_WORLDS`,
+  `ACTION_DETERMINED`, `ACTION_UNDERDETERMINED` — and the empty case can never
+  read as determined.
+- The prose claimed *"both states are consistent with everything shown"* without
+  testing it. Worlds are now filtered for compatibility with `observed_facts`
+  before a pair is selected; an incompatible world model raises rather than
+  emitting a witness that asserts a consistency it never checked.
+- Duplicate world ids are rejected, and a bare `world_set_confirmed_by` name can no
+  longer upgrade an **unprovenanced** world set to "clinician-confirmed" —
+  confirmation now requires a citable world-set provenance too.
+
+### Retracted claim removed from the adjudication module
+`adjudicate.py` still asserted in its docstring and generated summary that a
+high-sensitivity/low-specificity pattern *"confirms the §7 expectation"*. That was
+retracted in v0.3. Both replaced with measured-not-predicted wording, plus a note
+that PPV/NPV depend on prevalence and do not transfer to another case mix.
+
+### Version drift
+Single source `caeval/version.py` (**0.9.0**, eval_standard v0.6, scope string).
+`pyproject.toml` reads it dynamically; provenance emits it instead of a hardcoded
+`v0.1`; `caeval.__init__` no longer claims patient-facing scope.
+
+169 tests pass.
+
 ## v0.8 — witness of underdetermination (2026-08)
 
 From an external proposal correctly observing that the certifiability layer is the

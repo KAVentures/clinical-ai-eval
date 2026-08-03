@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clinical-ai-eval"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Reference harness for a candidate clinical-AI assurance protocol: perturbation-robustness screening (missing-information, conflicting-evidence) for text-based, CLINICIAN-facing decision support. Not a validated standard; patient-facing evaluation is not implemented."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -26,6 +26,9 @@ llm = ["openai", "anthropic", "google-genai"]
 # Runs from the checkout (data files tests/ prompts/ configs/ are repo-relative;
 # set CAEVAL_HOME if the package is installed away from its data).
 clinical-ai-eval = "caeval.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "caeval.version.__version__"}
 
 [tool.setuptools.packages.find]
 # find-based discovery so SUBPACKAGES (caeval.certificates) are included. The
