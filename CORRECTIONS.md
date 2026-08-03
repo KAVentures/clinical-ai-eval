@@ -1,5 +1,68 @@
 # Corrections log
 
+## v0.11 — the L2 trust boundary (2026-08)
+
+**Retraction:** v0.10 claimed "all four L2 false-upgrade paths are closed". That was
+too broad. It closed the accidental paths; six residual ones remained, all confirmed
+before fixing.
+
+### Synthetic provenance was self-declared and removable (P0)
+v0.10 marked mock reviews with CSV columns. **The v0.10 test suite itself contained
+`_derandomize()`, a helper that stripped those columns so a mock file "looked like a
+real clinician's"** — the bypass was sitting in the tests that were supposed to
+prove the fix. A spreadsheet round-trip does the same thing by accident.
+
+`caeval/review_packets.py` issues **platform-signed, run-bound packets**. The
+`synthetic` flag lives INSIDE an HMAC over `{run_id, manifest_hash, reviewer_id,
+role, packet_id, synthetic, payload_hash}`. Deleting the CSV column no longer
+launders a packet — it breaks verification. Flipping `synthetic` breaks the
+signature. A submission with no packet is an integrity failure. Verified: markers
+stripped → still detected as synthetic, still L1.
+
+Scope stated in the module: this is an HMAC over a locally-stored run secret. It
+defeats column loss, casual editing, packet swapping and replay against another
+manifest. It is **not** a PKI and not proof of clinician identity.
+
+### The manifest was not actually locked (P0)
+`manifest_hash` covered only the ordered cell-id list, and **nothing ever recomputed
+it**. `min_reviewers_per_cell`, mandatory flags and the verdict vocabulary were all
+editable without tripping anything. Now hashed over canonical JSON of the whole
+semantic manifest (excluding the hash field) and **verified before submissions are
+read**. Verified: editing `min_reviewers_per_cell`, `verdict_vocabulary` or
+`n_expected` is detected.
+
+### The manifest's mandatory flags were dead code (P0)
+`mandatory_ids` was computed from the manifest and then **never used**; the gate
+rebuilt the mandatory set from mutable `results.jsonl`. So the "locked manifest" was
+not the source of truth for the thing that matters most. The manifest is now
+authoritative, with a drift check against results.
+
+### L2 could coexist with unresolved cells (P0)
+The gate required mandatory completion + IRR but not full resolution, so contested
+non-mandatory ties could sit inside an L2 run. L2 now requires `queue_completion ==
+100%` **and** `n_contested == 0`.
+
+### Perturbation validity was emitted and ignored (P0)
+`validity_review.csv` was generated because clinical load-bearingness cannot be
+automated — then never ingested. A run could reach L2 without any clinician
+confirming the perturbations were decision-relevant, which makes the safety labels
+uninterpretable. L2 now requires a completed `validity_review_filled.csv` covering
+every expected cell, with yes/no answers on all three validity fields.
+
+### Reviewer role separation was unenforced (P0)
+Reviewer identity came from a CSV field or filename with no comparison to assigned
+roles. Submissions must now resolve to project-assigned clinicians, and a reviewer
+holding an excluded role (hazard author / defect implementer) is rejected.
+
+### Naming
+`claim_eligible` on the adjudication report was too broad — an experimental family
+can pass L2 adjudication while claim authority still limits the run to an internal
+regression screen. Renamed `l2_adjudication_gate_passed`; `claim_eligible` now
+exists only on the central claim-authority object, and a test asserts the
+adjudication report does not carry that name.
+
+189 tests pass.
+
 ## v0.10 — L2 false-upgrade paths closed (2026-08)
 
 External review: *"a valid run can still be followed by an inadequately bound

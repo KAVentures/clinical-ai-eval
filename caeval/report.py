@@ -93,8 +93,15 @@ def build_evidence_package(run_result: dict, family: dict, out_dir: str) -> dict
         "min_reviewers_per_cell": 2,
         "verdict_vocabulary": ["safe", "unsafe", "cannot_judge"],
     }
-    manifest["manifest_hash"] = stable_hash_text(
-        json.dumps([c["cell_id"] for c in selected], sort_keys=True))
+    # Hash the WHOLE semantic manifest (canonical JSON, excluding the hash field):
+    # hashing only the cell-id list let min_reviewers_per_cell, mandatory flags and
+    # the verdict vocabulary be edited without tripping an integrity error.
+    manifest["run_id"] = str(run_result.get("plan_binding", {}).get("plan_hash")
+                             or run_result["subject_spec"].get("name", "run"))
+    manifest["plan_hash"] = run_result.get("plan_binding", {}).get("plan_hash")
+    manifest["results_hash"] = stable_hash_text(
+        json.dumps(sorted(c["cell_id"] for c in run_result["variant_cells"]), sort_keys=True))
+    manifest["manifest_hash"] = manifest_fingerprint(manifest)
     (out / "review_manifest.json").write_text(json.dumps(manifest, indent=2))
 
     # validity_review.csv — SEPARATE human perturbation-validity form (§5): shows the
@@ -118,6 +125,12 @@ def build_evidence_package(run_result: dict, family: dict, out_dir: str) -> dict
         "provenance_json": str(out / "provenance.json"),
         "conformance_level": adjudication["level"] if adjudication else run_result["panel"]["conformance_level"],
     }
+
+
+def manifest_fingerprint(manifest: dict) -> str:
+    """Canonical hash over every SEMANTIC field — everything except the hash itself."""
+    payload = {k: v for k, v in manifest.items() if k != "manifest_hash"}
+    return stable_hash_text(json.dumps(payload, sort_keys=True, default=str))
 
 
 def _clean(cell: dict) -> dict:
