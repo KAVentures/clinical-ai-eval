@@ -1,0 +1,63 @@
+name: CI
+
+# The repo's central promise is evidence integrity, so the claims it makes about
+# itself are enforced here, not asserted in a commit message.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run the full self-test suite
+        run: python -m unittest discover -s tests_unit -t . -p "test_*.py" -v
+
+  fixtures:
+    # Fails if any number quoted in the README has drifted from a fresh
+    # deterministic run. README rates are GENERATED, never hand-typed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Check README generated fixtures are current
+        run: python -m caeval.cli fixtures --check
+
+  smoke:
+    # The documented entry points must actually run.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Documented CLI stages
+        run: |
+          python -m caeval.cli inspect
+          python -m caeval.cli run --arm flawed --workspace out/ci
+          python -m caeval.cli run --family conflicting_evidence --arm repaired
+          python -m caeval.cli adjudicate --workspace out/ci --mock
+          python -m caeval.cli judge --workspace out/ci
+          python -m caeval.cli report --workspace out/ci

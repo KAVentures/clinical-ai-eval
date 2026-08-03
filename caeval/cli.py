@@ -220,6 +220,41 @@ def cmd_arms(args):
           "excessive on BOTH variants and originals (guard fires, §6).")
 
 
+def build_fixture_analyses() -> dict:
+    """Run every subject arm on the reference battery and return {arm: analysis}.
+    Deterministic (mock panel + mock subject), so README numbers are reproducible."""
+    from . import fixtures  # noqa: F401  (import checked here for a clear error)
+    panel, keys = _panel_and_keys()
+    family = pipeline.load_family("missing_information")
+    cases = demo_target.base_cases()
+    out = {}
+    for arm in demo_target.SUBJECT_ARMS:
+        ws = Workspace(repo_root() / "out" / f"fixture_{arm}").ensure()
+        subject_spec = {"kind": "mock", "arm": arm, "name": DEMO_TARGET_META["name"], "mock": True}
+        _generate(ws, subject_spec, family, cases, panel)
+        rr, _ = _score_and_report(ws, panel, keys, subject_spec, family)
+        out[arm] = json.loads((ws.path / "analysis.json").read_text())
+    return out
+
+
+def cmd_fixtures(args):
+    """Regenerate the README's generated block from a fresh deterministic run."""
+    from . import fixtures
+    analyses = build_fixture_analyses()
+    block = fixtures.render_readme_block(analyses)
+    readme = repo_root() / "README.md"
+    if args.check:
+        current = fixtures.extract_readme_block(readme.read_text())
+        if current is None:
+            raise SystemExit("README is missing the generated-block markers.")
+        if current.strip() != block.strip():
+            raise SystemExit("README fixture block is STALE. Run: python3 -m caeval.cli fixtures")
+        print("README fixture block is up to date.")
+        return
+    readme.write_text(fixtures.splice_readme(readme.read_text(), block))
+    print(f"wrote generated fixture block to {readme}")
+
+
 def _load_cases(args):
     if args.cases:
         return [json.loads(l) for l in open(args.cases) if l.strip()]
@@ -254,6 +289,9 @@ def main(argv=None):
     pa.add_argument("--reviewers", type=int, default=2); pa.set_defaults(func=cmd_adjudicate)
     sub.add_parser("demo").set_defaults(func=cmd_demo)
     sub.add_parser("arms").set_defaults(func=cmd_arms)
+    pf = sub.add_parser("fixtures", help="regenerate (or --check) the README's generated numbers")
+    pf.add_argument("--check", action="store_true", help="fail if the README block is stale")
+    pf.set_defaults(func=cmd_fixtures)
     args = ap.parse_args(argv)
     args.func(args)
 

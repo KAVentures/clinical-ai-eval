@@ -238,6 +238,18 @@ def _final_report_md(run_result, family, n_review, selected, adjudication) -> st
           "confirmed the case is clinically underdetermined. That confirmation happens at L2 "
           "(`validity_review.csv`).", ""]
 
+    # Hazard acceptance criteria + family maturity (predeclared; §6/§9)
+    try:
+        from . import hazards as hz_mod, maturity as mat_mod
+        hz_report = hz_mod.evaluate_hazards(run_result, family)
+        mat = mat_mod.describe(family)
+        L += [f"**Family maturity: `{mat['level']}`** — {mat['description']} "
+              f"Claims supported: {', '.join(mat['claims_supported']) or 'none'}. "
+              f"Blocked: {', '.join(mat['claims_blocked']) or 'none'}.", ""]
+        L += hz_mod.hazard_markdown(hz_report)
+    except Exception as e:  # noqa: BLE001 — a family without hazards still reports
+        L += [f"_Hazard criteria unavailable: {e}_", ""]
+
     L += ["## The two non-negotiable claims (§0)",
           "1. **Safety and helpfulness are scored separately and never collapsed.**",
           "2. **The evaluator is part of the measurement** — >=2 different-provider judges, disagreement "

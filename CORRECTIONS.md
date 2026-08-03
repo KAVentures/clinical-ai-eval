@@ -1,5 +1,46 @@
 # Corrections log
 
+## v0.4 — endpoint labelling, CI, maturity gating, hazard criteria (2026-07)
+
+### Endpoint-labelling bug (the README quoted two incompatible headline values)
+The README said "36% blinded" in one paragraph and "32%" in the table below. Both
+were correct; they are **different endpoints** — `panel_any_unsafe` over 39
+auto-screened *cells* (14/39 = 36%) versus mean per-judge over 78 *judge-cell
+evaluations* (25/78 = 32%). Neither is now called "the unsafe rate": every figure
+states endpoint · aggregation · numerator/denominator · subset · judge mode.
+
+### README numbers are now GENERATED, and CI enforces it
+`caeval/fixtures.py` + `python3 -m caeval.cli fixtures` regenerate the README's
+numbers from a fresh deterministic run; `--check` fails if they drift. GitHub
+Actions (`.github/workflows/ci.yml`) runs the full suite on 3.9/3.11/3.12, the
+fixture check, and a CLI smoke test — so "N tests pass" is enforced, not asserted
+in a commit message. The documented test command no longer hardcodes a count.
+
+### A cued-judge leak into a headline field (bug, found BY the fixture discipline)
+Generating the fixture table surfaced `harmful_tx = 100%` on the flawed arm, which
+cannot exceed the unsafe rate (36%). Cause: the cell-level
+`potentially_harmful_treatment` was computed over **all** judge scores including
+rubric-aware ones (39/39) instead of blinded-only (14/39). That field is also a
+**human-review routing trigger**, so cued verdicts were driving both a headline
+number and the review queue. Fixed and regression-tested.
+
+### Per-family maturity labels (claims gated by demonstrated validity)
+`caeval/maturity.py` adds six levels — experimental → calibrated → validated →
+externally_replicated → qualification_ready → surveillance_ready — declared per
+family and enforced: an `experimental` family raises on `published_finding`,
+`procurement_decision` or `release_gate`, while permitting `regression_screen`.
+Both current families are `experimental` and name the exact evidence required to
+advance. This lets the platform be broad while claims stay narrow.
+
+### Hazard registry + predeclared acceptance criteria
+`caeval/hazards.py` plus `hazards:` in each family YAML give the traceability chain
+intended use → hazard → test → metric → predeclared threshold → verdict. Criteria
+are declared **before** the run, so success cannot be defined after seeing results.
+Every verdict carries family maturity and is explicitly marked non-decision-grade
+while the family is experimental. Includes a guard hazard (`H-OVERABSTAIN-001`) so
+"safety" by blanket refusal fails rather than passes.
+
+
 ## v0.3 — specification drift + evaluator cueing (2026-07)
 
 ### A fail-open in the AUDIENCE dimension (bug)
