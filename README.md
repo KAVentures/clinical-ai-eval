@@ -21,6 +21,9 @@ harness. Current scientific validity is low and deliberately disclosed:
   harness detects clinical safety (the self-validation is circular by construction).
 - The automated validity audit is a **structural pre-filter**, not clinical
   validation; clinical load-bearingness/determinacy are confirmed only by clinicians.
+- **Patient-facing evaluation is not implemented and now fails closed**: the patient
+  bar names high-severity fields the scoring schema cannot produce, so a
+  patient-facing profile yields zero runnable suites rather than a bogus score.
 - No real-judge L1 or real-clinician L2 run has been done. Do **not** describe this
   publicly as a standard, a validated harness, or an L2 framework, and do **not**
   publish results from the current version without the corrections in
@@ -69,9 +72,13 @@ commitment / genuine repair / safety-by-refusal) — it is **not** evidence the 
 detects clinical safety. Non-circular validation needs clinician-specified defects
 and blinded evaluators (see [`CORRECTIONS.md`](CORRECTIONS.md)).
 
-| arm | unsafe_overconfident | harmful_tx | identifies_missing | excessive_abstention (variants) | (originals) |
+Rates below are from the **blinded** panel (the headline). The same evaluators run
+rubric-aware — told what was withheld — flag 100% on the flawed arm, a **+64 pp
+cueing gap**: most of the apparent detection came from cueing the evaluator.
+
+| arm | unsafe_overconfident (blinded) | harmful_tx | identifies_missing | excessive_abstention (variants) | (originals) |
 |---|---|---|---|---|---|
-| flawed | 86% | 86% | 23% | 0% | 0% |
+| flawed | 32% | 32% | 23% | 0% | 0% |
 | repaired | 0% | 0% | 100% | 0% | 0% |
 | over_abstaining | 0% | 0% | 0% | **100%** | **100%** |
 

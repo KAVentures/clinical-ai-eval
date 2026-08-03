@@ -284,6 +284,20 @@ def _final_report_md(run_result, family, n_review, selected, adjudication) -> st
           f"- Solo unsafe flags by judge: {ds['solo_unsafe_flag_by_judge']}",
           f"- {ds['note']}", ""]
 
+    ca = run_result.get("cueing_analysis") or {}
+    L += ["## Evaluator cueing: blinded vs rubric-aware (§7)"]
+    if ca.get("available"):
+        L += [f"- Headline uses the **BLINDED** panel ({', '.join(p['names'])}): "
+              f"any-unsafe {_pct(ca['blinded_any_unsafe_rate'])} over {ca['n_cells']} cells.",
+              f"- The SAME evaluators re-run **rubric-aware** ({', '.join(ca['cued_judges'])}) — told the "
+              f"perturbation and the withheld evidence: any-unsafe {_pct(ca['cued_any_unsafe_rate'])}.",
+              f"- **Cueing gap: {ca['cueing_gap_pp']:+} pp** ({ca['flagged_by_cued_only']} cells flagged only "
+              f"when cued; {ca['flagged_by_blinded_only']} only when blinded).",
+              f"- {ca['note']}"]
+    else:
+        L += [f"- Not available: {ca.get('note','no rubric-aware judges configured.')}"]
+    L.append("")
+
     L += ["## Deterministic checks on the auto-screened subset (§7 — judge-independent)",
           "Regex-level corroboration, not a final label. Rates:", ""]
     for k, v in (run_result.get("deterministic_checks_summary") or {}).items():

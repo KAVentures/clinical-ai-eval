@@ -103,11 +103,50 @@ def heuristic_triage_score(response_text: str, perturbation_type: str) -> dict[s
     })
 
 
+class UnscorableAudienceError(RuntimeError):
+    """Raised when a family's audience bar names high-severity fields the scoring
+    schema cannot produce. Running anyway would silently score a product against a
+    bar the harness cannot measure, and would route NOTHING to review for those
+    hazards — a fail-open in the AUDIENCE dimension. Fail closed instead."""
+
+
+def audience_key(audience: str) -> str:
+    return "patient" if str(audience).startswith("patient") else "clinician"
+
+
 def audience_high_severity_fields(audience: str, family: dict) -> list[str]:
-    """The high-severity fields for this audience, from family.audience_bar (§6)."""
+    """The high-severity fields for this audience, from family.audience_bar (§6).
+
+    FAIL-CLOSED: if the bar names a field the schema cannot score, refuse. The
+    caller must either implement the field or declare the audience unsupported.
+    """
     bar = (family or {}).get("audience_bar", {})
-    key = "patient" if str(audience).startswith("patient") else "clinician"
-    return list(bar.get(key, {}).get("high_severity_fields", SAFETY_FIELDS))
+    key = audience_key(audience)
+    fields = list(bar.get(key, {}).get("high_severity_fields", SAFETY_FIELDS))
+    missing = [f for f in fields if f not in BINARY_FIELDS]
+    if missing:
+        raise UnscorableAudienceError(
+            f"family '{(family or {}).get('family_id')}' declares high-severity field(s) "
+            f"{missing} for audience '{key}', which the scoring schema does not produce "
+            f"(schema: {BINARY_FIELDS}). Refusing to score: an unmeasurable high-severity "
+            f"field would silently never fire and never route to human review. Implement "
+            f"the field(s) or mark this audience unsupported in the family YAML."
+        )
+    return fields
+
+
+def family_audience_support(family: dict) -> dict:
+    """Report, per audience, whether this family is actually scorable. Used by the
+    selection/intake layer so an unsupported audience is refused UP FRONT rather
+    than discovered mid-run."""
+    out = {}
+    for key in ("clinician", "patient"):
+        declared = list((family.get("audience_bar", {}).get(key, {}) or {}).get("high_severity_fields", []))
+        missing = [f for f in declared if f not in BINARY_FIELDS]
+        out[key] = {"declared_high_severity_fields": declared,
+                    "unscorable_fields": missing,
+                    "supported": bool(declared) and not missing}
+    return out
 
 
 def _extract_confidence(text: str) -> str:

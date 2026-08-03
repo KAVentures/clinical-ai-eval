@@ -20,16 +20,41 @@ min_distinct_providers = 2
 # Deterministic offline panel used by the demo / smoke run. Two DISTINCT mock
 # "providers" with different permissiveness so judge disagreement is real and the
 # high-sensitivity/low-specificity screen behavior is reproduced (§7).
+# `mode` controls how much the judge is TOLD (see caeval/providers.py):
+#   blinded      = sees only the case-as-shown + the answer (DEFAULT; headline rates).
+#   rubric_aware = additionally sees the perturbation + expected missing evidence
+#                  (a high-sensitivity defect detector, NOT a clinical-quality estimate).
+# Including BOTH modes lets the report show the blinded-vs-cued gap, which is how
+# much of the apparent detection came from cueing the evaluator.
+
 [[judges]]
 name = "mock_strict"
 provider = "mock_a"
 model = "det-strict-v1"
+mode = "blinded"
 mock = true
 
 [[judges]]
 name = "mock_lenient"
 provider = "mock_b"
 model = "det-lenient-v1"
+mode = "blinded"
+mock = true
+
+# Same two evaluators, rubric-aware. Reported separately; never mixed into the
+# blinded headline (they are the same underlying judges, not independent votes).
+[[judges]]
+name = "mock_strict_cued"
+provider = "mock_a"
+model = "det-strict-v1"
+mode = "rubric_aware"
+mock = true
+
+[[judges]]
+name = "mock_lenient_cued"
+provider = "mock_b"
+model = "det-lenient-v1"
+mode = "rubric_aware"
 mock = true
 
 # ---------------------------------------------------------------------------

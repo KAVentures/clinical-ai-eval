@@ -19,6 +19,11 @@ def load_rules(path: str | None = None) -> dict:
         return yaml.safe_load(f)
 
 
+def _load_family(suite: str) -> dict:
+    with open(repo_root() / "tests" / suite / "family.yaml") as f:
+        return yaml.safe_load(f)
+
+
 def select_suites(profiles: list[str], rules: dict | None = None) -> dict:
     """Return {required_suites: [...], not_run: [...], matched_rules: [...]}.
 
@@ -44,6 +49,30 @@ def select_suites(profiles: list[str], rules: dict | None = None) -> dict:
                     "blocked_reason": suites_meta.get(suite, {}).get("blocked_reason", ""),
                     "chosen_by_rule": rule["id"],
                 })
+
+    # AUDIENCE GATE: a suite is only runnable if the family can actually SCORE this
+    # target's audience. A family whose audience bar names unscorable high-severity
+    # fields is refused here, up front, instead of silently scoring against a bar
+    # the harness cannot measure (fail-closed in the audience dimension).
+    from .score import family_audience_support, audience_key
+    from .intake import TARGET_PROFILES
+    audiences = {audience_key(TARGET_PROFILES[p]["audience"]) for p in profiles if p in TARGET_PROFILES}
+    for meta in chosen.values():
+        if not meta["implemented"]:
+            continue
+        try:
+            fam = _load_family(meta["suite"])
+        except Exception:  # noqa: BLE001 — family file unreadable; leave as implemented
+            continue
+        support = family_audience_support(fam)
+        blocked = [a for a in audiences if not support.get(a, {}).get("supported", False)]
+        if blocked:
+            unscorable = sorted({f for a in blocked for f in support[a]["unscorable_fields"]})
+            meta["implemented"] = False
+            meta["blocked_reason"] = (
+                f"audience(s) {sorted(blocked)} not supported by family '{meta['suite']}': "
+                f"high-severity field(s) {unscorable} are not in the scoring schema. "
+                f"Refusing to score rather than measure against an unmeasurable bar.")
 
     required = [chosen[s] for s in sorted(chosen)]
     not_run = [r for r in required if not r["implemented"]]

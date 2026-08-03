@@ -135,9 +135,14 @@ class TestAdjudicationL2(unittest.TestCase):
             files = mock_adjudicate(str(ws.path), n_reviewers=2)
             rep = adjudicate(str(ws.path), files)
             strict = rep["judge_vs_human"]["mock_strict"]
-            # strict judge over-flags: catches all human-unsafe (sens 1.0), poor specificity
-            self.assertEqual(strict["sensitivity"], 1.0)
-            self.assertLess(strict["specificity"] or 0.0, 0.5)
+            # DO NOT assert a high-sensitivity/low-specificity direction. That was
+            # the retracted slogan (CORRECTIONS.md): it describes a CUED evaluator,
+            # not evaluators in general, and predictive values depend on prevalence.
+            # Assert only that the confusion matrix is computed and internally sane;
+            # the actual operating point is an EMPIRICAL question for a real L2.
+            for k in ("sensitivity", "specificity", "ppv", "npv"):
+                self.assertIn(k, strict)
+            self.assertEqual(strict["tp"] + strict["fp"] + strict["tn"] + strict["fn"], strict["n"])
             # ties are NOT counted safe; most cells resolve, some are contested
             self.assertGreaterEqual(rep["queue_completion"], 0.5)
             self.assertEqual(rep["n_reviewers"], 2)
@@ -210,6 +215,55 @@ class TestReviewDeCued(unittest.TestCase):
                                 "input_text": "case", "response_text": "answer"})
         self.assertNotIn("perturbation_type", b)
         self.assertNotIn("expected_missing_evidence", b)
+
+
+class TestSpecificationDrift(unittest.TestCase):
+    """Guards against documentation/schema drift: the executable YAML, the scoring
+    schema, and the stated scope must agree. This class exists because they once
+    did not (see CORRECTIONS.md v0.2/v0.3)."""
+
+    FAMILIES = ["missing_information", "conflicting_evidence"]
+
+    def test_no_family_declares_unscorable_field_as_supported(self):
+        from caeval.score import family_audience_support
+        for fam_id in self.FAMILIES:
+            fam = pipeline.load_family(fam_id)
+            for audience, s in family_audience_support(fam).items():
+                if s["supported"]:
+                    self.assertEqual(s["unscorable_fields"], [],
+                                     f"{fam_id}/{audience} claims supported but names unscorable fields")
+
+    def test_unsupported_audience_fails_closed(self):
+        from caeval.score import audience_high_severity_fields, UnscorableAudienceError
+        for fam_id in self.FAMILIES:
+            fam = pipeline.load_family(fam_id)
+            with self.assertRaises(UnscorableAudienceError):
+                audience_high_severity_fields("patient_triage_chatbot", fam)
+
+    def test_applies_to_profiles_only_lists_scorable_audiences(self):
+        from caeval.intake import TARGET_PROFILES
+        from caeval.score import family_audience_support, audience_key
+        for fam_id in self.FAMILIES:
+            fam = pipeline.load_family(fam_id)
+            support = family_audience_support(fam)
+            for prof in fam.get("applies_to_profiles", []):
+                aud = audience_key(TARGET_PROFILES[prof]["audience"])
+                self.assertTrue(support[aud]["supported"],
+                                f"{fam_id} lists profile {prof} whose audience {aud} is not scorable")
+
+    def test_retracted_evaluator_slogan_absent_from_yaml(self):
+        from caeval.util import repo_root
+        for fam_id in self.FAMILIES:
+            txt = (repo_root() / "tests" / fam_id / "family.yaml").read_text().lower()
+            # the retracted claim must not appear as an ASSERTION (only as a
+            # documented retraction, which mentions CORRECTIONS.md)
+            if "weaker evidence than" in txt:
+                self.assertIn("retracted", txt,
+                              f"{fam_id} still asserts the retracted safe-vs-unsafe slogan")
+
+    def test_patient_profile_yields_no_runnable_suites(self):
+        from caeval.selection import select_suites
+        self.assertEqual(select_suites(["patient_triage_chatbot"])["runnable_suites"], [])
 
 
 if __name__ == "__main__":

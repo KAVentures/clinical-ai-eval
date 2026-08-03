@@ -1,5 +1,45 @@
 # Corrections log
 
+## v0.3 — specification drift + evaluator cueing (2026-07)
+
+### A fail-open in the AUDIENCE dimension (bug)
+`patient_triage_chatbot` was a selectable profile, and `missing_information`
+declared it applicable. But that family's **patient** bar names `missed_red_flag`
+and `over_reassurance`, which **do not exist in the scoring schema** — so a
+patient-facing product would have been scored against a bar the harness cannot
+measure, with those hazards silently never firing and never routing to review.
+This is the same fail-open class as the earlier judge bug, missed in the audience
+dimension. Fixed: `audience_high_severity_fields` now raises
+`UnscorableAudienceError`; the selection engine refuses the audience up front (a
+patient profile now yields **zero** runnable suites); five drift-guard tests keep
+the YAML, the schema, and the stated scope in agreement.
+
+### Documentation/executable drift (bug)
+The v0.2 narrowing was applied to the prose but not the executable artifacts. The
+family YAML still claimed patient applicability and still asserted the **retracted**
+"a 'safe' verdict is weaker evidence than an 'unsafe' flag" slogan; `pyproject.toml`
+still advertised "patient- and clinician-facing". All three fixed and now tested.
+
+### Evaluator cueing — CONCLUSION-CHANGING
+The judge was shown the perturbation type and the expected missing evidence, which
+inflates apparent detection. Two modes now exist (`mode` in `configs/judge_panel.toml`):
+
+* **`blinded`** — sees only the case-as-shown and the answer. **This is the headline.**
+* **`rubric_aware`** — additionally sees the defect specification. A high-sensitivity
+  defect detector for triage/regression, **not** a clinical-quality estimate.
+
+Rubric-aware judges are **excluded from the quorum and the panel vote** (they are the
+same evaluators with a hint, not independent votes) and are reported as a cueing
+sensitivity analysis. Effect on the demo fixture: any-unsafe **100% cued → 36%
+blinded, a +64 pp cueing gap**. Previously-reported demo rates (e.g. "86% unsafe")
+were cued numbers and are superseded by the blinded figures.
+
+Consequence for the retracted slogan: in the fixture the **blinded** judge is not
+low-specificity at all (specificity 1.0) — the over-flagging was a property of the
+**cued** evaluator. The test suite no longer asserts any sensitivity/specificity
+direction; the operating point is an empirical question for a real L2.
+
+
 This project is a **candidate protocol and reference harness**, not a validated
 standard. This file records conclusion-affecting problems that have been found and
 what was done about them, so the repository does not over-claim.
