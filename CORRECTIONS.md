@@ -1,5 +1,57 @@
 # Corrections log
 
+## v0.10 — L2 false-upgrade paths closed (2026-08)
+
+External review: *"a valid run can still be followed by an inadequately bound
+review, adjudication or report."* Correct. Four fail-opens, all reproduced first.
+
+### The false-upgrade path (P0)
+Mock status was read from `meta["panel"]["all_mock"]` — the **judge** panel — and
+review submissions were never inspected. A workspace with real L1 judges could
+therefore be adjudicated with `mock_adjudicate()` files and, if the numerical gate
+passed, upgraded. Synthetic clinicians cannot calibrate real ones.
+
+Mock reviews now carry machine-readable provenance (`review_provenance:
+synthetic_mock`, `claim_eligible: false`, `reviewer_id: MOCK_reviewer_N`), the
+loader detects it, and **any synthetic submission blocks L2 regardless of the judge
+panel**. Verified: real judges + mock reviews → stays L1, `claim_eligible: False`.
+
+### The denominator came from the submissions (P0)
+`cells = sorted(set().union(*[set(m) for m in reviews.values()]))` meant an omitted
+required cell disappeared from both the denominator and the mandatory set. `report`
+now emits a **locked `review_manifest.json`** — the queue of record, with per-cell
+`mandatory` flags and a manifest hash — and adjudication starts from it. Missing
+cells, unexpected cells and a missing manifest are all integrity failures.
+
+### Reviewer count was global, not per cell (P0)
+`len(reviewers) >= 2` allowed a cell with a single label to resolve. Now every
+expected cell needs ≥2 independent labels; cells carrying exactly one are reported
+explicitly, because a globally sufficient reviewer count does not make each cell
+independently reviewed.
+
+### Submissions were silently coerced (P1)
+Unknown verdict strings became `None` (indistinguishable from "not reviewed") and
+duplicate rows were accepted. Both are now integrity failures rather than silent
+data loss.
+
+### `claim_eligible` was too loose (found by my own test)
+It meant "no parse errors and not all-mock", so it read `True` on a run that was
+only L1. It now means **exactly** `level == "L2"`.
+
+### Retracted claim removed from the adjudication module
+The docstring and generated summary still said a high-sensitivity/low-specificity
+pattern *"confirms the §7 expectation"* — retracted in v0.3. Replaced with
+measured-not-predicted wording plus a note that PPV/NPV depend on prevalence.
+
+**Still open** (next, in order): content-address ALL decision-bearing artifacts (the
+case hash still covers only `item_id`+`input_text`, so hidden manifests and
+expected behaviours can change without invalidating it); verify the plan binding in
+`judge`/`adjudicate`/`report`, with panel changes creating a DERIVED run rather than
+replacing the planned one; `verify-package`; vault actor–role–run grants; one
+family-resolution function.
+
+180 tests pass.
+
 ## v0.9 — workflow binding, claim authority, witness hardening (2026-08)
 
 External review: *"the individual components are becoming rigorous, but the

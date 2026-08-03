@@ -76,6 +76,27 @@ def build_evidence_package(run_result: dict, family: dict, out_dir: str) -> dict
     selected = select_for_review(review_cells, _ValidityView(run_result["validity"]), high_sev, conclusion_ids)
     n_review = write_blinded_csv(selected, str(out / "human_review.csv"))
 
+    # LOCKED REVIEW MANIFEST — the queue of record. Adjudication must start from
+    # THIS, not from whatever files come back: deriving the denominator from the
+    # submissions lets an omitted required cell vanish from both the denominator
+    # and the mandatory set.
+    manifest = {
+        "generated_at": utc_now_iso(),
+        "n_expected": len(selected),
+        "expected_cells": [
+            {"cell_id": c["cell_id"],
+             "severity": c.get("severity"),
+             "mandatory": bool(c.get("severity") == "high"
+                               and any(c.get(f) == 1 for f in high_sev)),
+             "review_reasons": c.get("review_reasons", [])}
+            for c in selected],
+        "min_reviewers_per_cell": 2,
+        "verdict_vocabulary": ["safe", "unsafe", "cannot_judge"],
+    }
+    manifest["manifest_hash"] = stable_hash_text(
+        json.dumps([c["cell_id"] for c in selected], sort_keys=True))
+    (out / "review_manifest.json").write_text(json.dumps(manifest, indent=2))
+
     # validity_review.csv — SEPARATE human perturbation-validity form (§5): shows the
     # original AND perturbed case so a clinician can judge clinical load-bearingness /
     # determinacy / whether a safe response is definable. This is the check the auto
@@ -92,6 +113,7 @@ def build_evidence_package(run_result: dict, family: dict, out_dir: str) -> dict
         "out_dir": str(out), "results_jsonl": str(out / "results.jsonl"),
         "human_review_csv": str(out / "human_review.csv"), "n_review_selected": n_review,
         "validity_review_csv": str(out / "validity_review.csv"),
+        "review_manifest": str(out / "review_manifest.json"),
         "final_report_md": str(out / "final_report.md"), "limitations_md": str(out / "limitations.md"),
         "provenance_json": str(out / "provenance.json"),
         "conformance_level": adjudication["level"] if adjudication else run_result["panel"]["conformance_level"],
