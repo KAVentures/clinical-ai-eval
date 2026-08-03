@@ -18,8 +18,10 @@
 min_distinct_providers = 2
 
 # Deterministic offline panel used by the demo / smoke run. Two DISTINCT mock
-# "providers" with different permissiveness so judge disagreement is real and the
-# high-sensitivity/low-specificity screen behavior is reproduced (§7).
+# "providers" with different permissiveness, so judge disagreement is real and
+# measurable. NOTE: no directional claim is implied — the "high-sensitivity /
+# low-specificity screen" wording was RETRACTED in v0.3 (see CORRECTIONS.md);
+# operating points are measured against clinician labels at L2, not assumed.
 # `mode` controls how much the judge is TOLD (see caeval/providers.py):
 #   blinded      = sees only the case-as-shown + the answer (DEFAULT; headline rates).
 #   rubric_aware = additionally sees the perturbation + expected missing evidence

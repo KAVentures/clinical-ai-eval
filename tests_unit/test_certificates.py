@@ -285,3 +285,113 @@ class TestFamilyStaysBlocked(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ===========================================================================
+# v0.7 regressions — fail-open paths found in external review of v0.6.
+# Each of these CERTIFIED (or silently passed) before the fix.
+# ===========================================================================
+class TestP0SchemaContractEnforced(unittest.TestCase):
+    """P0-1: an ABSENT checklist is not an EMPTY checklist."""
+
+    REQUIRED = ["certificate_id", "patient_snapshot", "evidence_bundle",
+                "action", "support", "critical_questions", "contraindications"]
+
+    def test_omitting_any_required_field_never_certifies(self):
+        for key in self.REQUIRED:
+            c = {k: v for k, v in cert().items() if k != key}
+            r = verify_certificate(c)
+            self.assertNotEqual(r.verdict, CERTIFIED, f"omitting {key!r} still certified")
+            self.assertTrue(r.findings, f"omitting {key!r} produced no findings")
+
+    def test_empty_certificate_id_never_certifies(self):
+        for bad in ["", "   ", None]:
+            c = cert()
+            c["certificate_id"] = bad
+            self.assertNotEqual(verify_certificate(c).verdict, CERTIFIED)
+
+    # Per-field VALID types. Everything else is a mutation that must not certify.
+    # Note two legitimate values that are easy to mis-fuzz:
+    #   certificate_id = "anything"  -> a plain non-empty string IS valid
+    #   critical_questions = []      -> an EMPTY checklist means "ran, none applicable",
+    #                                   which is valid; ABSENT or None is not.
+    VALID_BY_FIELD = {
+        "certificate_id": lambda v: isinstance(v, str) and v.strip(),
+        "patient_snapshot": lambda v: isinstance(v, dict) and v.get("captured_at"),
+        "evidence_bundle": lambda v: isinstance(v, list) and v,
+        "action": lambda v: isinstance(v, dict) and v.get("code"),
+        "support": lambda v: isinstance(v, list) and v,
+        "critical_questions": lambda v: isinstance(v, list),
+        "contraindications": lambda v: isinstance(v, list),
+    }
+
+    def test_type_mutation_of_every_required_field_never_certifies(self):
+        """Fuzz every required field with wrong-typed values, skipping values that
+        are legitimately valid for that field."""
+        candidates = [None, 0, "", "string", [], {}, True, 3.14, set()]
+        checked = 0
+        for key in self.REQUIRED:
+            is_valid = self.VALID_BY_FIELD[key]
+            for bad in candidates:
+                try:
+                    if is_valid(bad):
+                        continue          # legitimately valid — not a mutation
+                except Exception:
+                    pass
+                c = cert()
+                c[key] = bad
+                checked += 1
+                self.assertNotEqual(verify_certificate(c).verdict, CERTIFIED,
+                                    f"{key}={bad!r} certified")
+        self.assertGreater(checked, 40, "fuzz coverage collapsed — check VALID_BY_FIELD")
+
+    def test_empty_checklist_is_valid_but_absent_or_none_is_not(self):
+        """The distinction the P0-1 fix rests on."""
+        self.assertEqual(verify_certificate(cert(critical_questions=[])).verdict, CERTIFIED)
+        self.assertNotEqual(verify_certificate(cert(critical_questions=None)).verdict, CERTIFIED)
+        c = {k: v for k, v in cert().items() if k != "critical_questions"}
+        self.assertNotEqual(verify_certificate(c).verdict, CERTIFIED)
+
+
+class TestP0InvalidSeverityCannotCertify(unittest.TestCase):
+    """P0-2: the malformed-but-PASSING path — previously reported and ignored."""
+
+    def test_absent_contraindication_with_invalid_severity_never_certifies(self):
+        for sev in [None, "", "urgent", 1, True, [], {}, "CRITICAL!"]:
+            ci = check(status="absent")
+            if sev is None:
+                ci.pop("severity")
+            else:
+                ci["severity"] = sev
+            r = verify_certificate(cert(contraindications=[ci]))
+            self.assertNotEqual(r.verdict, CERTIFIED, f"severity={sev!r} certified on a PASSING check")
+            self.assertIn("UNRECOGNIZED_SEVERITY", [f.code for f in r.findings])
+
+    def test_passing_critical_question_with_invalid_severity_never_certifies(self):
+        for sev in [None, "urgent", 7]:
+            cq = check(id="q1", status="pass", certificate_effect="defer")
+            if sev is None:
+                cq.pop("severity")
+            else:
+                cq["severity"] = sev
+            self.assertNotEqual(verify_certificate(cert(critical_questions=[cq])).verdict, CERTIFIED)
+
+    def test_valid_severity_on_a_passing_check_still_certifies(self):
+        """The fix must not over-block."""
+        for sev in ["critical", "high", "moderate", "low"]:
+            ci = check(status="absent", severity=sev)
+            self.assertEqual(verify_certificate(cert(contraindications=[ci])).verdict, CERTIFIED)
+
+
+class TestP1SafeLabelNotCoerced(unittest.TestCase):
+    """P1-6: bool('false') is True — coercion would reclassify unsafe as safe."""
+
+    def test_non_bool_safe_label_is_refused(self):
+        for bad in ["false", "unsafe", 0, 1, None, "", [], "true"]:
+            with self.assertRaises(MMIPError):
+                minimum_query_sets([{"safe": bad, "answers": {"q": 0}},
+                                    {"safe": False, "answers": {"q": 1}}], ["q"])
+
+    def test_real_bools_still_work(self):
+        self.assertTrue(minimum_query_sets(
+            [{"safe": True, "answers": {"q": 0}}, {"safe": False, "answers": {"q": 1}}], ["q"]))

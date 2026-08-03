@@ -1,5 +1,73 @@
 # Corrections log
 
+## v0.7 — four fail-open paths closed (external review of v0.6, 2026-08)
+
+An external review of `b4aa97a` found four P0 fail-opens and three P1 issues. All
+seven were reproduced before fixing. **Every P0 could issue a false certificate or
+a falsely-complete evaluation plan.**
+
+### P0-1 — an ABSENT checklist was treated as an EMPTY one
+`verify_certificate` coerced a missing `critical_questions` / `contraindications`
+to `[]`, so a certificate could **omit the entire contraindication checklist and
+still CERTIFY**. `certificate_id` was never checked at all. The schema declared
+these required; the verifier did not enforce it.
+
+Fixed: `REQUIRED_TOP_LEVEL` presence is enforced in-code (stdlib, no optional
+dependency), an explicit `None` is no longer coerced to `[]`, and `certificate_id`
+must be a non-empty **string** (`str(True)` is `"True"`, which a naive truthiness
+check accepted). An **empty** checklist remains valid — "ran, none applicable" is
+different from "never ran".
+
+### P0-2 — an invalid severity was reported but not escalated
+`_check_vocab` emitted `UNRECOGNIZED_SEVERITY` without setting `block` or `defer`,
+so a **passing** check with `severity: "urgent"` still CERTIFIED. The existing
+tests only varied severity on *present*/*failed* checks, which already blocked via
+`certificate_effect` — so the malformed-but-passing path was untested.
+
+Fixed: unrecognized severity now DEFERs (severity is metadata, not the verdict
+axis; a present contraindication still BLOCKs independently via
+`certificate_effect`). Tested across 8 invalid values on passing checks, plus a
+no-over-blocking test on all four valid severities.
+
+### P0-3 — suite selection failed OPEN on an unreadable family
+`except Exception: continue` left a missing, corrupt or unparsable family
+**marked runnable** — a broken test definition produced a *more* complete-looking
+evaluation plan. Fixed to fail closed via the canonical SDK loader, with the parse
+error surfaced as the `blocked_reason`. Verified with a deliberately corrupt YAML.
+
+### P0-4 — the vault was an API convention, not a boundary
+`ROLE_ENTITLEMENTS` existed but `authorize()` was never called on any payload path,
+and `reveal_labels` trusted a caller-supplied flag plus a mutable `analysis_locked`
+field. Fixed: every payload access requires an `AccessContext` (role, actor, run,
+token) that is authorized, token-checked and **audited** to an append-only
+`audit.log.jsonl`; a `blinded_judge` cannot obtain a rubric payload whatever mode it
+requests; and `reveal_labels` now requires the **current protocol lock hash** and
+refuses on mismatch — a changed plan invalidates findings rather than silently
+revealing labels. Tokens are never echoed in `repr`.
+
+This is a fail-closed, audited boundary — **not** hospital-grade IAM, and the code
+says so.
+
+### P1 — three more
+- **README drift returned.** The retracted high-sensitivity/low-specificity claim
+  reappeared in `README.md`, and the layout still called `EVAL_STANDARD.md` "the
+  source of truth". Both fixed, and the guard now scans **all public docs**
+  (`*.md`, `tests/**/*.yaml`, `prompts/`, `configs/`, `schemas/`, `pyproject.toml`,
+  `selection_rules.yaml`). The broadened guard immediately found a **third**
+  instance in `configs/judge_panel.toml` — which is exactly why the narrow scan was
+  insufficient.
+- **MMIP coerced the safety label.** `bool(world["safe"])` made `"false"` → `True`,
+  silently reclassifying an unsafe world as safe. Now requires a real `bool`.
+- **Packaging was checkout-only.** `packages = ["caeval", "targets"]` omitted
+  `caeval.certificates` from a wheel, and data files lived outside the package.
+  Now uses find-based discovery, bundles data into `caeval/_data`
+  (`tools/bundle_data.py`), makes `repo_root()` resolve checkout **or** installed
+  layout, and adds a **CI job that builds a wheel, installs it into a clean venv,
+  and runs the documented CLI from a directory containing no source**. Verified
+  locally end to end.
+
+123 tests pass.
+
 ## v0.6 — evidence-grounding layer implemented and hardened; protocol reconciled (2026-08)
 
 v0.5 declared `decision_certifiability` but shipped no verifier, so the repository

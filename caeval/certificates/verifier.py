@@ -52,6 +52,12 @@ SEVERITIES = ("critical", "high", "moderate", "low")
 # Verdict semantics. This — and only this — decides what a failed check does.
 EFFECTS = ("block", "defer")
 
+# The certificate CONTRACT. A key that is absent is NOT an empty list: it means the
+# checklist was never run, which cannot be distinguished from "ran and found
+# nothing" — so it must never certify (P0-1).
+REQUIRED_TOP_LEVEL = ("certificate_id", "patient_snapshot", "evidence_bundle",
+                      "action", "support", "critical_questions", "contraindications")
+
 CQ_STATUSES = ("pass", "fail", "unknown", "not_applicable")
 CONTRA_STATUSES = ("present", "absent", "unknown", "not_applicable")
 SOURCE_STATUSES_OK = ("active", "valid")
@@ -128,9 +134,16 @@ def _check_vocab(item: Mapping, label: str, kind: str, ctx: _Ctx) -> str:
     """
     sev = _norm(item.get("severity"))
     if sev not in SEVERITIES:
+        # Severity is metadata, not the verdict axis — so this DEFERS rather than
+        # blocking. But it must escalate: an unreadable declaration means we cannot
+        # confirm the check was authored correctly, and "reported but ignored" was a
+        # fail-open (P0-2). A genuinely present/failed check still BLOCKs via
+        # certificate_effect, independently of this.
+        ctx.defer = True
         ctx.add("UNRECOGNIZED_SEVERITY",
                 f"{kind} {label!r}: severity {item.get('severity')!r} not in "
-                f"{list(SEVERITIES)}; severity does not affect the verdict but must be declared.")
+                f"{list(SEVERITIES)}; cannot confirm the check is correctly declared.")
+        ctx.need(f"a valid severity for {label}")
 
     eff = _norm(item.get("certificate_effect"))
     if eff not in EFFECTS:
@@ -155,6 +168,24 @@ def verify_certificate(certificate: Mapping[str, Any]) -> VerificationResult:
             BLOCK, (Finding("MALFORMED_CERTIFICATE", "Certificate is not a mapping.", "critical"),), ())
 
     # ---- patient snapshot ----
+    # ---- schema contract: every required key must be PRESENT (P0-1) ----
+    for key in REQUIRED_TOP_LEVEL:
+        if key not in certificate:
+            ctx.defer = True
+            ctx.add("MISSING_REQUIRED_FIELD",
+                    f"Certificate omits required field {key!r}. An absent checklist is not an "
+                    f"empty checklist: it cannot be distinguished from one that was never run.")
+            ctx.need(f"a populated {key!r} field")
+    cid = certificate.get("certificate_id")
+    # must be a real non-empty STRING: str(True) is "True", which is truthy, so a
+    # boolean would have passed a naive truthiness check.
+    if not isinstance(cid, str) or not cid.strip():
+        ctx.defer = True
+        ctx.add("MISSING_CERTIFICATE_ID",
+                f"certificate_id must be a non-empty string, got {type(cid).__name__} {cid!r}; "
+                f"without it the certificate cannot be replayed or audited.")
+        ctx.need("a valid certificate_id")
+
     patient = certificate.get("patient_snapshot")
     if not isinstance(patient, Mapping) or not patient.get("captured_at"):
         ctx.defer = True
@@ -187,8 +218,6 @@ def verify_certificate(certificate: Mapping[str, Any]) -> VerificationResult:
 
     # ---- support ----
     supports = certificate.get("support")
-    if supports is None:
-        supports = []
     if not isinstance(supports, list):
         ctx.defer = True
         ctx.add("MALFORMED_SUPPORT", "support is not a list.")
@@ -239,8 +268,6 @@ def _verify_checks(certificate: Mapping, key: str, vocab: tuple,
     """Verify one list of checks. NOTHING here may skip on severity (I5)."""
     kind = key[:-1].replace("_", " ")
     items = certificate.get(key)
-    if items is None:
-        items = []
     if not isinstance(items, list):
         ctx.defer = True
         ctx.add(f"MALFORMED_{key.upper()}", f"{key} is not a list.")

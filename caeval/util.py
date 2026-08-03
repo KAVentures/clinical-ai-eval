@@ -27,7 +27,21 @@ def repo_root() -> Path:
     this, so the harness runs from the checkout. Override with CAEVAL_HOME if the
     package is installed elsewhere than its data."""
     env = os.environ.get("CAEVAL_HOME")
-    return Path(env).resolve() if env else Path(__file__).resolve().parent.parent
+    if env:
+        return Path(env).resolve()
+    here = Path(__file__).resolve().parent          # .../caeval
+    # 1) source checkout: data dirs sit beside the package
+    checkout = here.parent
+    if (checkout / "selection_rules.yaml").exists():
+        return checkout
+    # 2) installed wheel: data is bundled under caeval/_data
+    bundled = here / "_data"
+    if (bundled / "selection_rules.yaml").exists():
+        return bundled
+    raise RuntimeError(
+        "cannot locate caeval data files (selection_rules.yaml, tests/, configs/, "
+        "prompts/, schemas/). Run from a source checkout, install a wheel built "
+        "with MANIFEST.in, or set CAEVAL_HOME to the directory containing them.")
 
 
 # --------------------------------------------------------------------------

@@ -181,7 +181,7 @@ Each module names the ONE upstream implementation it canonicalizes:
 
 ```
 clinical_ai_eval/
-  EVAL_STANDARD.md            # the spec (source of truth)
+  EVAL_STANDARD.md            # the protocol (INTENT; where it disagrees with code, code wins — §14)
   selection_rules.yaml        # §4 rule-based suite selection (inspectable, with blocked_reason)
   configs/judge_panel.toml    # §7/§11 panel; ≥2-distinct-provider rule read from here
   prompts/judge_prompt.txt    # §6 judge rubric (+ excessive_abstention guard)
@@ -199,9 +199,12 @@ clinical_ai_eval/
 ## Scope & honesty
 Two families are implemented end-to-end; the rest are reported **REQUIRED-BUT-NOT-RUN**
 with a concrete blocker, never silently dropped (§4, §13). Validity labels are
-automated at L1 (disclosed). The automated label is a high-sensitivity /
-low-specificity screen (§7) — the demo's adjudication reproduces this: the strict
-judge scores sensitivity 1.0 / specificity ~0.0 against the mock clinicians. See
+automated at L1 (disclosed). **No directional claim is made about evaluator
+operating points**: the earlier "high-sensitivity / low-specificity screen" wording
+was RETRACTED in v0.3 (see `CORRECTIONS.md`) — with a *blinded* judge the measured
+specificity was 1.0, and the over-flagging belonged to the *cued* evaluator.
+Sensitivity/specificity/PPV are reported only once measured against clinician
+labels at L2, per endpoint, with the positive class stated. See
 `out/<run>/limitations.md` — restated every run. Requires Python 3.9+, `numpy`,
 `pandas`, `pyyaml`; real judges/subjects call HTTP APIs via stdlib `urllib` (no SDKs
 required). No network for the demo. Not done by design: pointing the subject at the

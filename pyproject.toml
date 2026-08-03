@@ -27,8 +27,13 @@ llm = ["openai", "anthropic", "google-genai"]
 # set CAEVAL_HOME if the package is installed away from its data).
 clinical-ai-eval = "caeval.cli:main"
 
-[tool.setuptools]
-packages = ["caeval", "targets"]
+[tool.setuptools.packages.find]
+# find-based discovery so SUBPACKAGES (caeval.certificates) are included. The
+# previous explicit list silently omitted them from a built wheel.
+include = ["caeval*", "targets*"]
 
 [tool.setuptools.package-data]
-"*" = ["*.yaml", "*.toml", "*.txt"]
+# Data files the runtime needs. They live outside the package tree in a checkout,
+# so they are also mirrored into caeval/_data at build time (see MANIFEST.in) and
+# resolved via importlib.resources when CAEVAL_HOME is unset.
+"caeval" = ["_data/**/*"]

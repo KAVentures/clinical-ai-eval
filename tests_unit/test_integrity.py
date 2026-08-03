@@ -176,6 +176,30 @@ class TestSpecSupersession(unittest.TestCase):
                          "high-sensitivity/low-specificity"]
     RETRACTION_MARKERS = ["retracted", "withdrawn", "previously", "no longer", "do not assert"]
 
+    SCANNED_GLOBS = ["*.md", "tests/**/*.yaml", "prompts/*.txt", "configs/*.toml",
+                     "schemas/*.json", "pyproject.toml", "selection_rules.yaml"]
+
+    def _public_docs(self):
+        root = repo_root()
+        seen = []
+        for pat in self.SCANNED_GLOBS:
+            for f in sorted(root.glob(pat)):
+                if f.is_file() and "out/" not in str(f):
+                    seen.append(f)
+        return seen
+
+    def test_retracted_claims_absent_from_ALL_public_docs(self):
+        """The guard must cover every artifact a reader could quote, not just the
+        spec — README drift recurred precisely because the scan was too narrow."""
+        for f in self._public_docs():
+            txt = f.read_text(errors="ignore")
+            for para in txt.split("\n\n"):
+                low = para.lower()
+                if any(ph in low for ph in self.RETRACTED_PHRASES):
+                    self.assertTrue(any(m in low for m in self.RETRACTION_MARKERS),
+                                    f"{f.name} asserts a retracted claim without marking it:"
+                                    f"\n---\n{para[:250]}\n---")
+
     def test_retracted_evaluator_claims_are_marked(self):
         """A retracted phrase may only appear inside a paragraph that marks it as
         retracted — never as a live assertion."""

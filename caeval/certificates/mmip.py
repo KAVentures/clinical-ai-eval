@@ -60,7 +60,15 @@ def _is_safe(world: Any) -> bool:
     if "safe" not in world:
         raise MMIPError("world is missing the required 'safe' field; without it the "
                         "safe/unsafe pairs that must be distinguished are undefined")
-    return bool(world["safe"])
+    value = world["safe"]
+    # NEVER coerce: bool("false") is True, so a malformed string label would
+    # silently move a world into the SAFE class and change the optimum.
+    if not isinstance(value, bool):
+        raise MMIPError(
+            f"world 'safe' must be a real bool, got {type(value).__name__} {value!r}. "
+            f"Coercion is refused: bool('false') is True, which would silently "
+            f"reclassify an unsafe world as safe.")
+    return value
 
 
 def validate_worlds(worlds: Sequence[Mapping[str, Any]]) -> None:

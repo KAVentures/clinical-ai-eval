@@ -46,6 +46,27 @@ class VaultError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class AccessContext:
+    """WHO is asking, for WHICH run, under what authority.
+
+    Every payload access requires one. Previously the entitlement table existed but
+    `authorize()` was never called on the payload paths, so anyone holding a vault
+    instance could read anything — an API convention, not a boundary (P0-4).
+
+    `token` is a shared secret checked against the vault's `access_tokens` file. It
+    is deliberately simple: this is a boundary that FAILS CLOSED and is AUDITED, not
+    a hospital-grade IAM. Do not represent it as one.
+    """
+    role: str
+    actor_id: str
+    run_id: str
+    token: str = ""
+
+    def __repr__(self) -> str:      # never echo the token
+        return f"AccessContext(role={self.role!r}, actor={self.actor_id!r}, run={self.run_id!r})"
+
+
+@dataclass(frozen=True)
 class CaseRef:
     """An OPAQUE handle. Carries no clinical content and no defect status."""
     case_id: str
@@ -62,8 +83,11 @@ class Vault:
     def list_suite_metadata(self) -> list[dict]: raise NotImplementedError
     def materialize_run(self, run_id: str, authorized_role: str) -> list[CaseRef]: raise NotImplementedError
     def get_subject_payload(self, case_id: str) -> dict: raise NotImplementedError
-    def get_rubric_payload(self, case_id: str, evaluator_mode: str) -> dict: raise NotImplementedError
-    def reveal_labels(self, run_id: str, after_analysis_lock: bool = False) -> dict: raise NotImplementedError
+    def get_rubric_payload(self, case_id: str, evaluator_mode: str,
+                           context: AccessContext) -> dict: raise NotImplementedError
+    def reveal_labels(self, run_id: str, after_analysis_lock: bool = False,
+                      context: AccessContext | None = None,
+                      protocol_lock_hash: str | None = None) -> dict: raise NotImplementedError
 
 
 class DirectoryVault(Vault):
@@ -125,10 +149,13 @@ class DirectoryVault(Vault):
             })
         return out
 
-    def materialize_run(self, run_id: str, authorized_role: str) -> list[CaseRef]:
+    def materialize_run(self, run_id: str, authorized_role: str,
+                        context: AccessContext | None = None) -> list[CaseRef]:
         """Return OPAQUE refs for a run. No clinical content, no defect status."""
         if authorized_role not in ROLE_ENTITLEMENTS:
             raise VaultError(f"unknown role {authorized_role!r}; expected one of {sorted(ROLE_ENTITLEMENTS)}")
+        if context is not None:
+            self._authorize(context, "subject", f"run:{run_id}")
         rp = self._run_path(run_id)
         if not rp.exists():
             raise VaultError(f"no run manifest {run_id!r} in vault")
@@ -140,12 +167,14 @@ class DirectoryVault(Vault):
                                 content_hash=stable_hash_text(case.get("input_text", ""))))
         return refs
 
-    def get_subject_payload(self, case_id: str) -> dict:
+    def get_subject_payload(self, case_id: str, context: AccessContext) -> dict:
         """What the EVALUATED SYSTEM receives: the facing input and nothing else."""
+        self._authorize(context, "subject", case_id)
         case = self._load_case(case_id)
         return {"case_id": case_id, "input_text": case["input_text"]}
 
-    def get_rubric_payload(self, case_id: str, evaluator_mode: str) -> dict:
+    def get_rubric_payload(self, case_id: str, evaluator_mode: str,
+                           context: AccessContext) -> dict:
         """What an EVALUATOR receives, by mode.
 
         blinded      -> case-as-shown only (must infer what is missing)
@@ -154,6 +183,11 @@ class DirectoryVault(Vault):
         """
         if evaluator_mode not in ("blinded", "rubric_aware"):
             raise VaultError(f"unknown evaluator mode {evaluator_mode!r}")
+        # a blinded consumer may never obtain the rubric, whatever mode it asks for
+        needed = "rubric" if evaluator_mode == "rubric_aware" else "response"
+        self._authorize(context, needed, case_id)
+        if evaluator_mode == "rubric_aware" and context.role == "blinded_judge":
+            raise VaultError("role 'blinded_judge' may not request a rubric_aware payload")
         case = self._load_case(case_id)
         payload = {"case_id": case_id, "input_text": case["input_text"]}
         if evaluator_mode == "rubric_aware":
@@ -165,7 +199,9 @@ class DirectoryVault(Vault):
             }
         return payload
 
-    def reveal_labels(self, run_id: str, after_analysis_lock: bool = False) -> dict:
+    def reveal_labels(self, run_id: str, after_analysis_lock: bool = False,
+                      context: AccessContext | None = None,
+                      protocol_lock_hash: str | None = None) -> dict:
         """Ground-truth defect labels. REFUSED until the analysis is locked, so the
         analysis cannot be tuned after seeing which arms carry defects."""
         rp = self._run_path(run_id)
@@ -180,6 +216,22 @@ class DirectoryVault(Vault):
             raise VaultError(
                 f"run {run_id!r} is not analysis-locked (analysis_locked=false). Lock the "
                 f"preregistered analysis plan before revealing defect labels.")
+        if context is not None:
+            self._authorize(context, "labels", f"run:{run_id}")
+        stored = run.get("analysis_lock_hash")
+        if not stored:
+            raise VaultError(f"run {run_id!r} records no analysis_lock_hash; the lock cannot be verified.")
+        if protocol_lock_hash is None:
+            raise VaultError(
+                "refusing to reveal labels without the CURRENT preregistered protocol hash. "
+                "Pass protocol_lock_hash=<StudyProtocol.lock_hash> so the stored lock can be "
+                "verified rather than trusted (a mutable flag is not a lock).")
+        if protocol_lock_hash != stored:
+            raise VaultError(
+                f"analysis-plan hash MISMATCH for run {run_id!r}: the protocol has changed since "
+                f"the case set was locked (stored {stored[:12]}…, presented "
+                f"{protocol_lock_hash[:12]}…). Findings from a post-hoc plan are invalid.")
+        self._audit("reveal_labels", context, f"run:{run_id}")
         labels = {}
         for case_id in run["case_ids"]:
             case = self._load_case(case_id)
@@ -191,6 +243,46 @@ class DirectoryVault(Vault):
             }
         return {"run_id": run_id, "revealed_at": utc_now_iso(),
                 "analysis_lock_hash": run.get("analysis_lock_hash"), "labels": labels}
+
+
+    # ---------------- enforcement ----------------
+    def _authorize(self, context: AccessContext, payload_kind: str, subject: str) -> None:
+        """Check the entitlement AND the token, then audit. Fails closed."""
+        if not isinstance(context, AccessContext):
+            raise VaultError("an AccessContext is required for every vault payload access")
+        authorize(context.role, payload_kind)
+        self._check_token(context)
+        self._audit(f"read:{payload_kind}", context, subject)
+
+    def _check_token(self, context: AccessContext) -> None:
+        """Verify the actor's token if the vault declares any. A vault WITH tokens
+        rejects an unknown actor; a vault WITHOUT them runs open and says so in the
+        audit trail (acceptable for a local dry run, never for a real study)."""
+        path = self.root / "access_tokens.json"
+        if not path.exists():
+            return
+        tokens = json.loads(path.read_text())
+        expected = tokens.get(context.actor_id)
+        if expected is None or not context.token or context.token != expected:
+            raise VaultError(f"actor {context.actor_id!r} is not authorized for this vault")
+
+    def _audit(self, event: str, context: AccessContext | None, subject: str) -> None:
+        """Append-only audit trail. Every hidden-data access is recorded."""
+        rec = {"at": utc_now_iso(), "event": event, "subject": subject,
+               "role": getattr(context, "role", None),
+               "actor_id": getattr(context, "actor_id", None),
+               "run_id": getattr(context, "run_id", None),
+               "token_presented": bool(getattr(context, "token", ""))}
+        p = self.root / "audit.log.jsonl"
+        with open(p, "a") as fh:
+            fh.write(json.dumps(rec) + "\n")
+
+    def read_audit(self) -> list[dict]:
+        p = self.root / "audit.log.jsonl"
+        if not p.exists():
+            return []
+        with open(p) as fh:
+            return [json.loads(l) for l in fh if l.strip()]
 
 
 # --------------------------------------------------------------------------

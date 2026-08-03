@@ -60,9 +60,18 @@ def select_suites(profiles: list[str], rules: dict | None = None) -> dict:
     for meta in chosen.values():
         if not meta["implemented"]:
             continue
+        # FAIL CLOSED: a missing, corrupt or unparsable family declaration must NOT
+        # remain marked runnable — a broken test definition may never produce a
+        # more complete-looking evaluation plan. Uses the SDK loader, which this
+        # repo declares canonical (§14.6).
         try:
-            fam = _load_family(meta["suite"])
-        except Exception:  # noqa: BLE001 — family file unreadable; leave as implemented
+            from .family_sdk import load_family_definition
+            fam = load_family_definition(meta["suite"])
+            if not isinstance(fam, dict) or not fam.get("family_id"):
+                raise ValueError("declaration is empty or has no family_id")
+        except Exception as exc:  # noqa: BLE001
+            meta["implemented"] = False
+            meta["blocked_reason"] = f"invalid family declaration: {exc}"
             continue
         support = family_audience_support(fam)
         blocked = [a for a in audiences if not support.get(a, {}).get("supported", False)]

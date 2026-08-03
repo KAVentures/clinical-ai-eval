@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 from caeval import family_sdk, pipeline, study, vault
+from caeval.vault import AccessContext
 from targets import demo_target
 
 
@@ -76,16 +77,19 @@ class TestVaultBoundaries(unittest.TestCase):
         (d / "runs/R1.json").write_text(json.dumps({"case_ids": ["c1"], "analysis_locked": False}))
         return d, vault.DirectoryVault(d)
 
+    def ctx(self, role="analysis"):
+        return AccessContext(role=role, actor_id="tester", run_id="R1")
+
     def test_subject_sees_only_the_facing_input(self):
         _, v = self._vault()
-        p = v.get_subject_payload("c1")
+        p = v.get_subject_payload("c1", self.ctx("evaluated_system"))
         self.assertEqual(set(p), {"case_id", "input_text"})
         self.assertNotIn("defect", p)
 
     def test_blinded_judge_gets_no_defect_spec_but_cued_does(self):
         _, v = self._vault()
-        self.assertNotIn("defect_specification", v.get_rubric_payload("c1", "blinded"))
-        self.assertIn("defect_specification", v.get_rubric_payload("c1", "rubric_aware"))
+        self.assertNotIn("defect_specification", v.get_rubric_payload("c1", "blinded", self.ctx("blinded_judge")))
+        self.assertIn("defect_specification", v.get_rubric_payload("c1", "rubric_aware", self.ctx("rubric_aware_judge")))
 
     def test_case_refs_are_opaque(self):
         _, v = self._vault()
@@ -101,7 +105,8 @@ class TestVaultBoundaries(unittest.TestCase):
             v.reveal_labels("R1", after_analysis_lock=True)    # asserted but not actually locked
         (d / "runs/R1.json").write_text(json.dumps(
             {"case_ids": ["c1"], "analysis_locked": True, "analysis_lock_hash": "abc"}))
-        out = v.reveal_labels("R1", after_analysis_lock=True)
+        out = v.reveal_labels("R1", after_analysis_lock=True,
+                              context=self.ctx("analysis"), protocol_lock_hash="abc")
         self.assertEqual(out["labels"]["c1"]["defect_status"], "injected")
 
     def test_entitlements_fail_closed(self):

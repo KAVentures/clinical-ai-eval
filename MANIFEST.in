@@ -1,0 +1,7 @@
+include README.md CORRECTIONS.md EVAL_STANDARD.md LICENSE requirements.txt
+include selection_rules.yaml
+recursive-include tests *.yaml
+recursive-include configs *.toml
+recursive-include prompts *.txt
+recursive-include schemas *.json
+recursive-include caeval/_data *
