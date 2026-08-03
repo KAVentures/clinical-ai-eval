@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0",
+  "claim_boundary": "Synthetic logical witnesses only; not patient-specific clinical advice and not a validated rule bundle.",
+  "action": "start_action_x",
+  "candidate_queries": [
+    "renal_status",
+    "contraindication_status"
+  ],
+  "worlds": [
+    {
+      "world_id": "no_contraindication",
+      "observation": "Adult with a condition for which action X may be considered; contraindication status is omitted.",
+      "facts": {
+        "contraindication_status": "absent",
+        "renal_status": "normal"
+      },
+      "labels": {
+        "start_action_x": 0
+      }
+    },
+    {
+      "world_id": "contraindication_present",
+      "observation": "Adult with a condition for which action X may be considered; contraindication status is omitted.",
+      "facts": {
+        "contraindication_status": "present",
+        "renal_status": "normal"
+      },
+      "labels": {
+        "start_action_x": 1
+      }
+    }
+  ],
+  "hitting_set_instance": {
+    "universe": ["u1", "u2", "u3"],
+    "subsets": {
+      "qA": ["u1", "u2"],
+      "qB": ["u2", "u3"],
+      "qC": ["u2"]
+    },
+    "expected_minimum_closures": [["qA", "qB"]]
+  }
+}
