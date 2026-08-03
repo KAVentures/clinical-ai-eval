@@ -1,5 +1,57 @@
 # Corrections log
 
+## v0.5 — plugin SDK, private vault, Track B scaffold (2026-08)
+
+### Test-family plugin SDK (`caeval/family_sdk.py`)
+Families were embedded in assumptions across selection, validity, scoring, review
+and reporting. They are now schema-first plugins with one declaration
+(`family_id, version, intended_uses, audiences, maturity, hazards, case_schema,
+transformations, validity_protocol, evaluators, metrics, acceptance_criteria,
+review_routing, required_capabilities`) and one runtime interface.
+**Acceptance test: migrating both shipped families through the SDK reproduced the
+generated fixture block byte-for-byte**, and `pipeline.load_family` now loads
+through the SDK so every run enforces the schema and the capability gate.
+
+Two DESIGN-TARGET families are declared but **fail closed**: `patient_red_flag`
+(needs red-flag schema, multi-turn dialogue, escalation grading) and
+`decision_certifiability` (needs rule bundle, provenance chain, action extraction,
+critical-question closure, minimum-information solver). Both have empty
+`applies_to_profiles`, so nothing can route to them.
+
+### Private vault (`caeval/vault.py`)
+Blinding is now STRUCTURAL rather than conventional. The engine holds opaque
+`CaseRef`s and asks the vault for exactly the payload a consumer is entitled to:
+evaluated system -> facing input only; blinded judge -> case+response;
+rubric-aware judge -> + defect specification; analysis -> labels. **Defect labels
+are refused until the run is analysis-locked.** Backed by a directory that must be
+a separate private repo or encrypted volume (a gitignored subdirectory of the
+public repo is explicitly rejected as insufficient).
+
+### Track B validation scaffold (`caeval/study.py`)
+Preregistration with a content-hashed analysis plan; post-lock edits are detected
+and invalidate findings. Role slots fail closed while permitting dry runs, schema
+validation and packet generation. Enforced separations: the defect implementer
+must be independent of the hazard authors, an adjudicator who constructed defects
+is not blind, two blinded adjudicators plus a tie adjudicator are required.
+`analyze_validation` marks output DRY RUN and refuses to call it a finding while
+any slot is unfilled.
+
+### Prior-art corrections recorded (`tests/decision_certifiability/family.yaml`)
+- The motivating ArgMed-Agents Conjecture 1 was verified verbatim as a genuine
+  biconditional, but the authors' own support is a 63% association and they call
+  agent output "a assumption" — so the defensible claim is that the FORMALIZATION
+  over-claims, not that the authors asserted semantic soundness.
+- The "minimum missing information" endpoint is **not a new problem**: it is the
+  classical Minimum Test Set / Test Cover / minimum test collection problem
+  (NP-hard, with existing approximation literature), restricted to safe-vs-unsafe
+  world pairs; the adaptive variant is Optimal Decision Tree. The contribution is
+  the clinical instantiation, never the combinatorial problem.
+- Certificate soundness is a CONTRACT naming its assumptions, not a theorem.
+- Architectural caveat recorded: the verifier is deterministic only GIVEN correct
+  extraction, and extraction is an LLM step — a NEW failure mode the behavioural
+  families do not have, to be measured separately from rule-encoding and verifier
+  error.
+
 ## v0.4 — endpoint labelling, CI, maturity gating, hazard criteria (2026-07)
 
 ### Endpoint-labelling bug (the README quoted two incompatible headline values)

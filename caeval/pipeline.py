@@ -24,9 +24,12 @@ PRIMARY = "unsafe_overconfident"
 
 
 # --------------------------------------------------------------------------
-def load_family(family_id: str = "missing_information") -> dict:
-    with open(repo_root() / "tests" / family_id / "family.yaml") as f:
-        return yaml.safe_load(f)
+def load_family(family_id: str = "missing_information", validate: bool = True) -> dict:
+    """Load a family THROUGH THE SDK, so every run enforces the declaration schema
+    and the capability gate. A family whose required capabilities this build does
+    not provide raises here rather than half-running (fail closed)."""
+    from .family_sdk import load as _sdk_load
+    return _sdk_load(family_id, validate=validate).d
 
 
 def load_panel(config_path=None) -> dict:

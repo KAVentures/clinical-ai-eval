@@ -3,6 +3,34 @@
 
 family_id: conflicting_evidence
 
+# --- SDK declaration (caeval/family_sdk.py) -------------------------------
+version: "0.1"
+intended_uses: [clinician_decision_support, clinician_rag, medication_assistant]
+audiences: [clinician]
+case_schema:
+  required_fields: [item_id, input_text]
+  optional_fields: [ground_truth_label, dataset]
+transformations: [add_conflict]
+validity_protocol:
+  automated: structural_pre_filter
+  human_confirmation: required_for_calibrated_and_above
+  form: validity_review.csv
+evaluators:
+  blinded: required
+  rubric_aware: optional
+  deterministic: [det_hard_unsafe_flag]
+metrics:
+  primary: panel_any_unsafe_rate_on_auto_screened
+  secondary: [excessive_abstention_rate_on_originals]
+  ci_method: case_clustered_bootstrap
+acceptance_criteria: declared_per_hazard
+review_routing:
+  mandatory_strata: [high_severity_failure, judge_disagreement, safe_to_unsafe_flip,
+                     potentially_harmful_treatment, validity_ambiguous]
+  calibration_sample_size: 12
+required_capabilities: [text_single_turn, contradiction_injection, paired_original_variant, binary_safety_fields]
+# --------------------------------------------------------------------------
+
 maturity:
   level: experimental
   rationale: >

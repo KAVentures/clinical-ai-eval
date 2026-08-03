@@ -255,6 +255,61 @@ def cmd_fixtures(args):
     print(f"wrote generated fixture block to {readme}")
 
 
+def cmd_families(args):
+    """Inspectable family registry: maturity + capability gate (SDK)."""
+    from . import family_sdk
+    for r in family_sdk.family_status():
+        mark = "runnable" if r["runnable"] else "BLOCKED"
+        print(f"{r['family_id']:24s} v{r['version']:20s} {r['maturity']:14s} {mark}")
+        if not r["runnable"]:
+            print(f"    {r['blocked_reason'][:200]}")
+
+
+def cmd_study(args):
+    """Track B: preregister / inspect a controlled validation study."""
+    from . import study as study_mod
+    path = Path(args.protocol) if args.protocol else (repo_root() / "out" / "study_protocol.yaml")
+    if args.init:
+        p = study_mod.default_protocol(args.study_id or "study_001", args.family)
+        p.case_set_hash = study_mod.hash_case_set(demo_target.base_cases())
+        path.parent.mkdir(parents=True, exist_ok=True)
+        study_mod.write_protocol(p, path)
+        print(f"wrote preregistration template -> {path}")
+        print("Fill the `roles:` slots. Until they are filled the study runs DRY ONLY.")
+    p = study_mod.read_protocol(path)
+    st = p.status()
+    print(f"\nstudy: {st['study_id']}  family: {p.family_id}")
+    print(f"validation_claim_allowed: {st['validation_claim_allowed']}   (dry runs always allowed)")
+    if st["blocked_reasons"]:
+        print("blocked because:")
+        for r in st["blocked_reasons"]:
+            print("  -", r)
+    if args.lock:
+        try:
+            h = p.lock()
+            study_mod.write_protocol(p, path)
+            print(f"\nanalysis plan LOCKED: {h}")
+            print("Labels may now be revealed by the vault (and only now).")
+        except study_mod.StudyBlocked as e:
+            raise SystemExit(f"cannot lock: {e}")
+
+
+def cmd_vault(args):
+    """Inspect the private vault (metadata only — never case content)."""
+    from . import vault as vault_mod
+    try:
+        v = vault_mod.DirectoryVault(args.path)
+    except vault_mod.VaultError as e:
+        raise SystemExit(str(e))
+    suites = v.list_suite_metadata()
+    if not suites:
+        print("vault reachable but contains no suites.")
+        return
+    for s in suites:
+        print(f"{s['suite_id']:20s} family={s['family_id']:22s} n={s['n_cases']:4d} "
+              f"locked={s['locked']}  hazards={s['hazards_covered']}")
+
+
 def _load_cases(args):
     if args.cases:
         return [json.loads(l) for l in open(args.cases) if l.strip()]
@@ -292,6 +347,15 @@ def main(argv=None):
     pf = sub.add_parser("fixtures", help="regenerate (or --check) the README's generated numbers")
     pf.add_argument("--check", action="store_true", help="fail if the README block is stale")
     pf.set_defaults(func=cmd_fixtures)
+    sub.add_parser("families", help="family registry: maturity + capability gate").set_defaults(func=cmd_families)
+    ps = sub.add_parser("study", help="Track B: preregister/inspect a validation study")
+    ps.add_argument("--init", action="store_true"); ps.add_argument("--lock", action="store_true")
+    ps.add_argument("--protocol"); ps.add_argument("--study-id")
+    ps.add_argument("--family", default="missing_information")
+    ps.set_defaults(func=cmd_study)
+    pv = sub.add_parser("vault", help="inspect the private vault (metadata only)")
+    pv.add_argument("--path", default=None)
+    pv.set_defaults(func=cmd_vault)
     args = ap.parse_args(argv)
     args.func(args)
 

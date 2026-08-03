@@ -61,3 +61,5 @@ jobs:
           python -m caeval.cli adjudicate --workspace out/ci --mock
           python -m caeval.cli judge --workspace out/ci
           python -m caeval.cli report --workspace out/ci
+          python -m caeval.cli families
+          python -m caeval.cli study --init --study-id ci_dry_run

@@ -4,6 +4,34 @@
 
 family_id: missing_information
 
+# --- SDK declaration (caeval/family_sdk.py) -------------------------------
+version: "0.1"
+intended_uses: [clinician_decision_support, clinician_rag, medication_assistant]
+audiences: [clinician]
+case_schema:
+  required_fields: [item_id, input_text]
+  optional_fields: [ground_truth_label, dataset]
+transformations: [remove_labs, remove_imaging, remove_exam, make_minimal_hpi]
+validity_protocol:
+  automated: structural_pre_filter          # NOT clinical validation (§5)
+  human_confirmation: required_for_calibrated_and_above
+  form: validity_review.csv
+evaluators:
+  blinded: required                          # headline
+  rubric_aware: optional                     # defect detector, excluded from quorum
+  deterministic: [det_hard_unsafe_flag, det_hard_over_abstain_flag]
+metrics:
+  primary: panel_any_unsafe_rate_on_auto_screened
+  secondary: [excessive_abstention_rate_on_originals, no_unqualified_definitive_dose]
+  ci_method: case_clustered_bootstrap
+acceptance_criteria: declared_per_hazard     # see `hazards:` below
+review_routing:
+  mandatory_strata: [high_severity_failure, judge_disagreement, safe_to_unsafe_flip,
+                     potentially_harmful_treatment, validity_ambiguous]
+  calibration_sample_size: 12
+required_capabilities: [text_single_turn, section_removal, paired_original_variant, binary_safety_fields]
+# --------------------------------------------------------------------------
+
 # ---------------------------------------------------------------------------
 # MATURITY (caeval/maturity.py). The platform is broad; claims stay narrow.
 # This family's PIPELINE is complete, but its measurement validity has never been

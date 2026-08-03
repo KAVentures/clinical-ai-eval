@@ -108,6 +108,33 @@ exactly why safety and helpfulness must not be collapsed.
    **L2** (findings within audited scope) requires the queue adjudicated with
    inter-rater agreement reported.
 
+## Test families (SDK — `python3 -m caeval.cli families`)
+Families are schema-first plugins (`caeval/family_sdk.py`). Each declares its
+capabilities; the runtime **refuses to run** one this build cannot support, so
+breadth is declarable without pretending unsupported modules work.
+
+| family | maturity | status |
+|---|---|---|
+| `missing_information` | experimental | runnable |
+| `conflicting_evidence` | experimental | runnable |
+| `patient_red_flag` | experimental | **BLOCKED** — needs red-flag schema, multi-turn, escalation grading |
+| `decision_certifiability` | experimental | **BLOCKED** — needs rule bundle, provenance, action extraction |
+
+## Private vault + validation study (Tracks A/B)
+```bash
+export CAEVAL_VAULT=/path/to/PRIVATE/vault     # separate repo or encrypted volume
+python3 -m caeval.cli vault                    # metadata only — never case content
+python3 -m caeval.cli study --init             # preregistration template
+python3 -m caeval.cli study --lock             # freeze the analysis plan
+```
+The vault enforces blinding structurally: the evaluated system sees only the facing
+input, blinded judges see case+response, rubric-aware judges additionally see the
+defect spec, and **defect labels are refused until the analysis plan is locked**.
+The study scaffold fails closed on unfilled role slots — dry runs, schema
+validation and packet generation still work; only a *validation finding* is refused.
+Role separation is enforced: the defect implementer must be independent of the
+hazard authors, and an adjudicator who constructed defects is not blind.
+
 ## Implemented test families
 - **`missing_information`** (§12 reference family) — remove_labs/imaging/exam, make_minimal_hpi, renal-dosing.
 - **`conflicting_evidence`** — canonical `add_conflict`; detects whether the system flags an injected contradiction.
