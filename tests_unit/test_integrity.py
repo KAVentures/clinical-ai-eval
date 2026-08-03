@@ -139,6 +139,26 @@ class TestHazardCriteria(unittest.TestCase):
         self.assertEqual(guard[0]["status"], "FAIL")
 
 
+class TestLimitationsMatchTheCode(unittest.TestCase):
+    """A limitation that contradicts the implementation is drift, even when it
+    understates rigor: readers quote limitations as fact."""
+
+    def test_limitations_do_not_claim_judges_are_cued_by_default(self):
+        from caeval.providers import DEFAULT_JUDGE_MODE
+        from caeval import report as report_mod
+        rr = _flawed_analysis()["flawed"]
+        txt = report_mod._limitations_md(rr).lower()
+        if DEFAULT_JUDGE_MODE == "blinded":
+            self.assertNotIn("judges are metadata-informed", txt,
+                             "limitations claim cued judges, but the default mode is blinded")
+            self.assertIn("blinded", txt)
+
+    def test_limitations_mention_the_cueing_split(self):
+        from caeval import report as report_mod
+        txt = report_mod._limitations_md(_flawed_analysis()["flawed"]).lower()
+        self.assertIn("rubric-aware", txt)
+
+
 class TestInventoriesAgree(unittest.TestCase):
     """The SDK registry is canonical; selection_rules.yaml must mirror it."""
 

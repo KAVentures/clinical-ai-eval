@@ -38,6 +38,20 @@ See [`CORRECTIONS.md`](CORRECTIONS.md) for the latest corrections (see the newes
    per-item disagreement reported, and a human-review queue for any headline. The
    `≥2 distinct providers` rule is enforced at runtime from `configs/judge_panel.toml`.
 
+## Evaluate YOUR product (self-service — no source edits)
+```bash
+clinical-ai-eval project init ./my-assessment --name my-product
+#   answer every field in my-assessment/project.yaml  (blank = unanswered = BLOCKED)
+clinical-ai-eval target validate --project ./my-assessment
+clinical-ai-eval connector test  --project ./my-assessment   # dry-run before spending
+clinical-ai-eval plan            --project ./my-assessment
+```
+The intake is **fail-closed**: every mandatory question blocks planning while blank,
+because "we didn't ask" and "the answer is no" are different. The run **mode**
+gates what the output may claim — a `mock` subject can only support
+`demonstration`, and `calibrated_assessment` / `procurement_comparison` require ≥2
+named clinical reviewers. See [`PRODUCT_V1.md`](PRODUCT_V1.md) for claim boundaries.
+
 ## Quick start (offline, no keys, no downloads)
 ```bash
 cd clinical_ai_eval

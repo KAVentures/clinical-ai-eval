@@ -64,6 +64,15 @@ jobs:
           python -m caeval.cli families
           python -m caeval.cli study --init --study-id ci_dry_run
           python -c "import caeval.certificates as cc; print('certificates OK', cc.CERTIFIED)"
+      - name: Self-service path (no source edits)
+        run: |
+          python -m caeval.cli project init /tmp/p --name ci-project
+          # a blank intake MUST fail closed
+          if python -m caeval.cli target validate --project /tmp/p; then
+            echo "FAIL: blank intake validated"; exit 1
+          else
+            echo "OK: blank intake correctly refused"
+          fi
 
   wheel:
     # Proves the package is installable, not merely checkout-runnable: builds a

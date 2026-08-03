@@ -1,5 +1,48 @@
 # Corrections log
 
+## v0.7 (part 2) — real self-service intake; stale limitation removed (2026-08)
+
+### Demo assumptions were embedded in the user-facing path (blocker)
+`plan`, `inspect` and `init` all read a hardcoded `DEMO_TARGET_META`, so a new user
+could produce an authoritative-looking evaluation plan that described the **demo**
+product rather than theirs. Everything downstream — suite selection, the audience
+gate, hazards, report scope — derives from the intake, so a demo intake yields a
+confidently wrong plan. This was the single blocker to self-service.
+
+Added `caeval/project.py` + `project init` / `target validate` / `connector test`.
+A project is a user-owned versioned directory; `plan`/`inspect` take `--project`
+and validate it before anything runs, and say so loudly when falling back to the demo.
+
+**Unanswered is not a default.** Every mandatory intake and governance question
+blocks planning while blank — "we didn't ask" and "the answer is no" are different,
+and only one is safe. While writing the tests this caught the *same coercion trap*
+as `certificate_id=True` in v0.6: `str(None)` is `"None"`, which passed a naive
+string check, so `_is_unanswered()` now inspects the raw value first.
+
+**Run modes gate claims.** Five modes each carry a mandatory label; a `mock`
+subject can only support `demonstration`, and `calibrated_assessment` /
+`procurement_comparison` require ≥2 named clinical reviewers. A run's claim is the
+weakest of run mode, conformance level, and family maturity — all enforced in code.
+
+### Stale limitation contradicted the implementation
+`limitations.md` still said "**Judges are metadata-informed** — the judge receives
+the perturbation type and expected missing evidence… A blinded-judge comparison is
+future work." Since v0.3 the default is `blinded`, cued judges are excluded from
+the quorum and every headline field, and the cueing gap is reported. The limitation
+understated the rigor, but a limitation that contradicts the code is still drift —
+readers quote limitations as fact. Corrected and guarded by a test that compares
+the text against `DEFAULT_JUDGE_MODE`.
+
+### PRODUCT_V1.md
+Defines the product, the two audiences, the run modes, the release gates, and
+explicitly what the platform will **never** output (deployment verdict, single
+safety score, compliance certificate, buy/do-not-buy). States the central
+distinction between **platform evidence** (does the harness detect what it claims?
+— currently none) and **product evidence** (how did this product do? — available
+today), and records that the onboarding acceptance test is only partially met.
+
+144 tests pass.
+
 ## v0.7 — four fail-open paths closed (external review of v0.6, 2026-08)
 
 An external review of `b4aa97a` found four P0 fail-opens and three P1 issues. All

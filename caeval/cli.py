@@ -28,6 +28,20 @@ from .util import repo_root, utc_now_iso
 from .workspace import Workspace
 from targets import demo_target
 
+def _resolve_target_meta(args):
+    """Intake comes from the USER's project when one is given; the demo constant is
+    ONLY the fallback for the built-in demo commands. Planning against a demo
+    profile while the user believes it describes their product is the core
+    self-service hazard, so `--project` is always preferred and validated first."""
+    from . import project as project_mod
+    path = getattr(args, "project", None)
+    if not path:
+        return DEMO_TARGET_META, None
+    proj = project_mod.load(path)
+    proj.require_valid()                       # fail closed on an incomplete intake
+    return proj.target_meta, proj
+
+
 DEMO_TARGET_META = {
     "name": "demo_clinical_assistant", "version": "mock-0.1", "endpoint": "(local mock)",
     "profiles": ["clinician_decision_support", "medication_assistant"],
@@ -85,7 +99,13 @@ def _generate(ws: Workspace, subject_spec, family, cases, panel):
 
 # -------------------------------- commands --------------------------------
 def cmd_plan(args):
-    plan = _plan(DEMO_TARGET_META)
+    meta, proj = _resolve_target_meta(args)
+    if proj is None:
+        print("NOTE: no --project given; planning against the built-in DEMO target.\n"
+              "      For your own product: clinical-ai-eval project init <dir>\n")
+    plan = _plan(meta)
+    if proj is not None:
+        plan["run_mode"] = {"mode": proj.mode, "claim_label": proj.claim_label()}
     out = repo_root() / "out"; out.mkdir(exist_ok=True)
     intake_mod.write_eval_plan(plan, str(out / "eval_plan.yaml"))
     print(yaml.safe_dump(plan, sort_keys=False))
@@ -93,7 +113,10 @@ def cmd_plan(args):
 
 
 def cmd_inspect(args):
-    plan = _plan(DEMO_TARGET_META)
+    meta, proj = _resolve_target_meta(args)
+    if proj is None:
+        print("NOTE: no --project given; inspecting the built-in DEMO target.")
+    plan = _plan(meta)
     panel = pipeline.load_panel()
     info = pipeline.assess_panel(panel)
     print("Target profiles:", plan["target_profile"]["types"], "| audience:", plan["target_profile"]["audience"])
@@ -310,6 +333,69 @@ def cmd_vault(args):
               f"locked={s['locked']}  hazards={s['hazards_covered']}")
 
 
+def cmd_project(args):
+    """Create or inspect a user project (real intended-use intake)."""
+    from . import project as project_mod
+    if args.action == "init":
+        f = project_mod.write_template(args.path, args.name or Path(args.path).name, args.mode)
+        print(f"created {f}")
+        print("\nNext:\n  1. answer every field in project.yaml (blank = unanswered = blocked)\n"
+              "  2. clinical-ai-eval target validate --project " + str(args.path) + "\n"
+              "  3. clinical-ai-eval connector test --project " + str(args.path))
+        return
+    proj = project_mod.load(args.path)
+    print(f"project: {proj.name}  mode: {proj.mode}")
+    print(f"claim label: {proj.claim_label()}")
+    print(f"profiles: {proj.profiles or '(none declared)'}")
+    print(f"subject: {proj.subject.get('kind')}")
+
+
+def cmd_target_validate(args):
+    """Fail-closed validation of the intended-use intake."""
+    from . import project as project_mod
+    proj = project_mod.load(args.project)
+    problems = proj.validate()
+    if not problems:
+        print(f"project '{proj.name}' is VALID")
+        print(f"  mode        : {proj.mode}")
+        print(f"  claim label : {proj.claim_label()}")
+        print(f"  profiles    : {proj.profiles}")
+        sel = selection.select_suites(proj.profiles)
+        print(f"  runnable    : {sel['runnable_suites']}")
+        print(f"  blocked     : {[b['suite'] for b in sel['required_but_not_run']]}")
+        return
+    print(f"project '{proj.name}' is NOT usable ({len(problems)} problem(s)):")
+    for x in problems:
+        print("  -", x)
+    raise SystemExit(1)
+
+
+def cmd_connector_test(args):
+    """Dry-run the product connector on one throwaway prompt before spending money."""
+    from . import project as project_mod
+    from .subject import build_subject
+    proj = project_mod.load(args.project)
+    proj.require_valid()
+    spec = proj.subject
+    print(f"connector: kind={spec.get('kind')} target={proj.target_meta['name']}")
+    try:
+        subject = build_subject(spec)
+    except Exception as e:  # noqa: BLE001
+        raise SystemExit(f"connector could not be built: {e}")
+    probe = {"item_id": "connector_probe", "cell_id": "connector_probe::original",
+             "perturbation_type": "original", "expected_missing_evidence": "",
+             "ground_truth_label": "",
+             "input_text": "Connectivity probe. Reply with the single word: ok"}
+    try:
+        resp = subject(probe)
+    except Exception as e:  # noqa: BLE001
+        raise SystemExit(f"connector call FAILED: {e}")
+    if not str(resp).strip():
+        raise SystemExit("connector returned an EMPTY response — check answer_path / response shape")
+    print(f"response ({len(str(resp))} chars): {str(resp)[:200]}")
+    print("connector OK")
+
+
 def _load_cases(args):
     if args.cases:
         return [json.loads(l) for l in open(args.cases) if l.strip()]
@@ -328,8 +414,21 @@ def _fmt(x):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="clinical-ai-eval", description="EVAL_STANDARD.md reference harness (§10)")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("plan").set_defaults(func=cmd_plan)
-    sub.add_parser("inspect").set_defaults(func=cmd_inspect)
+    pp = sub.add_parser("plan"); pp.add_argument("--project"); pp.set_defaults(func=cmd_plan)
+    pi2 = sub.add_parser("inspect"); pi2.add_argument("--project"); pi2.set_defaults(func=cmd_inspect)
+    pj = sub.add_parser("project", help="create or inspect a user project")
+    pj.add_argument("action", choices=["init", "show"])
+    pj.add_argument("path"); pj.add_argument("--name")
+    pj.add_argument("--mode", default="demonstration")
+    pj.set_defaults(func=cmd_project)
+    pt = sub.add_parser("target", help="validate the intended-use intake")
+    pt.add_argument("action", choices=["validate"])
+    pt.add_argument("--project", required=True)
+    pt.set_defaults(func=lambda a: cmd_target_validate(a))
+    pc = sub.add_parser("connector", help="dry-run the product connector")
+    pc.add_argument("action", choices=["test"])
+    pc.add_argument("--project", required=True)
+    pc.set_defaults(func=lambda a: cmd_connector_test(a))
     pi = sub.add_parser("init"); pi.add_argument("--workspace"); pi.set_defaults(func=cmd_init)
     pr = sub.add_parser("run")
     pr.add_argument("--arm", default="flawed", choices=list(demo_target.SUBJECT_ARMS))

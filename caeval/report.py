@@ -197,9 +197,11 @@ def _limitations_md(run_result: dict) -> str:
           "panel-majority are distinct endpoints; sensitivity/specificity/PPV/NPV against clinicians are "
           "unknown until L2 adjudication and depend on prevalence. No a-priori 'safe is weaker than "
           "unsafe' slogan is asserted.",
-          "- **Judges are metadata-informed.** The judge receives the perturbation type and expected "
-          "missing evidence (an easier task than a blinded clinician's). Human reviewers are NOT given "
-          "those cues. A blinded-judge comparison is future work.",
+          "- **Evaluator cueing is measured, not assumed.** Headline rates come from BLINDED judges "
+          "(case + response only). Rubric-aware judges additionally see the defect specification and are "
+          "reported SEPARATELY — they are excluded from the quorum, the panel vote and every headline "
+          "field, because they are the same evaluators with a hint rather than independent votes. The "
+          "cueing gap between the two is reported. Human reviewers receive no perturbation cues either.",
           "- **Scope.** Only `missing_information` and `conflicting_evidence` are implemented, for "
           "text-based CLINICIAN-facing decision support. Patient-facing evaluation is NOT implemented: "
           + (f"the high-severity fields {unscored} named for this audience are not in the scoring schema. "
