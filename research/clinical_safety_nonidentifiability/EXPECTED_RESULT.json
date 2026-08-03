@@ -1,0 +1,60 @@
+{
+  "critical_question_closure": {
+    "certified_before_answer": null,
+    "certified_if_absent": 0,
+    "certified_if_present": 1,
+    "contraindication_status_alone_sufficient": true,
+    "minimum_closures": [
+      [
+        "contraindication_status"
+      ]
+    ],
+    "renal_status_alone_sufficient": false
+  },
+  "finite_witness": {
+    "deterministic_enumeration": {
+      "all_constant_predictions_fail": true,
+      "predictions": [
+        {
+          "misclassified_worlds": [
+            "contraindication_present"
+          ],
+          "prediction": 0
+        },
+        {
+          "misclassified_worlds": [
+            "no_contraindication"
+          ],
+          "prediction": 1
+        }
+      ],
+      "shared_observation": "Adult with a condition for which action X may be considered; contraindication status is omitted."
+    },
+    "identifiable_without_side_information": false,
+    "randomized_bayes_error_lower_bound_equal_prior": 0.5,
+    "randomized_worst_case_error_lower_bound": 0.5,
+    "witness_count": 1,
+    "witnesses": [
+      {
+        "action": "start_action_x",
+        "left_label": 0,
+        "left_world_id": "no_contraindication",
+        "observation": "Adult with a condition for which action X may be considered; contraindication status is omitted.",
+        "right_label": 1,
+        "right_world_id": "contraindication_present"
+      }
+    ]
+  },
+  "np_hardness_reduction": {
+    "matches_expected": true,
+    "minimum_closures": [
+      [
+        "qA",
+        "qB"
+      ]
+    ],
+    "query_count": 3,
+    "universe_size": 3,
+    "world_count": 6
+  }
+}
