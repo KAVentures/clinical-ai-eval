@@ -37,6 +37,8 @@ PROVIDED_CAPABILITIES = {
     "contradiction_injection",   # add_conflict
     "paired_original_variant",   # paired scoring against the unperturbed case
     "binary_safety_fields",      # the BINARY_FIELDS scoring schema
+    "certificate_verification",  # caeval/certificates/verifier.py (v0.6)
+    "minimum_information_solver",# caeval/certificates/mmip.py (v0.6)
 }
 
 # Capabilities named by families we intend to support later but do NOT yet.
@@ -49,6 +51,10 @@ KNOWN_UNPROVIDED = {
     "citation_resolution": "no citation resolver",
     "source_transcripts": "scribe families need source transcripts",
     "multi_version_diff": "version regression needs two product versions",
+    "rule_bundle": "no version-pinned executable clinical rule bundle exists",
+    "provenance_chain": "no fact/rule provenance store or replay exists",
+    "action_extraction": "no proposed-action / patient-fact extractor exists",
+    "critical_question_closure": "no clinician-authored critical-question sets exist",
 }
 
 REQUIRED_TOP_LEVEL = [

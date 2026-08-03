@@ -63,3 +63,4 @@ jobs:
           python -m caeval.cli report --workspace out/ci
           python -m caeval.cli families
           python -m caeval.cli study --init --study-id ci_dry_run
+          python -c "import caeval.certificates as cc; print('certificates OK', cc.CERTIFIED)"

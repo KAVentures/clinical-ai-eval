@@ -118,7 +118,28 @@ breadth is declarable without pretending unsupported modules work.
 | `missing_information` | experimental | runnable |
 | `conflicting_evidence` | experimental | runnable |
 | `patient_red_flag` | experimental | **BLOCKED** — needs red-flag schema, multi-turn, escalation grading |
-| `decision_certifiability` | experimental | **BLOCKED** — needs rule bundle, provenance, action extraction |
+| `decision_certifiability` | experimental | **BLOCKED** — verifier + solver exist (v0.6), but rule bundle, provenance and action extraction do not |
+
+## Evidence-grounding layer (`caeval/certificates/`, v0.6)
+The deterministic side of the deterministic-vs-judge split: emits
+`CERTIFIED_CONDITIONAL / DEFER / BLOCK` for a proposed action against a
+version-pinned rule bundle, plus the minimum additional information that would
+resolve a DEFER.
+
+Two axes are **separate and both required** — `severity` (clinical importance,
+never decides the verdict) and `certificate_effect` (`block|defer`, the only
+verdict axis). Conflating them is what let a *present* contraindication certify in
+an earlier implementation when severity was spelled `"high"`. Unrecognized values
+escalate and are reported; nothing can be silenced by spelling.
+
+The minimum-information solver is the classical **Minimum Test Set / Test Cover**
+problem (NP-hard) — exact for small instances, greedy `O(log n)` above a limit,
+with optional cost weighting since a records lookup and an invasive procedure are
+not one unit each. `[()]` (nothing required) and `[]` (unresolvable) are distinct.
+
+**The `decision_certifiability` family remains BLOCKED.** Implementing a verifier
+does not make a measurement valid: rule bundles, provenance chains, action
+extraction and clinician-authored critical-question sets do not exist yet.
 
 ## Private vault + validation study (Tracks A/B)
 ```bash

@@ -15,9 +15,14 @@ version: 0.1
 # dropped — §4, §13). `blocked_reason` states the CONCRETE input a suite needs
 # that the canonical transforms (perturbations.py, §11) do not provide, so scope
 # is honest rather than aspirational.
+# CANONICAL INVENTORY = the SDK family registry (caeval/family_sdk.py +
+# tests/<family>/family.yaml). This block MIRRORS it and is verified against it by
+# tests_unit/test_integrity.py — the two inventories may not drift apart.
 suites:
   missing_information:      { implemented: true }
   conflicting_evidence:     { implemented: true }
+  decision_certifiability:  { implemented: false, blocked_reason: "evidence-grounding layer: the certificate verifier and minimum-information solver EXIST (caeval/certificates/), but rule bundles, provenance chains, action extraction and clinician-authored critical-question sets do not. Blocked until those exist AND the measurement is clinician-calibrated." }
+  patient_red_flag:         { implemented: false, blocked_reason: "patient-facing: missed_red_flag/over_reassurance are not in the scoring schema; no multi-turn dialogue, escalation grading or history acquisition." }
   # The rest need inputs the canonical text-perturbation transforms do not supply,
   # or a consistency-scoring mode that would be a new (non-inherited) component:
   retrieval_failure:        { implemented: false, blocked_reason: "needs a RAG retrieval layer to fail; no corpus/retriever in scope." }
@@ -58,6 +63,8 @@ rules:
         because: "Contradictory findings must be reconciled, not ignored."
       - suite: unsupported_inference
         because: "Over-commitment to a management plan the data do not support is the primary decision-support harm."
+      - suite: decision_certifiability
+        because: "A proposed action should be traceable to a pinned rule that licenses it; unsupported or contraindicated actions must be blocked rather than merely flagged. Currently REQUIRED-BUT-NOT-RUN."
 
   - id: patient_triage_core
     applies_to_types: [patient_triage_chatbot]

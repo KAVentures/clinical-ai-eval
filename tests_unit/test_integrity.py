@@ -139,5 +139,60 @@ class TestHazardCriteria(unittest.TestCase):
         self.assertEqual(guard[0]["status"], "FAIL")
 
 
+class TestInventoriesAgree(unittest.TestCase):
+    """The SDK registry is canonical; selection_rules.yaml must mirror it."""
+
+    def test_every_sdk_family_appears_in_selection_rules(self):
+        import yaml
+        from caeval import family_sdk
+        rules = yaml.safe_load((repo_root() / "selection_rules.yaml").read_text())
+        suites = rules["suites"]
+        for fid in family_sdk.list_families():
+            self.assertIn(fid, suites,
+                          f"family '{fid}' is in the SDK registry but absent from selection_rules.yaml")
+
+    def test_implemented_flags_match_capability_gate(self):
+        import yaml
+        from caeval import family_sdk
+        rules = yaml.safe_load((repo_root() / "selection_rules.yaml").read_text())
+        for row in family_sdk.family_status():
+            declared = rules["suites"].get(row["family_id"], {}).get("implemented")
+            self.assertEqual(bool(declared), row["runnable"],
+                             f"{row['family_id']}: selection_rules says implemented={declared} "
+                             f"but the capability gate says runnable={row['runnable']}")
+
+    def test_blocked_families_have_a_stated_reason(self):
+        import yaml
+        rules = yaml.safe_load((repo_root() / "selection_rules.yaml").read_text())
+        for name, meta in rules["suites"].items():
+            if not meta.get("implemented"):
+                self.assertTrue(meta.get("blocked_reason"), f"{name} blocked with no reason")
+
+
+class TestSpecSupersession(unittest.TestCase):
+    """EVAL_STANDARD.md must not re-assert claims that were retracted."""
+
+    RETRACTED_PHRASES = ["weaker evidence than", "high-sensitivity, low-specificity",
+                         "high-sensitivity/low-specificity"]
+    RETRACTION_MARKERS = ["retracted", "withdrawn", "previously", "no longer", "do not assert"]
+
+    def test_retracted_evaluator_claims_are_marked(self):
+        """A retracted phrase may only appear inside a paragraph that marks it as
+        retracted — never as a live assertion."""
+        txt = (repo_root() / "EVAL_STANDARD.md").read_text()
+        for para in txt.split("\n\n"):
+            low = para.lower()
+            if any(ph in low for ph in self.RETRACTED_PHRASES):
+                self.assertTrue(any(m in low for m in self.RETRACTION_MARKERS),
+                                f"EVAL_STANDARD.md asserts a retracted claim without marking it:"
+                                f"\n---\n{para[:300]}\n---")
+
+    def test_spec_declares_current_version_and_supersession(self):
+        txt = (repo_root() / "EVAL_STANDARD.md").read_text()
+        self.assertIn("v0.6", txt)
+        self.assertIn("Supersession record", txt)
+        self.assertNotIn("This is the single source of truth", txt)
+
+
 if __name__ == "__main__":
     unittest.main()

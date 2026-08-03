@@ -1,5 +1,73 @@
 # Corrections log
 
+## v0.6 — evidence-grounding layer implemented and hardened; protocol reconciled (2026-08)
+
+v0.5 declared `decision_certifiability` but shipped no verifier, so the repository
+was *ClinArgCert-aware and safely scaffolded, but not ClinArgCert-implemented*.
+That gap is now closed — **without unblocking the family**.
+
+### The severity fail-open, fixed structurally (not just patched)
+An external reference verifier skipped any check whose `severity` was not the exact
+lowercase string `"critical"`. A skipped check cannot BLOCK, cannot DEFER, and
+emits no finding — so a **PRESENT contraindication certified with zero findings**
+when severity was spelled `"high"`, `"Critical"`, or omitted. That collided with
+this repository's own vocabulary (`high | moderate | low`), in which `"critical"`
+never appears: importing it unchanged would have certified everything.
+
+The root cause was **conflating two axes**. They are now separate and both required:
+
+| field | meaning | decides the verdict? |
+|---|---|---|
+| `severity` | clinical importance (`critical\|high\|moderate\|low`) | **never** |
+| `certificate_effect` | verdict semantics (`block\|defer`) | **only this** |
+
+An unrecognized value in either escalates and is reported; `certificate_effect`
+fails closed to `block`. Verified across 15 severity spellings — including `""`,
+missing, `1`, `True`, `[]`, `{}` — none can silence a check.
+
+### Corrected minimum-information solver (`caeval/certificates/mmip.py`)
+- `UNKNOWN`/absent answers no longer count as discriminating (that **understated**
+  required information — the worst failure direction for this endpoint);
+- optional **cost weighting**, because cardinality is the wrong clinical objective
+  (a records lookup, a serum test and an invasive procedure are not one unit each);
+- `[()]` (no questions required) and `[]` (no solution exists) are distinct outcomes;
+- malformed worlds raise `MMIPError` instead of `KeyError`;
+- exhaustive search refuses instances above a query limit unless opted into, with
+  `greedy_query_set` as the documented `O(log n)` approximation;
+- complexity stated correctly: `C(n,k)` in the **size of the answer**.
+
+### Protocol reconciliation (the `EVAL_STANDARD.md` drift)
+The spec still called itself v0.1, "the single source of truth", claimed
+patient-facing scope, and **re-asserted the retracted evaluator claims**. It is now
+v0.6 with a **§14 Supersession record**, and states that where it disagrees with the
+code, the code wins. Two CI-enforced guards were added:
+
+- a paragraph-aware check that a retracted phrase may appear only inside text that
+  marks it as retracted;
+- an inventory check that the **SDK family registry is canonical** and
+  `selection_rules.yaml` mirrors it (`implemented` flags must match the capability
+  gate, and every blocked suite must state a reason).
+
+Both were tamper-tested: re-asserting the retracted claim, or dropping a family
+from `selection_rules.yaml`, fails the build.
+
+### `complete_case_probe` subset inconsistency
+The over-deferral control used a `remove_required_field` placeholder while the
+family's headline subset admitted only `determinacy: underdetermined` — so the
+control would have been excluded from the headline or silently converted into a
+missing-information case. It is now a true no-op (`transform: none`) in an explicit
+`control_subset: answerable`, with per-test subset assignment. Measuring
+over-deferral on answerable controls is the point: reporting it alongside the
+headline would let a system look "safe" by deferring on cases it should answer.
+
+### The family REMAINS BLOCKED
+`certificate_verification` and `minimum_information_solver` are now provided;
+`rule_bundle`, `provenance_chain`, `action_extraction` and
+`critical_question_closure` are not. Implementing a verifier does not make a
+measurement valid, and a regression test asserts the family stays closed.
+
+113 tests pass.
+
 ## v0.5 — plugin SDK, private vault, Track B scaffold (2026-08)
 
 ### Test-family plugin SDK (`caeval/family_sdk.py`)
