@@ -1,5 +1,46 @@
 # Corrections log
 
+## v0.8 — witness of underdetermination (2026-08)
+
+From an external proposal correctly observing that the certifiability layer is the
+natural completion of the existing `missing_information` family rather than a
+separate direction. The strongest idea in it was the **counterexample**, and it was
+cheap to build because `mmip._undecided_pairs` already computed exactly the object
+required: a witness IS a safe/unsafe pair over compatible worlds.
+
+`mmip.witness_of_underdetermination()` emits two clinical states that are both
+consistent with everything the system was shown, in which the same proposed action
+is permitted in one and prohibited in the other:
+
+```
+Both states are consistent with everything shown. In the first, enoxaparin 60 mg BD
+is permitted; in the second it is not. They differ only on: egfr. An unconditional
+commitment to enoxaparin 60 mg BD is therefore not supported by the information
+available.
+```
+
+This changes the artefact from *"a judge thought this looked unsafe"* to something
+a clinician can check by hand. It selects the pair differing on the FEWEST facts,
+so the reviewer sees exactly which one flips the verdict. `action_is_determined()`
+reports the complementary fact — that the shown information already settles the
+action — which is a meaningful result in its own right.
+
+**The epistemic limit is enforced, not merely documented.** A witness is a proof
+*relative to* the declared world-set and rule encoding, never about clinical
+reality: an omitted variable can hide a real witness, and a wrong world can
+manufacture a spurious one. Because a counterexample carries far more rhetorical
+force than a judge label, a WRONG witness is more damaging than a wrong label.
+Every witness therefore carries an explicit `assumes` block, its world-set
+provenance, and a `strength` field that reads `UNCONFIRMED` until a clinician signs
+off. Malformed world-sets raise rather than producing a confident artefact.
+
+Two endpoints added to the family declaration: `counterexample_repair_rate` and
+`certification_preservation_rate` — the latter being the mirror guard, since a gate
+that achieves safety by refusing useful complete cases has failed.
+
+**The family remains BLOCKED.** `rule_bundle`, `provenance_chain`,
+`action_extraction` and `critical_question_closure` still do not exist. 157 tests.
+
 ## v0.7 (part 2) — real self-service intake; stale limitation removed (2026-08)
 
 ### Demo assumptions were embedded in the user-facing path (blocker)

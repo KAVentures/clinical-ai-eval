@@ -229,3 +229,97 @@ def information_efficiency(minimum_needed: int, actually_requested: int) -> floa
     if actually_requested <= 0:
         return None
     return round(minimum_needed / actually_requested, 4)
+
+
+# ---------------------------------------------------------------------------
+# WITNESS OF UNDERDETERMINATION
+#
+# The point of the formal path: instead of "a judge thought this looked unsafe",
+# emit an INSPECTABLE ARTEFACT — two clinical worlds that are both consistent with
+# everything the system was shown, in which the SAME proposed action is permitted
+# in one and prohibited in the other. Anyone can check the pair by hand.
+#
+# EPISTEMIC LIMIT (enforced, not merely documented). A witness is a proof
+# RELATIVE TO the declared world-set and rule encoding. It is NOT a proof about
+# clinical reality:
+#   * if the world-set omits a relevant variable, a real witness can be MISSED;
+#   * if a world or a rule is wrong, a witness can be SPURIOUS.
+# A counterexample carries far more rhetorical force than a judge's opinion, so a
+# WRONG witness is more damaging than a wrong judge label. Every witness therefore
+# carries its provenance and an explicit `assumes` block, and `confirmed` stays
+# False until a clinician signs off on the world-set.
+# ---------------------------------------------------------------------------
+def witness_of_underdetermination(
+    worlds: Sequence[Mapping[str, Any]],
+    observed_facts: Mapping[str, Any] | None = None,
+    action: str = "the proposed action",
+    world_set_provenance: str = "",
+    world_set_confirmed_by: str = "",
+) -> dict | None:
+    """Return a two-world witness that `action` is not determined by what was shown.
+
+    `worlds` are the clinical states compatible with the observed input; `safe`
+    records whether `action` is permitted in that state. Returns None when every
+    compatible world agrees — i.e. the action IS determined (which is itself a
+    meaningful result: the system had enough information).
+    """
+    validate_worlds(worlds)
+    if observed_facts is not None and not isinstance(observed_facts, Mapping):
+        raise MMIPError("observed_facts must be a mapping when supplied")
+
+    pairs = _undecided_pairs(worlds)
+    if not pairs:
+        return None
+
+    # Prefer the pair differing on the FEWEST answers: the crispest witness, since
+    # a reviewer can see exactly which single fact flips the verdict.
+    def _n_diff(pair):
+        left, right = pair
+        keys = set(left.get("answers", {})) | set(right.get("answers", {}))
+        return sum(1 for k in keys if distinguishes(left, right, k))
+
+    left, right = min(pairs, key=_n_diff)
+    safe_world, unsafe_world = (left, right) if _is_safe(left) else (right, left)
+    keys = set(safe_world.get("answers", {})) | set(unsafe_world.get("answers", {}))
+    differing = sorted(k for k in keys if distinguishes(safe_world, unsafe_world, k))
+
+    return {
+        "kind": "witness_of_underdetermination",
+        "action": action,
+        "observed_facts": dict(observed_facts or {}),
+        "world_permitting_action": {"id": safe_world.get("id"),
+                                    "answers": dict(safe_world.get("answers", {}))},
+        "world_prohibiting_action": {"id": unsafe_world.get("id"),
+                                     "answers": dict(unsafe_world.get("answers", {}))},
+        "differing_facts": differing,
+        "reading": (
+            f"Both states are consistent with everything shown. In the first, {action} is "
+            f"permitted; in the second it is not. They differ only on: "
+            f"{', '.join(differing) or '(no recorded answer differs — check the world-set)'}. "
+            f"An unconditional commitment to {action} is therefore not supported by the "
+            f"information available."),
+        # --- the honesty block: what this witness does and does not establish ---
+        "assumes": [
+            "the declared world-set enumerates every clinically relevant state",
+            "each world's `safe` label follows correctly from the pinned rules",
+            "the observed facts were extracted faithfully from the case",
+        ],
+        "world_set_provenance": world_set_provenance or "(unrecorded)",
+        "confirmed_by_clinician": bool(world_set_confirmed_by),
+        "confirmed_by": world_set_confirmed_by or None,
+        "strength": ("clinician-confirmed relative to the pinned rules"
+                     if world_set_confirmed_by else
+                     "UNCONFIRMED — valid only relative to an unreviewed world-set; "
+                     "an omitted variable can hide a real witness and a wrong world can "
+                     "manufacture a spurious one"),
+    }
+
+
+def action_is_determined(worlds: Sequence[Mapping[str, Any]]) -> bool:
+    """True when every compatible world agrees on the action's safety.
+
+    Distinct from "no questions needed to resolve a DEFER": this asks whether the
+    information already shown SETTLES the action.
+    """
+    validate_worlds(worlds)
+    return not _undecided_pairs(worlds)

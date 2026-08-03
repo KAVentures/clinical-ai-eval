@@ -16,7 +16,10 @@ from caeval.certificates import (
     BLOCK, CERTIFIED, DEFER, UNKNOWN, MMIPError,
     greedy_query_set, is_decision_determining, minimum_query_sets, verify_certificate,
 )
-from caeval.certificates.mmip import information_efficiency, resolvable, validate_worlds
+from caeval.certificates.mmip import (
+    action_is_determined, information_efficiency, resolvable, validate_worlds,
+    witness_of_underdetermination,
+)
 from caeval.util import repo_root
 
 
@@ -395,3 +398,63 @@ class TestP1SafeLabelNotCoerced(unittest.TestCase):
     def test_real_bools_still_work(self):
         self.assertTrue(minimum_query_sets(
             [{"safe": True, "answers": {"q": 0}}, {"safe": False, "answers": {"q": 1}}], ["q"]))
+
+
+class TestWitnessOfUnderdetermination(unittest.TestCase):
+    """A witness converts 'a judge thought this was unsafe' into an artefact a
+    clinician can check by hand. Because it carries MORE rhetorical force than a
+    judge label, a wrong witness is worse than a wrong label — so its epistemic
+    limits are enforced, not merely documented."""
+
+    RENAL = [{"id": "A", "safe": True,  "answers": {"egfr": "75", "weight": "70"}},
+             {"id": "B", "safe": False, "answers": {"egfr": "18", "weight": "70"}}]
+
+    def test_emits_a_two_world_witness_naming_the_flipping_fact(self):
+        w = witness_of_underdetermination(self.RENAL, action="enoxaparin 60 mg BD")
+        self.assertEqual(w["differing_facts"], ["egfr"])
+        self.assertTrue(w["world_permitting_action"]["answers"])
+        self.assertTrue(w["world_prohibiting_action"]["answers"])
+        self.assertIn("enoxaparin", w["reading"])
+
+    def test_permitting_world_is_the_safe_one(self):
+        w = witness_of_underdetermination(self.RENAL)
+        self.assertEqual(w["world_permitting_action"]["id"], "A")
+        self.assertEqual(w["world_prohibiting_action"]["id"], "B")
+
+    def test_no_witness_when_the_action_is_determined(self):
+        determined = [{"safe": True, "answers": {"egfr": "75"}},
+                      {"safe": True, "answers": {"egfr": "60"}}]
+        self.assertIsNone(witness_of_underdetermination(determined))
+        self.assertTrue(action_is_determined(determined))
+        self.assertFalse(action_is_determined(self.RENAL))
+
+    def test_prefers_the_crispest_pair(self):
+        """A reviewer should see the fewest differing facts possible."""
+        worlds = [{"id": "A", "safe": True,  "answers": {"egfr": "75", "plt": "250", "hb": "13"}},
+                  {"id": "B", "safe": False, "answers": {"egfr": "18", "plt": "9", "hb": "6"}},
+                  {"id": "C", "safe": False, "answers": {"egfr": "18", "plt": "250", "hb": "13"}}]
+        self.assertEqual(witness_of_underdetermination(worlds)["differing_facts"], ["egfr"])
+
+    def test_unconfirmed_witness_is_labelled_unconfirmed(self):
+        w = witness_of_underdetermination(self.RENAL)
+        self.assertFalse(w["confirmed_by_clinician"])
+        self.assertIn("UNCONFIRMED", w["strength"])
+        self.assertTrue(w["assumes"], "a witness must state what it assumes")
+
+    def test_clinician_confirmation_changes_the_strength_claim(self):
+        w = witness_of_underdetermination(self.RENAL, world_set_confirmed_by="dr_a",
+                          world_set_provenance="ESC-AF 2024 §7.3")
+        self.assertTrue(w["confirmed_by_clinician"])
+        self.assertNotIn("UNCONFIRMED", w["strength"])
+        self.assertEqual(w["world_set_provenance"], "ESC-AF 2024 §7.3")
+
+    def test_witness_inherits_world_validation(self):
+        """A malformed world-set must not silently produce a confident artefact."""
+        for bad in ([{"answers": {"q": 1}}, {"safe": False, "answers": {"q": 0}}],
+                    [{"safe": "false", "answers": {}}, {"safe": False, "answers": {}}]):
+            with self.assertRaises(MMIPError):
+                witness_of_underdetermination(bad)
+
+    def test_observed_facts_must_be_a_mapping(self):
+        with self.assertRaises(MMIPError):
+            witness_of_underdetermination(self.RENAL, observed_facts="not a mapping")

@@ -39,6 +39,7 @@ PROVIDED_CAPABILITIES = {
     "binary_safety_fields",      # the BINARY_FIELDS scoring schema
     "certificate_verification",  # caeval/certificates/verifier.py (v0.6)
     "minimum_information_solver",# caeval/certificates/mmip.py (v0.6)
+    "underdetermination_witness",# mmip.witness_of_underdetermination (v0.8)
 }
 
 # Capabilities named by families we intend to support later but do NOT yet.

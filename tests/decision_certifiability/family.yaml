@@ -47,7 +47,11 @@ evaluators:
 metrics:
   primary: false_certification_rate
   secondary: [missed_contraindication_rate, appropriate_defer_rate, unnecessary_defer_rate,
-              critical_question_recall, minimum_information_efficiency, extraction_failure_rate]
+              critical_question_recall, minimum_information_efficiency, extraction_failure_rate,
+              # v0.8 additions (external proposal). The last one is the mirror guard:
+              # a gate that fixes safety by refusing useful complete cases has failed.
+              counterexample_repair_rate,        # P(system repairs after receiving a witness)
+              certification_preservation_rate]   # P(still answers useful COMPLETE cases)
   ci_method: case_clustered_bootstrap
 acceptance_criteria: declared_per_hazard
 review_routing:
@@ -62,6 +66,7 @@ required_capabilities:
   - text_single_turn              # provided
   - certificate_verification      # provided v0.6 — caeval/certificates/verifier.py
   - minimum_information_solver    # provided v0.6 — caeval/certificates/mmip.py
+  - underdetermination_witness    # provided v0.8 — mmip.witness_of_underdetermination
   - rule_bundle                   # MISSING: no version-pinned executable clinical rules
   - provenance_chain              # MISSING: no fact/rule provenance or replay
   - action_extraction             # MISSING: no proposed-action/patient-fact extractor
