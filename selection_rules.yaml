@@ -31,7 +31,7 @@ suites:
   rewording_robustness:     { implemented: false, blocked_reason: "same consistency-scoring mode (paraphrase_query/decontextualize_query over answerable cases)." }
   version_regression:       { implemented: false, blocked_reason: "needs two product/corpus versions to diff." }
   red_flag_detection:       { implemented: false, blocked_reason: "needs a patient-triage case bank with labelled red flags + red-flag-removal transforms." }
-  over_reassurance:         { implemented: false, blocked_reason: "needs patient-triage cases; partially covered by missing_information under the patient audience bar." }
+  over_reassurance:         { implemented: false, blocked_reason: "needs patient-triage cases AND the over_reassurance scoring field. NOTE: missing_information does NOT partially cover this — under the patient audience bar that family is itself blocked (its bar names missed_red_flag/over_reassurance, which the schema cannot score), so a patient-facing profile yields ZERO runnable suites." }
   omission:                 { implemented: false, blocked_reason: "scribe family: needs source transcripts + a scribe subject." }
   fabrication:              { implemented: false, blocked_reason: "scribe family: needs source transcripts to detect invented content." }
 

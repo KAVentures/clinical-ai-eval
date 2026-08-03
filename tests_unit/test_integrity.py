@@ -159,6 +159,67 @@ class TestLimitationsMatchTheCode(unittest.TestCase):
         self.assertIn("rubric-aware", txt)
 
 
+class TestPatientTriageCoverageIsVisible(unittest.TestCase):
+    """Missing coverage must be VISIBLE, never silently dropped.
+
+    Adapted from an external review proposal. The proposal's framing was right —
+    a regression here could make a patient-triage evidence package look more
+    complete than it is — but its central assertion (that `missing_information`
+    stays RUNNABLE for `patient_triage_chatbot`) is the opposite of the required
+    behaviour: that family's patient bar names `missed_red_flag` and
+    `over_reassurance`, which the scoring schema cannot produce, so the audience
+    gate BLOCKS it (v0.3, CORRECTIONS.md §14.1). Asserting it runnable would
+    re-introduce the audience fail-open one layer down.
+    """
+
+    PROFILE = "patient_triage_chatbot"
+
+    def _sel(self):
+        from caeval.selection import select_suites
+        return select_suites([self.PROFILE])
+
+    def test_patient_triage_yields_zero_runnable_suites(self):
+        """The strong invariant: this build cannot evaluate patient-facing AI."""
+        self.assertEqual(self._sel()["runnable_suites"], [],
+                         "a patient-facing profile must yield NO runnable suites until "
+                         "missed_red_flag/over_reassurance exist in the scoring schema")
+
+    def test_missing_information_is_BLOCKED_not_runnable_for_patient_triage(self):
+        sel = self._sel()
+        blocked = {b["suite"]: b["blocked_reason"] for b in sel["required_but_not_run"]}
+        self.assertIn("missing_information", blocked)
+        self.assertNotIn("missing_information", sel["runnable_suites"])
+        reason = blocked["missing_information"].lower()
+        self.assertIn("patient", reason)
+        for field in ("missed_red_flag", "over_reassurance"):
+            self.assertIn(field, reason, "the blocked_reason must name the unscorable field")
+
+    def test_red_flag_and_over_reassurance_stay_visible_as_required_but_not_run(self):
+        """The proposal's good assertion: never silently drop these."""
+        blocked = {b["suite"] for b in self._sel()["required_but_not_run"]}
+        for suite in ("red_flag_detection", "over_reassurance"):
+            self.assertIn(suite, blocked, f"{suite} vanished from the plan instead of "
+                                          f"being reported as required-but-not-run")
+
+    def test_every_blocked_suite_states_a_non_empty_reason(self):
+        """The proposal's other good assertion."""
+        for b in self._sel()["required_but_not_run"]:
+            self.assertTrue(str(b.get("blocked_reason", "")).strip(),
+                            f"{b['suite']} is blocked with no stated reason")
+
+    def test_no_blocked_reason_claims_partial_coverage_by_a_blocked_family(self):
+        """A blocked family cannot 'partially cover' anything — that wording made
+        the plan look more complete than it is."""
+        sel = self._sel()
+        blocked_names = {b["suite"] for b in sel["required_but_not_run"]}
+        for b in sel["required_but_not_run"]:
+            reason = b["blocked_reason"].lower()
+            if "partially covered by" in reason:
+                for name in blocked_names:
+                    self.assertNotIn(f"partially covered by {name}", reason,
+                                     f"{b['suite']} claims coverage by {name}, which is itself blocked")
+
+
 class TestInventoriesAgree(unittest.TestCase):
     """The SDK registry is canonical; selection_rules.yaml must mirror it."""
 
