@@ -1,0 +1,42 @@
+name: TravelDoctor transport probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent/traveldoctor-live-eval
+    paths:
+      - tools/traveldoctor_transport_probe.py
+      - .github/workflows/traveldoctor-transport-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Playwright
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright==1.54.0
+          python -m playwright install --with-deps chromium
+
+      - name: Probe live TravelDoctor chat transport
+        run: python tools/traveldoctor_transport_probe.py
+
+      - name: Upload probe evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traveldoctor-transport-probe
+          path: out/traveldoctor_transport_probe
+          if-no-files-found: error
+          retention-days: 7
