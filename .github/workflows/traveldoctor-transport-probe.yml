@@ -8,6 +8,10 @@ on:
     paths:
       - tools/traveldoctor_transport_probe.py
       - .github/workflows/traveldoctor-transport-probe.yml
+  pull_request:
+    paths:
+      - tools/traveldoctor_transport_probe.py
+      - .github/workflows/traveldoctor-transport-probe.yml
 
 permissions:
   contents: read
