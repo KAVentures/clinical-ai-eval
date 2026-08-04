@@ -48,12 +48,13 @@ PROVIDED_CAPABILITIES = {
     "red_flag_schema",           # patient/scoring.py — missed_red_flag, over_reassurance
     "history_acquisition",       # patient/world.py — asked_keys / fact ledger
     "escalation_grading",        # patient/world.py — five-level disposition taxonomy
+    # --- v0.15 clinical RAG bundle (caeval/rag/) ---------------------------
+    "retrieval_corpus",          # rag/corpus.py + rag/retriever.py — pinned and hashed
+    "citation_resolution",       # rag/probes.py check_citations — existence + currency only
 }
 
 # Capabilities named by families we intend to support later but do NOT yet.
 KNOWN_UNPROVIDED = {
-    "retrieval_corpus": "no RAG corpus or retriever in scope",
-    "citation_resolution": "no citation resolver",
     "source_transcripts": "scribe families need source transcripts",
     "multi_version_diff": "version regression needs two product versions",
     "rule_bundle": "no version-pinned executable clinical rule bundle exists",

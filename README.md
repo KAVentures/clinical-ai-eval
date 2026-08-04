@@ -34,6 +34,16 @@ harness. Current scientific validity is low and deliberately disclosed:
   publicly as a standard, a validated harness, or an L2 framework, and do **not**
   publish results from the current version without the corrections in
   [`CORRECTIONS.md`](CORRECTIONS.md) and independent clinician validation.
+- **The operator console has no authentication** (v0.15). `clinical-ai-eval console`
+  binds loopback and is single-tenant by design; anyone who can reach the port can
+  read every run. It cannot start a run, raise a maturity or conformance level, or
+  alter a claim. Do not expose it to a network.
+- **Product comparison emits no combined score and no buy/no-buy recommendation.**
+  Weighting a missed red flag against an unnecessary referral is the buyer's
+  judgement, not this harness's.
+- **The RAG corpus is SYNTHETIC** — seven short documents written to exercise
+  retrieval failure modes, not clinical guidance.
+
 See [`CORRECTIONS.md`](CORRECTIONS.md) for the latest corrections (see the newest section at the top).
 
 ## What makes this conformant (the two non-negotiables, §0)

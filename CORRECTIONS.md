@@ -1,5 +1,111 @@
 # Corrections log
 
+## v0.15 — operator layer: console, review UI, case-pack studio, comparison, RAG, adapters (2026-08)
+
+Roadmap items 3, 4, 5, 7, 8 and 10. The kernel was rigorous and unoperable: the only
+way to use it was the CLI, on two families, against mock subjects. This release is
+the layer a team touches — and the design problem throughout was that a friendly
+surface is exactly where hard-won guards get quietly relaxed. Each one is therefore
+re-asserted in code at the new surface, not inherited by assumption.
+
+### The console renders no number without its authority (item 3)
+`caeval/web/` is a stdlib, loopback-bound, single-tenant console. `render.headline()`
+**raises** if asked to render a rate without `{maturity, conformance, decision_grade}`.
+A bare rate is the artifact most likely to be screenshotted, and by then the caveats
+live only in a document nobody opened. The shell's own authority rule is strict —
+only `L2` + a matured family is decision grade, and `unknown` never qualifies — so
+the console cannot become a second, laxer definition of a claim. It exposes exactly
+one mutating route (review submission) and cannot start a run or raise a level.
+
+It has **no authentication and no access control**, and the About page says so
+rather than implying otherwise. It binds `127.0.0.1`; binding anything else prints
+a warning.
+
+### The review UI relaxes no blinding (item 4)
+The blinded projection is what the server *sends* — the perturbation type, expected
+missing evidence and judge label are not in the response body at all, so viewing the
+page source reveals nothing. Hiding a +64pp cue in CSS would be worthless.
+Submissions are append-only (L2 needs two independent reviewers; an overwrite would
+turn two into one), require a verified packet, and reject incomplete answers rather
+than storing a blank as `cannot_determine`.
+
+**The local HMAC is not clinician identity.** It protects a submission against
+modification and replay between the workspace and this process. Anyone holding the
+run secret can mint a packet. The UI states this where a reviewer will read it.
+
+### The studio validates; it never certifies (item 5)
+`caeval/casepack.py` structurally validates and content-addresses a pack, and there
+is **no code path** that marks one clinician-reviewed. A signature requires a named
+person in a clinical role, binds to the exact content hash, and does **not** survive
+an edit — `verify_signatures` degrades the pack to `unreviewed` and says the pack
+must be re-reviewed. Public packs cannot be signed at all.
+
+For patient packs the studio also runs construct-validity checks as **errors**: a
+case whose worlds agree is rejected (a system could be right without asking), and a
+world whose every load-bearing fact is `unavailable` is rejected as unwinnable (a
+failure there would measure the fixture, not the product).
+
+### The comparison cannot become a ranking (item 7)
+`caeval/procurement.py` emits no combined score and no buy/no-buy recommendation,
+and a test walks the entire output tree asserting no key in `FORBIDDEN_OUTPUT_KEYS`
+appears anywhere. Weighting a missed red flag against an unnecessary referral is the
+buyer's clinical and organisational judgement; encoding it here would launder that
+judgement into an apparently objective rank.
+
+Three things it does that comparisons usually omit:
+- **Comparability is a precondition.** Different case packs, family versions or
+  judge panels yield `INCOMPARABLE`, and an *unrecorded* environment is incomparable
+  too — never assumed equal.
+- **`NO_EVIDENCE` is not a pass.** An unexercised hazard is reported as such and its
+  product is excluded from `meets`. This is the fail-open a buyer would never catch.
+- **A non-significant difference is absence of evidence, not equivalence**, and
+  unpaired cells are counted rather than imputed.
+
+### The RAG bundle pins the evidence base (item 8)
+`caeval/rag/` provides a content-addressed corpus and a deterministic lexical
+retriever, unblocking `retrieval_failure` and `citation_verification`. The retriever
+is deliberately not an embedding model: the subject is the product's behaviour when
+retrieval fails, and a stochastic retriever would add a second uncontrolled variable.
+
+Citation **existence and currency** are decided deterministically. Whether a document
+**supports** a claim is not: `check_citations` returns `unverified_support` and
+defers to a judge or clinician. Deciding it here would be the same error as letting a
+keyword match masquerade as a judge label.
+
+Two defects found while building, both construct validity:
+1. **Two probes produced identical contexts.** `no_supporting_document` and
+   `superseded_document` left the same documents, so they were one probe reported
+   twice and any difference between them would have measured noise. Each probe now
+   isolates one failure mode, asserted by a test over context hashes.
+2. **`irrelevant_context` retrieved nothing** — an *empty* context, which is a
+   different failure: a system given nothing may reasonably say so. An on-topic,
+   non-answering document was added so the probe tests what it claims to.
+
+### Adapters fail at connect time, not in the results (item 10)
+`caeval/adapters.py` adds conversational adapters, so a real patient-facing product
+can be evaluated at all. Three properties:
+- **An empty reply raises.** Scoring a blank as a safe non-answer is the fail-open
+  that would make an outage look like a safe product.
+- **State leakage is detected, not trusted.** `probe_determinism` resets and repeats;
+  differing replies mean either sampling noise or state surviving the reset, and the
+  harness cannot tell them apart from outside. Either way the paired design is not
+  sound, and the run is labelled rather than silently reported.
+- **Credentials are removed, not hashed.** A hash of a secret is still a
+  secret-derived value in a published file and confirms a guess. The endpoint
+  identity is the host, so **rotating a key does not look like testing a different
+  product** — asserted by a test.
+
+### Corpus addressing bug found by its own test
+`bundle_hash` originally included `corpus_id`, and derived corpora carry a synthesized
+id (`...#minus-DOC`). An unchanged document set therefore hashed differently, breaking
+the one property content addressing exists to provide. The address now covers content
+only.
+
+### What is still missing
+Everything that needs people. No clinician-authored pack, no clinician labels, no
+real corpus, no real product connected. 308 tests pass; every family remains
+`experimental`.
+
 ## v0.14 — patient readiness substrate (2026-08)
 
 Roadmap item 9. The repository's largest standing gap was that `patient_red_flag`

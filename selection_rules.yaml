@@ -27,8 +27,9 @@ suites:
   patient_red_flag:         { implemented: true, maturity: experimental, note: "multi-turn patient triage (P1-P7). Only ever run against mock targets on a synthetic public smoke pack; no clinician has authored, reviewed or labelled anything in it." }
   # The rest need inputs the canonical text-perturbation transforms do not supply,
   # or a consistency-scoring mode that would be a new (non-inherited) component:
-  retrieval_failure:        { implemented: false, blocked_reason: "needs a RAG retrieval layer to fail; no corpus/retriever in scope." }
-  citation_verification:    { implemented: false, blocked_reason: "needs resolvable citations + a source corpus to check claims against." }
+  # Runnable as of v0.15 (caeval/rag/). Corpus is SYNTHETIC; family is experimental.
+  retrieval_failure:        { implemented: true, maturity: experimental, note: "pinned synthetic corpus + deterministic lexical retriever; whether a context SUPPORTS an answer has never been clinician-anchored." }
+  citation_verification:    { implemented: true, maturity: experimental, note: "citation existence and currency are deterministic; whether a document SUPPORTS a claim is deferred to a judge, not decided here." }
   unsupported_inference:    { implemented: false, blocked_reason: "needs a consistency/label-flip scoring mode over answerable pairs (distractor/paraphrase); not the paired-underdetermined frame this build implements." }
   rewording_robustness:     { implemented: false, blocked_reason: "same consistency-scoring mode (paraphrase_query/decontextualize_query over answerable cases)." }
   version_regression:       { implemented: false, blocked_reason: "needs two product/corpus versions to diff." }

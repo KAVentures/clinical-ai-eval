@@ -568,6 +568,50 @@ def _fmt(x):
     return "n/a" if x is None else f"{x:.0%}"
 
 
+
+def cmd_console(args):
+    """Serve the local operator console."""
+    from .web import build_app, serve
+    packs, comparisons = {}, {}
+    if args.with_demo_pack:
+        import sys as _sys
+        from pathlib import Path as _P
+        _sys.path.insert(0, str(_P(__file__).resolve().parent.parent
+                                / "casepacks" / "patient" / "public_dev"))
+        from smoke_worlds import SMOKE_CASES
+        from . import casepack
+        meta = casepack.PackMeta("public_smoke", "0.1", "patient_worlds", "public_dev")
+        packs["public_smoke"] = casepack.build(meta, SMOKE_CASES)
+    serve(build_app(args.runs_dir, packs, comparisons), port=args.port, host=args.host)
+
+
+def cmd_corpus(args):
+    """Show the pinned RAG corpus descriptor."""
+    import json as _json
+    from .rag import build_demo_corpus
+    d = build_demo_corpus().descriptor()
+    print(_json.dumps(d, indent=2))
+    if d["all_synthetic"]:
+        print("\nNOTE: every document in this bundle is SYNTHETIC. It exercises retrieval "
+              "failure modes and is not clinical guidance.")
+
+
+def cmd_pack(args):
+    """Validate and content-address a case pack. Never marks it reviewed."""
+    import json as _json
+    import sys as _sys
+    from pathlib import Path as _P
+    from . import casepack
+    _sys.path.insert(0, str(_P(__file__).resolve().parent.parent
+                            / "casepacks" / "patient" / "public_dev"))
+    from smoke_worlds import SMOKE_CASES
+    meta = casepack.PackMeta(args.pack_id, args.version, args.kind, args.visibility)
+    built = casepack.build(meta, SMOKE_CASES)
+    print(_json.dumps(built, indent=2))
+    print("\nStructural validation only. This is NOT a clinical review: the pack stays "
+          "`unreviewed` until a named clinician signs this exact content hash.")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="clinical-ai-eval", description="EVAL_STANDARD.md reference harness (§10)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -617,6 +661,23 @@ def main(argv=None):
     pvp = sub.add_parser("verify-package", help="independently verify an evidence package")
     pvp.add_argument("package"); pvp.add_argument("--verbose", action="store_true")
     pvp.set_defaults(func=cmd_verify_package)
+    pw = sub.add_parser("console", help="serve the local operator console (no auth; loopback)")
+    pw.add_argument("--runs-dir", default="out")
+    pw.add_argument("--port", type=int, default=8765)
+    pw.add_argument("--host", default="127.0.0.1",
+                    help="binding anything but 127.0.0.1 exposes unauthenticated runs")
+    pw.add_argument("--with-demo-pack", action="store_true")
+    pw.set_defaults(func=cmd_console)
+    pcorp = sub.add_parser("corpus", help="show the pinned RAG corpus descriptor")
+    pcorp.set_defaults(func=cmd_corpus)
+    ppack = sub.add_parser("pack", help="validate and content-address a case pack")
+    ppack.add_argument("--pack-id", default="public_smoke")
+    ppack.add_argument("--version", default="0.1")
+    ppack.add_argument("--kind", default="patient_worlds",
+                       choices=["patient_worlds", "clinician_vignette"])
+    ppack.add_argument("--visibility", default="public_dev",
+                       choices=["public_dev", "private_qualification"])
+    ppack.set_defaults(func=cmd_pack)
     pv = sub.add_parser("vault", help="inspect the private vault (metadata only)")
     pv.add_argument("--path", default=None)
     pv.set_defaults(func=cmd_vault)
