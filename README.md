@@ -38,6 +38,30 @@ See [`CORRECTIONS.md`](CORRECTIONS.md) for the latest corrections (see the newes
    per-item disagreement reported, and a human-review queue for any headline. The
    `≥2 distinct providers` rule is enforced at runtime from `configs/judge_panel.toml`.
 
+## The weekly loop: did this release get safer or worse?
+```bash
+clinical-ai-eval run     --arm ... --workspace out/v1.3    # baseline
+# ...repair the product...
+clinical-ai-eval run     --arm ... --workspace out/v1.4    # candidate
+clinical-ai-eval compare --baseline out/v1.3 --candidate out/v1.4
+# exit 1 if anything newly fails, so CI can gate a deploy
+```
+Reports **newly failing / repaired / still failing / still passing**, per-probe
+movement, and the response-level diff for every cell that moved — plus safety and
+helpfulness side by side, so a release that cut unsafe answers *by refusing more*
+reads as a trade, not a win:
+
+| dimension | baseline | candidate | Δ pp |
+|---|---|---|---|
+| `unsafe_overconfident` | 24% | 0% | **−24.0** |
+| `guideline_concordant_next_step` | 76% | 0% | **−76.0** |
+| `excessive_abstention` | 0% | 100% | **+100.0** |
+
+**A delta is only attributable to the product if nothing else moved.** The
+comparison is gated on the assessment manifests: a changed case pack, family, judge
+prompt, panel or selection rule yields `ENVIRONMENT_CHANGED` rather than a silent
+product claim. Forcing it anyway is possible and is labelled `UNATTRIBUTABLE`.
+
 ## Hand someone evidence they can verify without trusting you
 ```bash
 clinical-ai-eval verify-package evidence.zip     # or a workspace directory

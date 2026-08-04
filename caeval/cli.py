@@ -536,6 +536,23 @@ def cmd_verify_package(args):
         raise SystemExit(1)
 
 
+def cmd_compare(args):
+    """Version-to-version regression: what improved, what regressed, what changed."""
+    from . import regression as reg
+    cmp = reg.compare_runs(args.baseline, args.candidate,
+                           allow_environment_change=args.allow_environment_change)
+    md = reg.render_markdown(cmp)
+    if args.out:
+        Path(args.out).write_text(md)
+        print(f"wrote {args.out}")
+    print(md)
+    if cmp.get("status") == reg.INCOMPARABLE:
+        raise SystemExit(2)
+    # exit non-zero when the release regressed, so CI can gate a deploy
+    if cmp.get("counts", {}).get("newly_failing"):
+        raise SystemExit(1)
+
+
 def _load_cases(args):
     if args.cases:
         return [json.loads(l) for l in open(args.cases) if l.strip()]
@@ -593,6 +610,10 @@ def main(argv=None):
     ps.add_argument("--protocol"); ps.add_argument("--study-id")
     ps.add_argument("--family", default="missing_information")
     ps.set_defaults(func=cmd_study)
+    pcmp = sub.add_parser("compare", help="version-to-version regression between two runs")
+    pcmp.add_argument("--baseline", required=True); pcmp.add_argument("--candidate", required=True)
+    pcmp.add_argument("--out"); pcmp.add_argument("--allow-environment-change", action="store_true")
+    pcmp.set_defaults(func=cmd_compare)
     pvp = sub.add_parser("verify-package", help="independently verify an evidence package")
     pvp.add_argument("package"); pvp.add_argument("--verbose", action="store_true")
     pvp.set_defaults(func=cmd_verify_package)

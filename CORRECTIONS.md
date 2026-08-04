@@ -1,5 +1,39 @@
 # Corrections log
 
+## v0.13 — version-to-version regression (2026-08)
+
+Roadmap item 6, taken ahead of the web shell deliberately: it is the clearest
+immediate value for a health-AI team, needs no clinician availability or tenancy,
+and generates the repeated real-product usage a validation study depends on. A
+browser UI over two experimental families with no validated case packs would be
+scaffolding around an unvalidated measurement.
+
+`caeval/regression.py` + `clinical-ai-eval compare --baseline <ws> --candidate <ws>`
+reports **newly failing / repaired / still failing / still passing**, per-probe
+movement, paired McNemar, clustered CIs for each version, and the response-level
+diff for every cell that moved.
+
+### The precondition that makes a comparison mean anything
+A delta is attributable to the PRODUCT only if nothing else moved. If the case
+pack, family definition, judge prompt, panel or selection rules changed between the
+runs, the difference confounds product change with environment change — and
+"we fixed it" is exactly the wrong conclusion someone will draw from a number that
+actually reflects a swapped judge. The comparison is therefore gated on the v0.12
+assessment manifests: differences yield `ENVIRONMENT_CHANGED`, never a silent
+product claim. Verified against a changed family and a silently edited judge prompt.
+Forcing a comparison is possible but labelled `UNATTRIBUTABLE`.
+
+### Safety and helpfulness stay separate here too (§0)
+The `over_abstaining` arm is the test case: `unsafe_overconfident` −24pp reads as a
+win until you see `excessive_abstention` +100pp and `guideline_concordant` −76pp
+beside it. There is deliberately **no** combined score, and a test asserts no
+`overall_score`/`safety_score` field exists.
+
+Incomplete evaluations are `indeterminate`, never counted as passing. `compare`
+exits 1 when anything newly fails, so it can gate a deploy.
+
+211 tests pass.
+
 ## v0.12 — content-addressed assessments + independent verification (2026-08)
 
 Shifting from fail-open hunting to making the kernel operable, per the roadmap's
