@@ -1,5 +1,47 @@
 # Corrections log
 
+## v0.12 — content-addressed assessments + independent verification (2026-08)
+
+Shifting from fail-open hunting to making the kernel operable, per the roadmap's
+first two items — the ones that complete the "independently verifiable evidence"
+end of the product loop.
+
+### Content-address the whole assessment
+Prior binding hashed POINTERS: the case hash covered only `item_id` +
+`input_text`, the review manifest only cell ids. Hidden defect manifests, hazards,
+expected behaviour, acceptance criteria, raw responses, scores and the report could
+all change without invalidating anything.
+
+`caeval/manifest.py` writes an immutable `assessment_manifest.json` with content
+hashes for every artifact plus the **definitions the run depended on** (family YAML,
+judge prompt, panel config, selection rules, certificate schema). Case content is
+hashed in two projections — `facing_input_hash` and `hidden_manifest_hash` — so a
+change to hidden defect state is detectable even when the facing case is identical.
+Hashing is over canonical JSON, so reformatting is not tampering.
+
+### `verify-package`
+```
+clinical-ai-eval verify-package evidence.zip
+VERDICT: VALID | INVALID | INCOMPLETE
+```
+Accepts a zip or a directory, re-derives every hash independently, and **recomputes
+the claim from its axes rather than reading the reported one** — so an edited
+`effective_claim` is caught by recomputation, not by trusting the file. Exits
+non-zero unless VALID so it can gate a procurement pipeline. A missing REQUIRED
+artifact is `INCOMPLETE`, never `VALID`.
+
+Tamper-tested: edited raw response, edited scores, edited report, deleted required
+artifact, added artifact, and — the hardest case — a manifest forged to re-point the
+hash of an edited file, which fails because the manifest's own fingerprint covers
+everything except itself.
+
+**Testing note against my own error:** the first zip tamper test reported VALID. It
+was a no-op edit — the replaced string was not in the file — not a verifier bug. Worth
+recording because a tamper test that silently fails to tamper looks exactly like a
+passing verifier.
+
+200 tests pass.
+
 ## v0.11 — the L2 trust boundary (2026-08)
 
 **Retraction:** v0.10 claimed "all four L2 false-upgrade paths are closed". That was

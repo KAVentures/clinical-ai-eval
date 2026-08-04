@@ -38,6 +38,21 @@ See [`CORRECTIONS.md`](CORRECTIONS.md) for the latest corrections (see the newes
    per-item disagreement reported, and a human-review queue for any headline. The
    `≥2 distinct providers` rule is enforced at runtime from `configs/judge_panel.toml`.
 
+## Hand someone evidence they can verify without trusting you
+```bash
+clinical-ai-eval verify-package evidence.zip     # or a workspace directory
+# VERDICT: VALID | INVALID | INCOMPLETE   (exit 1 unless VALID, so CI can gate it)
+```
+Every package carries `assessment_manifest.json` — content hashes of **all** decision-bearing
+artifacts (responses, results, analysis, review manifest, adjudication, report,
+provenance) plus the rules the run depended on (family YAML, judge prompt, panel
+config, selection rules). Hashes are over canonical JSON, so reformatting is not
+tampering but a changed value is. Verification re-derives the **claim** from its axes
+rather than reading the reported one.
+
+Verified against: edited raw responses, edited scores, an edited report, a deleted
+required artifact, an added artifact, and a manifest forged to match an edit.
+
 ## Evaluate YOUR product (self-service — no source edits)
 ```bash
 clinical-ai-eval project init ./my-assessment --name my-product

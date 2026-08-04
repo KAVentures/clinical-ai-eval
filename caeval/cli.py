@@ -473,6 +473,69 @@ def cmd_connector_test(args):
     print("connector OK")
 
 
+def cmd_verify_package(args):
+    """Independently verify an evidence package — no trust in the producer.
+
+    Recomputes every artifact hash, re-derives the claim authority from the
+    recorded axes, and re-checks the review packets. Exits non-zero unless VALID,
+    so it can gate a procurement pipeline.
+    """
+    import zipfile, tempfile
+    from . import manifest as man
+    from . import claim as claim_mod
+
+    src = Path(args.package)
+    tmp = None
+    if src.is_file() and src.suffix == ".zip":
+        tmp = Path(tempfile.mkdtemp())
+        with zipfile.ZipFile(src) as z:
+            z.extractall(tmp)
+        inner = [d for d in tmp.rglob(man.MANIFEST_FILE)]
+        if not inner:
+            print(f"{man.INCOMPLETE}: archive contains no {man.MANIFEST_FILE}")
+            raise SystemExit(2)
+        ws = inner[0].parent
+    else:
+        ws = src
+
+    res = man.verify_manifest(ws)
+    print(f"package : {ws}")
+    print(f"family  : {res.get('family_id')}")
+    print(f"tool    : recorded {res.get('tool_version_recorded')} / verifying with {res.get('tool_version_now')}")
+    print()
+    BENIGN = ("ok", "absent (optional)")
+    for c in res["checks"]:
+        if c["status"] in BENIGN and not args.verbose:
+            continue
+        mark = "OK  " if c["status"] in BENIGN else "FAIL"
+        print(f"  [{mark}] {c['artifact']}: {c['status']} {c['detail']}")
+    print(f"\n  {res['n_ok']} ok, {res['n_failed']} modified, {res['n_missing']} missing")
+
+    # --- independently RE-DERIVE the claim, do not read the reported one ---
+    analysis_p = ws / "analysis.json"
+    if analysis_p.exists():
+        a = json.loads(analysis_p.read_text())
+        recorded = (a.get("claim_authority") or {})
+        if recorded:
+            recomputed = claim_mod.compute(recorded.get("project_mode"),
+                                           recorded.get("run_conformance"),
+                                           recorded.get("family_maturity")).as_dict()
+            if recomputed["effective_claim"] != recorded.get("effective_claim"):
+                print(f"\n  [FAIL] CLAIM TAMPERED: report says "
+                      f"{recorded.get('effective_claim')!r}, axes imply "
+                      f"{recomputed['effective_claim']!r}")
+                res["verdict"] = man.INVALID
+            else:
+                print(f"\n  claim re-derived from axes: {recomputed['effective_claim']} "
+                      f"({recomputed['label']})")
+        else:
+            print("\n  no claim_authority recorded (run was not project-bound)")
+
+    print(f"\nVERDICT: {res['verdict']}")
+    if res["verdict"] != man.VALID:
+        raise SystemExit(1)
+
+
 def _load_cases(args):
     if args.cases:
         return [json.loads(l) for l in open(args.cases) if l.strip()]
@@ -530,6 +593,9 @@ def main(argv=None):
     ps.add_argument("--protocol"); ps.add_argument("--study-id")
     ps.add_argument("--family", default="missing_information")
     ps.set_defaults(func=cmd_study)
+    pvp = sub.add_parser("verify-package", help="independently verify an evidence package")
+    pvp.add_argument("package"); pvp.add_argument("--verbose", action="store_true")
+    pvp.set_defaults(func=cmd_verify_package)
     pv = sub.add_parser("vault", help="inspect the private vault (metadata only)")
     pv.add_argument("--path", default=None)
     pv.set_defaults(func=cmd_vault)

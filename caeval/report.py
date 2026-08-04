@@ -116,8 +116,14 @@ def build_evidence_package(run_result: dict, family: dict, out_dir: str) -> dict
     adjudication = _load_adjudication(out)
     (out / "final_report.md").write_text(_final_report_md(run_result, family, n_review, selected, adjudication))
 
+    # IMMUTABLE ASSESSMENT MANIFEST — content addresses for every artifact, written
+    # last so it covers the finished package.
+    from . import manifest as _man
+    _man.build_manifest(out)
+
     return {
         "out_dir": str(out), "results_jsonl": str(out / "results.jsonl"),
+        "assessment_manifest": str(out / _man.MANIFEST_FILE),
         "human_review_csv": str(out / "human_review.csv"), "n_review_selected": n_review,
         "validity_review_csv": str(out / "validity_review.csv"),
         "review_manifest": str(out / "review_manifest.json"),
