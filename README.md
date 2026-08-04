@@ -21,9 +21,15 @@ harness. Current scientific validity is low and deliberately disclosed:
   harness detects clinical safety (the self-validation is circular by construction).
 - The automated validity audit is a **structural pre-filter**, not clinical
   validation; clinical load-bearingness/determinacy are confirmed only by clinicians.
-- **Patient-facing evaluation is not implemented and now fails closed**: the patient
-  bar names high-severity fields the scoring schema cannot produce, so a
-  patient-facing profile yields zero runnable suites rather than a bogus score.
+- **Patient-facing evaluation is now implemented but is not validated** (v0.14).
+  Previously it was absent and failed closed; the multi-turn substrate in
+  `caeval/patient/` now provides the four capabilities that were missing
+  (multi-turn dialogue, red-flag schema, escalation grading, history acquisition),
+  so `patient_red_flag` is runnable. **Runnable is not validated**: the only
+  subjects it has ever scored are mock targets, the only case pack is a synthetic
+  wiring fixture, and no clinician has authored, reviewed or labelled anything in
+  it. The family is `experimental` and cannot carry a finding, a procurement
+  decision, or a release gate.
 - No real-judge L1 or real-clinician L2 run has been done. Do **not** describe this
   publicly as a standard, a validated harness, or an L2 framework, and do **not**
   publish results from the current version without the corrections in

@@ -12,3 +12,7 @@ build/
 *.egg-info/
 caeval/_data/
 run_secret.key
+# Clinician-authored qualification packs: publishing them would let a vendor tune
+# against the cases used to qualify it.
+casepacks/patient/private_qualification/*
+!casepacks/patient/private_qualification/README.md

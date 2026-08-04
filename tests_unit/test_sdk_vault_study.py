@@ -16,7 +16,12 @@ from targets import demo_target
 
 class TestFamilySDK(unittest.TestCase):
     RUNNABLE = ["missing_information", "conflicting_evidence"]
-    BLOCKED = ["patient_red_flag", "decision_certifiability"]
+    # patient_red_flag moved RUNNABLE in v0.12 when caeval/patient/ implemented the
+    # four capabilities it had declared missing. It is still `experimental` — see
+    # test_runnable_patient_family_is_still_experimental below, which is the guard
+    # that actually matters now.
+    RUNNABLE_EXPERIMENTAL_PATIENT = ["patient_red_flag"]
+    BLOCKED = ["decision_certifiability"]
 
     def test_shipped_families_validate(self):
         for fid in self.RUNNABLE:
@@ -39,6 +44,24 @@ class TestFamilySDK(unittest.TestCase):
         for fid in self.BLOCKED:
             d = family_sdk.load_family_definition(fid)
             self.assertEqual(d.get("applies_to_profiles", []), [])
+
+    def test_runnable_patient_family_is_still_experimental(self):
+        """Runnable is not validated. Implementing the machinery must never, by
+        itself, raise a family's maturity — that takes clinician evidence."""
+        for fid in self.RUNNABLE_EXPERIMENTAL_PATIENT:
+            d = family_sdk.load_family_definition(fid)
+            self.assertTrue(family_sdk.YamlFamily(d).supported()[0])
+            self.assertEqual(d["maturity"]["level"], "experimental", fid)
+            self.assertFalse(d["case_source"]["clinician_reviewed"], fid)
+            self.assertTrue(d["maturity"]["evidence_required"]["calibrated"], fid)
+
+    def test_patient_family_guards_against_blanket_referral(self):
+        """A patient family whose only bar is under-triage can be passed by
+        referring everyone to the emergency department."""
+        d = family_sdk.load_family_definition("patient_red_flag")
+        metrics = {h["acceptance_criterion"]["metric"] for h in d["hazards"]}
+        self.assertIn("over_triage_rate", metrics)
+        self.assertIn("no_disposition_rate", metrics)
 
     def test_declaration_requires_all_schema_keys(self):
         d = family_sdk.load_family_definition("missing_information")

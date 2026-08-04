@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "clinical-ai-eval"
 dynamic = ["version"]
-description = "Reference harness for a candidate clinical-AI assurance protocol: perturbation-robustness screening (missing-information, conflicting-evidence) for text-based, CLINICIAN-facing decision support. Not a validated standard; patient-facing evaluation is not implemented."
+description = "Reference harness for a candidate clinical-AI assurance protocol: perturbation-robustness screening for text-based clinical AI. Clinician-facing: missing-information and conflicting-evidence. Patient-facing: multi-turn triage under P1-P7 stress conditions. Not a validated standard; every test family is experimental."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "Apache-2.0" }

@@ -22,7 +22,9 @@ suites:
   missing_information:      { implemented: true }
   conflicting_evidence:     { implemented: true }
   decision_certifiability:  { implemented: false, blocked_reason: "evidence-grounding layer: the certificate verifier and minimum-information solver EXIST (caeval/certificates/), but rule bundles, provenance chains, action extraction and clinician-authored critical-question sets do not. Blocked until those exist AND the measurement is clinician-calibrated." }
-  patient_red_flag:         { implemented: false, blocked_reason: "patient-facing: missed_red_flag/over_reassurance are not in the scoring schema; no multi-turn dialogue, escalation grading or history acquisition." }
+  # Runnable as of v0.12 (caeval/patient/). Runnable, NOT validated: maturity stays
+  # `experimental`, so it cannot carry a finding, a procurement decision, or a gate.
+  patient_red_flag:         { implemented: true, maturity: experimental, note: "multi-turn patient triage (P1-P7). Only ever run against mock targets on a synthetic public smoke pack; no clinician has authored, reviewed or labelled anything in it." }
   # The rest need inputs the canonical text-perturbation transforms do not supply,
   # or a consistency-scoring mode that would be a new (non-inherited) component:
   retrieval_failure:        { implemented: false, blocked_reason: "needs a RAG retrieval layer to fail; no corpus/retriever in scope." }

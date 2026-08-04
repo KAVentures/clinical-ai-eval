@@ -40,21 +40,27 @@ PROVIDED_CAPABILITIES = {
     "certificate_verification",  # caeval/certificates/verifier.py (v0.6)
     "minimum_information_solver",# caeval/certificates/mmip.py (v0.6)
     "underdetermination_witness",# mmip.witness_of_underdetermination (v0.8)
+    # --- v0.12 patient readiness substrate (caeval/patient/) ---------------
+    # Providing a capability means the MACHINERY exists and is unit-tested. It does
+    # NOT mean the resulting measurement is clinician-calibrated: every patient
+    # family remains `experimental` and cannot carry a claim on this evidence.
+    "multi_turn_dialogue",       # patient/session.py — deterministic simulated patient
+    "red_flag_schema",           # patient/scoring.py — missed_red_flag, over_reassurance
+    "history_acquisition",       # patient/world.py — asked_keys / fact ledger
+    "escalation_grading",        # patient/world.py — five-level disposition taxonomy
 }
 
 # Capabilities named by families we intend to support later but do NOT yet.
 KNOWN_UNPROVIDED = {
-    "multi_turn_dialogue": "stateful simulated patient / multi-turn conversation not implemented",
-    "red_flag_schema": "missed_red_flag / over_reassurance are not in the scoring schema",
-    "history_acquisition": "no model of what the system asked across turns",
-    "escalation_grading": "no urgency/triage-level grading",
     "retrieval_corpus": "no RAG corpus or retriever in scope",
     "citation_resolution": "no citation resolver",
     "source_transcripts": "scribe families need source transcripts",
     "multi_version_diff": "version regression needs two product versions",
     "rule_bundle": "no version-pinned executable clinical rule bundle exists",
     "provenance_chain": "no fact/rule provenance store or replay exists",
-    "action_extraction": "no proposed-action / patient-fact extractor exists",
+    "action_extraction": ("patient/extraction.py extracts TRIAGE dispositions, not "
+                          "clinician-facing proposed actions; decision_certifiability "
+                          "needs the latter"),
     "critical_question_closure": "no clinician-authored critical-question sets exist",
 }
 

@@ -1,5 +1,86 @@
 # Corrections log
 
+## v0.14 — patient readiness substrate (2026-08)
+
+Roadmap item 9. The repository's largest standing gap was that `patient_red_flag`
+was a *declared design target*: the family named four capabilities the build did
+not provide, and the SDK correctly refused to run it. `caeval/patient/` now
+provides them, and the family is runnable.
+
+**Runnable is not validated, and implementing machinery must never raise a
+maturity level by itself.** Every patient family is `experimental`; the only
+subjects scored so far are mock targets on a synthetic public smoke pack that no
+clinician authored or reviewed. A test (`test_runnable_patient_family_is_still_
+experimental`) asserts the family cannot drift upward on this evidence.
+
+### What the substrate is
+A case is not a vignette with one right answer. It is a set of clinically
+plausible **worlds** sharing one opening message, with facts disclosed only when
+asked. Every one of the twelve public smoke worlds is underdetermined from the
+opening message, so committing without asking is guessing, and substituting one
+load-bearing fact changes the correct disposition. `test_state_substitution_
+changes_required_disposition` asserts that property of the fixtures rather than
+assuming it — a stress test that leaves the correct answer unchanged is measuring
+nothing.
+
+Facts carry one of four disclosure modes, including `unavailable`: a fact the
+patient genuinely cannot supply. Asking for it is correct; failing to obtain it is
+not a defect, and it is excluded from the history-acquisition denominator.
+Otherwise the only way to score well would be to interrogate forever.
+
+### Safety and usefulness stay separate (§0), now for triage
+Under-triage is a safety failure. **Over-triage is a usefulness failure, not a
+safety win.** The `mock_over_conservative` target exists to prove the metric set
+can tell them apart: it refers everyone to the emergency department, and it is
+*also* unsafe — it under-triages the worlds that need an ambulance rather than a
+car journey. There is no combined score, and a test asserts no field named
+`overall`, `combined`, or `score` exists anywhere in the output.
+
+Review routing carries the same property: over-triage and no-disposition episodes
+are queued for human review alongside under-triage ones, because a reviewer shown
+only missed escalations will calibrate toward referring everything.
+
+### Two real defects found while building, both in the measurement
+1. **A conditional safety net was read as the primary disposition.** "Go to the
+   emergency department now; if you worsen on the way, call an ambulance" was
+   scored as an ambulance call. This inflated over-triage on every *correctly*
+   safety-netted referral — i.e. the metric punished the behaviour it wants.
+   `extract_disposition` now takes only unconditional sentences as the primary
+   instruction, falling back to the full text if a reply *only* safety-nets.
+2. **Naming a fact counted as asking about it.** The disclosure policy matched
+   cue words anywhere in a turn, so "there is no diaphoresis and no radiation"
+   registered as two history questions — letting a target farm history-acquisition
+   credit, and escape the fabrication check, by listing findings it never
+   obtained. Elicitation now requires an interrogative or imperative segment.
+
+Both are the repository's recurring defect class in a new place: **a scan that was
+wider than the thing it was supposed to match.** Neither would have surfaced from
+the fixtures passing; both surfaced from asking why a target that behaved
+correctly was being scored as if it had not.
+
+### Escalation timing is measured from availability, not from turn 1
+The first implementation flagged `delayed_escalation` on every target that took a
+history first, because it counted turns from the start of the conversation. That
+rewards committing before asking — the exact failure the family exists to detect.
+Delay is now measured from the turn the deciding red flag entered the fact ledger,
+with a two-turn grace window. `test_delayed_escalation_can_fire` guards against
+the opposite error: a metric that never fires is not evidence of safety.
+
+### Deterministic metrics are not judge fields
+`interop.py` presents an episode to the existing judge/review/L2 machinery as a
+manifest-shaped record whose `input_text` is the **full transcript**, not a
+summary — a summary is exactly where a scoring bug would hide from the judge. The
+deterministic patient metrics are kept in a separate `patient` namespace and are
+deliberately absent from `BINARY_FIELDS`, so a keyword match can never be mistaken
+for a judge label.
+
+### What is still missing
+No clinician-authored case pack, no clinician triage labels, no validation that
+the five-level taxonomy maps onto any deploying service's own triage ladder, and
+no evidence that the deterministic disposition extractor agrees with a clinician
+reading the same transcript. Those are enumerated as `evidence_required` in
+`tests/patient_red_flag/family.yaml` and are what a calibration study must supply.
+
 ## v0.13 — version-to-version regression (2026-08)
 
 Roadmap item 6, taken ahead of the web shell deliberately: it is the clearest
