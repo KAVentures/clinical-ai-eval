@@ -48,6 +48,27 @@ harness. Current scientific validity is low and deliberately disclosed:
 
 See [`CORRECTIONS.md`](CORRECTIONS.md) for the latest corrections (see the newest section at the top).
 
+<!-- BEGIN GENERATED CAPABILITIES -->
+## What this build can run
+
+Generated from the family declarations, selection rules, executor registry and maturity levels. Do not hand-edit.
+
+| family | runnable | executor | maturity | audiences |
+|---|---|---|---|---|
+| `citation_verification` | yes | rag_trace | experimental | clinician |
+| `conflicting_evidence` | yes | generic_paired_text | experimental | clinician |
+| `missing_information` | yes | generic_paired_text | experimental | clinician |
+| `patient_red_flag` | yes | patient_episode | experimental | patient |
+| `retrieval_failure` | yes | rag_trace | experimental | clinician |
+| `decision_certifiability` | no | — | experimental | clinician |
+
+### Declared but not runnable
+
+- `decision_certifiability`: evidence-grounding layer: the certificate verifier and minimum-information solver EXIST (caeval/certificates/), but rule bundles, provenance chains, action extraction and clinician-authored critical-question sets do not. Blocked until those exist AND the measurement is clinician-calibrated.
+
+**Every family is `experimental`.** None has been calibrated against clinician judgement, so no result from this build can support a published finding, a procurement decision, or a release gate.
+<!-- END GENERATED CAPABILITIES -->
+
 ## What makes this conformant (the two non-negotiables, §0)
 1. **Safety and helpfulness are scored separately and never collapsed.** The report
    never emits one "safety score"; it reports safety, helpfulness, and the

@@ -167,9 +167,15 @@ class TestPatientTriageCoverageIsVisible(unittest.TestCase):
     complete than it is — but its central assertion (that `missing_information`
     stays RUNNABLE for `patient_triage_chatbot`) is the opposite of the required
     behaviour: that family's patient bar names `missed_red_flag` and
-    `over_reassurance`, which the scoring schema cannot produce, so the audience
-    gate BLOCKS it (v0.3, CORRECTIONS.md §14.1). Asserting it runnable would
-    re-introduce the audience fail-open one layer down.
+    `over_reassurance`, which the ONE-SHOT scoring schema cannot produce, so the
+    audience gate BLOCKS it (v0.3, CORRECTIONS.md §14.1). Asserting it runnable
+    would re-introduce the audience fail-open one layer down.
+
+    v0.16 UPDATE: the profile is no longer empty. `patient_red_flag` runs on the
+    `patient_episode` executor, whose schema DOES contain those fields, so it is
+    runnable — while `missing_information` stays blocked, because the executor a
+    family runs on determines what it can score. The audience gate is now checked
+    against the executor's vocabulary rather than always against BINARY_FIELDS.
     """
 
     PROFILE = "patient_triage_chatbot"
@@ -178,13 +184,23 @@ class TestPatientTriageCoverageIsVisible(unittest.TestCase):
         from caeval.selection import select_suites
         return select_suites([self.PROFILE])
 
-    def test_patient_triage_yields_zero_runnable_suites(self):
-        """The strong invariant: this build cannot evaluate patient-facing AI."""
-        self.assertEqual(self._sel()["runnable_suites"], [],
-                         "a patient-facing profile must yield NO runnable suites until "
-                         "missed_red_flag/over_reassurance exist in the scoring schema")
+    def test_patient_triage_yields_exactly_the_implemented_patient_family(self):
+        """A patient profile reaches the multi-turn family and nothing else.
 
-    def test_missing_information_is_BLOCKED_not_runnable_for_patient_triage(self):
+        Both halves matter: an empty list would mean the product workflow cannot
+        evaluate patient AI at all (the v0.15 defect — the engine existed but
+        `run --project` exited "no runnable suite"), and anything extra would mean
+        a one-shot family is being scored against a bar it cannot measure."""
+        self.assertEqual(self._sel()["runnable_suites"], ["patient_red_flag"])
+
+    def test_the_patient_family_runs_on_the_patient_executor(self):
+        """Selection and execution must agree, or the family is planned and then
+        run by a backend that mis-scores it."""
+        from caeval import executors
+        self.assertEqual(executors.executor_for("patient_red_flag"),
+                         executors.PATIENT_EPISODE)
+
+    def test_missing_information_is_still_BLOCKED_for_patient_triage(self):
         sel = self._sel()
         blocked = {b["suite"]: b["blocked_reason"] for b in sel["required_but_not_run"]}
         self.assertIn("missing_information", blocked)

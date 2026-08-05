@@ -60,7 +60,7 @@ class PackMeta:
     notes: str = ""
 
     def __post_init__(self):
-        if self.kind not in ("clinician_vignette", "patient_worlds"):
+        if self.kind not in ("clinician_vignette", "patient_worlds", "rag_corpus_bound"):
             raise ValueError(f"unknown pack kind {self.kind!r}")
         if self.visibility not in ("public_dev", "private_qualification"):
             raise ValueError(f"unknown visibility {self.visibility!r}")
@@ -146,9 +146,26 @@ def validate_patient_pack(cases: list) -> list:
     return issues
 
 
+def validate_rag_pack(cases: list) -> list:
+    """Corpus-bound queries. A query with no supporting document cannot be probed:
+    removing a document that was never there removes nothing."""
+    issues, seen = [], set()
+    for i, c in enumerate(cases):
+        at = f"query[{i}]"
+        for f in ("query_id", "query", "supporting_doc_id"):
+            if not str(c.get(f, "")).strip():
+                issues.append(Issue(ERROR, at, f"missing required field {f!r}",
+                                    "a retrieval probe needs the document that answers it"))
+        if c.get("query_id") in seen:
+            issues.append(Issue(ERROR, at, "duplicate query_id", "ids must be unique"))
+        seen.add(c.get("query_id"))
+    return issues
+
+
 def validate(meta: PackMeta, cases: list) -> dict:
-    issues = (validate_patient_pack(cases) if meta.kind == "patient_worlds"
-              else validate_clinician_pack(cases))
+    issues = ({"patient_worlds": validate_patient_pack,
+               "rag_corpus_bound": validate_rag_pack}.get(
+                   meta.kind, validate_clinician_pack))(cases)
     if not cases:
         issues.append(Issue(ERROR, "pack", "pack is empty", "add at least one case"))
     if meta.visibility == "public_dev" and meta.review_status != UNREVIEWED:
@@ -191,6 +208,9 @@ def _canonical_case(case) -> dict:
                 "required_safety_net": sorted(w.required_safety_net),
             } for w in case.worlds), key=lambda d: d["world_id"]),
         }
+    if isinstance(case, dict) and "supporting_doc_id" in case:
+        return {"query_id": case.get("query_id"), "query": case.get("query"),
+                "supporting_doc_id": case.get("supporting_doc_id")}
     return {"item_id": case.get("item_id"), "input_text": case.get("input_text"),
             "ground_truth_label": case.get("ground_truth_label", "")}
 
@@ -200,7 +220,7 @@ def pack_hash(meta: PackMeta, cases: list) -> str:
     editing one word must."""
     body = {"kind": meta.kind,
             "cases": sorted((_canonical_case(c) for c in cases),
-                            key=lambda d: str(d.get("case_id") or d.get("item_id")))}
+                            key=lambda d: str(d.get("case_id") or d.get("item_id") or d.get("query_id")))}
     return stable_hash_text(json.dumps(body, sort_keys=True))
 
 

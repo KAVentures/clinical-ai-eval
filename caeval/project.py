@@ -152,6 +152,13 @@ class Project:
         kind = s.get("kind")
         if not kind:
             problems.append("subject.kind is required (mock|openai|anthropic|xai|google|http|manual)")
+        cp = self.data.get("case_pack", {}) or {}
+        if not (cp.get("source") or any(
+                isinstance(v, dict) and v.get("source") for v in cp.values())):
+            problems.append(
+                "case_pack.source is required — a run against unspecified cases cannot "
+                "describe your product. Use builtin:demo_clinician / builtin:public_smoke "
+                "for a demonstration, or point at a directory you author.")
         elif kind == "http" and not s.get("url"):
             problems.append("subject.kind=http requires subject.url")
         elif kind in ("openai", "anthropic", "xai", "google") and not s.get("model"):
@@ -231,9 +238,26 @@ def template(name: str = "my-clinical-ai", mode: str = "demonstration") -> dict:
         },
         "panel": {"config": "configs/judge_panel.toml"},
         "clinical_review": {"reviewers": [], "tie_reviewer": ""},
-        "cases": {"source": "builtin_synthetic",
-                  "_options": ["builtin_synthetic", "jsonl_path", "vault_suite"],
-                  "path": ""},
+        # The pack the run actually executes. Until v0.16 project-bound runs used
+        # built-in demo vignettes regardless of what the project said, so an
+        # evidence package described an assessment of fixtures rather than of the
+        # user's cases. `expected_kind` must match the selected family's executor.
+        "case_pack": {
+            # A bare `source` applies to every selected family. If your product
+            # selects families needing different pack kinds (a clinician-RAG
+            # product does), key them by kind instead:
+            #   case_pack:
+            #     clinician_vignette: {source: ./packs/vignettes}
+            #     rag_corpus_bound:   {source: ./packs/corpus}
+            "source": "builtin:demo_clinician",
+            "_options": ["builtin:demo_clinician  (clinician_vignette, demonstration only)",
+                         "builtin:public_smoke    (patient_worlds, demonstration only)",
+                         "./packs/my-pack         (a directory you author)"],
+            "pack_id": "",
+            "version": "",
+            "expected_kind": "",
+            "_kind_options": ["clinician_vignette", "patient_worlds", "rag_corpus_bound"],
+        },
     }
 
 

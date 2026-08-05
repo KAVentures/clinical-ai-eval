@@ -261,9 +261,14 @@ class TestSpecificationDrift(unittest.TestCase):
                 self.assertIn("retracted", txt,
                               f"{fam_id} still asserts the retracted safe-vs-unsafe slogan")
 
-    def test_patient_profile_yields_no_runnable_suites(self):
+    def test_patient_profile_yields_only_the_multiturn_family(self):
+        """v0.16: patient projects reach `patient_red_flag` and only that. The
+        one-shot families stay blocked by the audience gate."""
         from caeval.selection import select_suites
-        self.assertEqual(select_suites(["patient_triage_chatbot"])["runnable_suites"], [])
+        sel = select_suites(["patient_triage_chatbot"])
+        self.assertEqual(sel["runnable_suites"], ["patient_red_flag"])
+        self.assertIn("missing_information",
+                      {b["suite"] for b in sel["required_but_not_run"]})
 
 
 if __name__ == "__main__":

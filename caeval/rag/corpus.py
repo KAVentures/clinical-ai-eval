@@ -119,3 +119,23 @@ def build_demo_corpus() -> Corpus:
     return Corpus("demo_clinical_corpus", "0.1", docs,
                   provenance="SYNTHETIC. Written to exercise retrieval failure modes. "
                              "Not clinical guidance and not derived from any real guideline.")
+
+
+def load_corpus_dir(path):
+    """Load a user-supplied corpus directory (documents.json).
+
+    A RAG assessment is only about the buyer's product if it runs on the buyer's
+    corpus; the shipped demo corpus is a fixture.
+    """
+    import json
+    from pathlib import Path
+    p = Path(path) / "documents.json"
+    if not p.exists():
+        raise FileNotFoundError(
+            f"{path} has no documents.json — a rag_corpus_bound pack must ship the "
+            f"corpus its queries are bound to, or the retrieval probes are meaningless")
+    docs = [Document(d["doc_id"], d.get("title", ""), d.get("text", ""),
+                     version=str(d.get("version", "1")),
+                     superseded_by=d.get("superseded_by"))
+            for d in json.loads(p.read_text())]
+    return Corpus(docs)

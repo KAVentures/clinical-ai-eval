@@ -23,9 +23,27 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -e ".[dev]"
       - name: Run the full self-test suite
-        run: python -m unittest discover -s tests_unit -t . -p "test_*.py" -v
+        # pytest, not unittest discover: three modules use pytest fixtures and
+        # raises, and discover cannot import them.
+        run: python -m pytest tests_unit -q
+
+  capabilities:
+    # Fails if the registries disagree or the README table has drifted. A family
+    # that is implemented but unreachable, or documented differently from how it
+    # runs, is a defect — a user cannot otherwise tell what is supported.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          python -m caeval.cli capabilities --check
+          python -m pytest tests_unit/test_integration_e2e.py -q
 
   fixtures:
     # Fails if any number quoted in the README has drifted from a fresh

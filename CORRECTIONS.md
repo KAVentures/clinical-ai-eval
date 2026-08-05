@@ -1,5 +1,86 @@
 # Corrections log
 
+## v0.16 — the product workflow reaches the capabilities (2026-08)
+
+An external review found that the patient and RAG engines were implemented,
+declared implemented, selectable — and **unreachable from `run --project`**. Every
+subsystem unit test passed. Nothing tested the journey, so nothing failed. That is
+the defect class this release is about: *the parts worked and the product did not.*
+
+### CI was red
+Three test modules import `pytest`; CI installed only `requirements.txt` and ran
+`unittest discover`, which cannot import them. Fixed with a `dev` extra and
+`pytest` in CI. **A project whose central promise is evidence integrity cannot
+ship from a red branch.**
+
+### Patient evaluation was unreachable
+`patient_triage_core` still required only families that are design targets, so a
+patient project selected three blocked suites and `run --project` exited with
+"no runnable suite". The rule now requires `patient_red_flag`; the design targets
+remain listed and are reported REQUIRED-BUT-NOT-RUN so the gap stays visible.
+
+The audience gate then blocked it anyway — because it checked the family's declared
+high-severity fields against `BINARY_FIELDS`, the **one-shot clinician schema**.
+The gate that exists to stop a family being measured against an unmeasurable bar
+was itself measuring against the wrong bar. It is now executor-aware:
+`scorable_fields_for()` resolves the vocabulary the family's backend can actually
+produce. `missing_information` stays correctly blocked for patients.
+
+### Executors, so a family cannot be run by the wrong backend
+`caeval/executors.py` maps each family to `generic_paired_text`, `patient_episode`
+or `rag_trace`, with the pack kind and subject modality each requires. `resolve()`
+**raises rather than falling back**: a generic fallback is how a multi-turn family
+gets scored as a one-shot answer and still produces a confident-looking report.
+Pack-kind and subject-modality mismatches stop the run.
+
+### Project runs used demo cases regardless of the project
+`_run_project_bound()` called `demo_target.base_cases()` under a
+`TODO: locked case packs` comment. A user could describe their product and receive
+an evidence package describing an assessment of built-in fixtures. `case_pack` is
+now required, resolved, content-addressed and checked against the executor's
+required kind. A project may key packs by kind, because one product can select
+families needing different pack shapes. Builtin packs are permitted but marked
+`demonstration_only`.
+
+### RAG had no execution path
+The generic pipeline's transform registry contains no retrieval probes, so a
+clinician-RAG project could select an "implemented" family the pipeline could not
+perturb — producing an unperturbed run labelled as a retrieval probe.
+`caeval/rag/execute.py` implements the `rag_trace` executor, recording query,
+corpus hash, retrieved ids, ranking, context, answer and resolved citations, and
+reporting **retrieval and generation separately**: a good answer from bad retrieval
+is luck, not safety, and will not survive a corpus update.
+
+### The case-pack studio only validated its own fixtures
+`pack` loaded `SMOKE_CASES` whatever its arguments said. It now takes a path:
+`pack validate|inspect|sign|diff`. Signing binds to the content hash and requires a
+named clinician — anonymous review is not review, and editing a case after signing
+invalidates the signature rather than inheriting it.
+
+### Procurement was a comparison function, not a workflow
+`caeval/procurement_workflow.py` adds `init` (freeze conditions and PREDECLARE
+thresholds), `add-vendor` (blinded labels; credentials redacted from stored state),
+`compare` and `export`. Vendor results carrying a different conditions hash are
+**refused**: a buyer who edits the pack after seeing vendor A has measured vendor B
+against a different bar. Still no combined score, no ranking, no buy/no-buy
+recommendation.
+
+### Documentation drift is now a build failure
+The README described two implemented families while five shipped; PRODUCT_V1.md
+said patient evaluation did not exist after it did. `caeval/capabilities.py`
+derives the capability table from the family declarations, selection rules,
+executor registry and maturity levels, and CI fails if they disagree or if the
+README table has drifted. `clinical-ai-eval capabilities` is now the authoritative
+answer to "what can this run".
+
+### What is still NOT true
+Nothing here is clinical validation. Every family remains `experimental`; no
+clinician has authored, reviewed or labelled a pack; no real product has been
+connected; no family has measured sensitivity or false-alert performance against an
+independent clinical reference. Defensible: *"the experimental harness detected
+these behaviours in this locked run."* Not defensible: any statement that a product
+is qualified, has passed procurement, or is safe to deploy.
+
 ## v0.15 — patient stress-test semantics; RETRACTION of a v0.14 claim (2026-08)
 
 ### Retraction

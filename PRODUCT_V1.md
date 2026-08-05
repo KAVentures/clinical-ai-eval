@@ -1,3 +1,10 @@
+> **STATUS NOTE (v0.16).** Parts of this document described the product as of
+> v0.7 and are superseded: patient-facing evaluation, a browser console, one-command
+> package verification, a case-pack studio, multi-vendor procurement and clinical-RAG
+> families now exist. For what this build can ACTUALLY run, do not read this file —
+> run `clinical-ai-eval capabilities`, which is generated from the registries. Statements
+> here about what is "not implemented" should be checked against that output.
+
 # PRODUCT_V1 — what this is, who it is for, and what it may claim
 
 Status: **v0.7, self-service technical alpha.** This document defines the product

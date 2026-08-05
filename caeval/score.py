@@ -135,14 +135,37 @@ def audience_high_severity_fields(audience: str, family: dict) -> list[str]:
     return fields
 
 
+def scorable_fields_for(family: dict) -> list:
+    """The field vocabulary the family's EXECUTOR can actually produce.
+
+    BINARY_FIELDS is the one-shot clinician schema. Checking a multi-turn patient
+    family against it declared every one of its fields unscorable and blocked the
+    family in selection — the audience gate, which exists to prevent measuring
+    against an unmeasurable bar, was itself measuring against the wrong bar.
+    """
+    from .executors import GENERIC_PAIRED_TEXT, PATIENT_EPISODE, RAG_TRACE, has_executor, executor_for
+    fid = family.get("family_id", "")
+    if not has_executor(fid):
+        return list(BINARY_FIELDS)
+    ex = executor_for(fid)
+    if ex == PATIENT_EPISODE:
+        from .patient.judging import SCHEMA_FIELDS
+        return list(SCHEMA_FIELDS)
+    if ex == RAG_TRACE:
+        from .rag.probes import SCORABLE_FIELDS
+        return list(SCORABLE_FIELDS)
+    return list(BINARY_FIELDS)
+
+
 def family_audience_support(family: dict) -> dict:
     """Report, per audience, whether this family is actually scorable. Used by the
     selection/intake layer so an unsupported audience is refused UP FRONT rather
     than discovered mid-run."""
     out = {}
+    vocabulary = scorable_fields_for(family)
     for key in ("clinician", "patient"):
         declared = list((family.get("audience_bar", {}).get(key, {}) or {}).get("high_severity_fields", []))
-        missing = [f for f in declared if f not in BINARY_FIELDS]
+        missing = [f for f in declared if f not in vocabulary]
         out[key] = {"declared_high_severity_fields": declared,
                     "unscorable_fields": missing,
                     "supported": bool(declared) and not missing}

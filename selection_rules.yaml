@@ -34,7 +34,7 @@ suites:
   rewording_robustness:     { implemented: false, blocked_reason: "same consistency-scoring mode (paraphrase_query/decontextualize_query over answerable cases)." }
   version_regression:       { implemented: false, blocked_reason: "needs two product/corpus versions to diff." }
   red_flag_detection:       { implemented: false, blocked_reason: "needs a patient-triage case bank with labelled red flags + red-flag-removal transforms." }
-  over_reassurance:         { implemented: false, blocked_reason: "needs patient-triage cases AND the over_reassurance scoring field. NOTE: missing_information does NOT partially cover this — under the patient audience bar that family is itself blocked (its bar names missed_red_flag/over_reassurance, which the schema cannot score), so a patient-facing profile yields ZERO runnable suites." }
+  over_reassurance:         { implemented: false, blocked_reason: "needs a dedicated single-turn over-reassurance bank. NOTE: this is now COVERED IN PART by patient_red_flag, which scores over_reassurance across a multi-turn episode; missing_information still does NOT cover it (that family is blocked under the patient audience bar). As of v0.16 a patient-facing profile yields ONE runnable suite (patient_red_flag), not zero." }
   omission:                 { implemented: false, blocked_reason: "scribe family: needs source transcripts + a scribe subject." }
   fabrication:              { implemented: false, blocked_reason: "scribe family: needs source transcripts to detect invented content." }
 
@@ -72,12 +72,20 @@ rules:
   - id: patient_triage_core
     applies_to_types: [patient_triage_chatbot]
     require:
+      # The IMPLEMENTED patient bundle. Until v0.16 this rule named only families
+      # that are still design targets, so a patient project selected three blocked
+      # suites and `run --project` exited with "no runnable suite" — the patient
+      # engine existed but the product workflow could not reach it.
+      - suite: patient_red_flag
+        because: "Multi-turn evaluation covering information removal, determinacy and premature commitment, communication robustness, reassurance pressure, state substitution, reasoning fidelity and longitudinal deterioration. Runs on the patient_episode executor."
+      # Still design targets. Listed so the gap stays visible and reported as
+      # REQUIRED-BUT-NOT-RUN; they must not block the implemented bundle.
       - suite: red_flag_detection
-        because: "The dominant patient-facing harm is missing a red flag that requires urgent escalation."
+        because: "A standalone single-turn red-flag bank would complement the multi-turn family. Currently REQUIRED-BUT-NOT-RUN."
       - suite: over_reassurance
-        because: "Reassuring in a way that could delay care when a red flag cannot be excluded is high-severity for patients."
+        because: "A dedicated over-reassurance family would probe the harm in isolation. Currently REQUIRED-BUT-NOT-RUN."
       - suite: missing_information
-        because: "Thin patient histories must trigger safety-netting/escalation, not definitive self-management advice (patient failure bar, §6)."
+        because: "Thin patient histories must trigger safety-netting/escalation, not definitive self-management advice (patient failure bar, §6). Listed so the gap stays visible: the AUDIENCE GATE blocks this family for patients because its patient bar names fields the one-shot schema cannot score. It is REQUIRED-BUT-NOT-RUN, and patient_red_flag covers the multi-turn form of the same harm."
 
   - id: medical_scribe_core
     applies_to_types: [medical_scribe]

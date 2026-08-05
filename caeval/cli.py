@@ -199,9 +199,9 @@ def _run_project_bound(args):
             f"no runnable suite for profiles {proj.profiles}: "
             + "; ".join(f"{b['suite']}: {b['blocked_reason'][:90]}" for b in sel["required_but_not_run"]))
 
+    from . import executors, packsource
+
     panel, keys = _panel_and_keys(proj.data.get("panel", {}).get("config"))
-    cases = demo_target.base_cases()          # TODO: locked case packs (next release)
-    case_pack_hash = hash_case_set(cases)
 
     subject_spec = dict(proj.subject)
     subject_spec.setdefault("name", proj.target_meta["name"])
@@ -211,26 +211,195 @@ def _run_project_bound(args):
     ws_root = Path(args.workspace) if args.workspace else (Path(proj.path) / "out")
     results = []
     for family_id in runnable:
+        # Which backend runs this family, and therefore what shape of pack and
+        # subject it needs. Raises rather than defaulting to the one-shot path:
+        # running a multi-turn family through it produced a report that looked
+        # complete and measured something else.
+        ex = executors.resolve(family_id)
+        cases, pack_desc = packsource.resolve(
+            proj.data.get("case_pack", {}), ex.pack_kind)
+        case_pack_hash = pack_desc["content_hash"]
+
         family = pipeline.load_family(family_id)
         binding = claim_mod.build_binding(proj, family_id, [j["name"] for j in panel["judges"]],
                                           case_pack_hash)
         ws = Workspace(ws_root / f"run_{family_id}").ensure()
         (ws.path / "plan_binding.json").write_text(json.dumps(binding, indent=2))
+        (ws.path / "case_pack.json").write_text(json.dumps(pack_desc, indent=2))
 
-        _generate(ws, subject_spec, family, cases, panel)
-
-        # verify NOTHING drifted between planning and execution
-        actual = claim_mod.build_binding(proj, family_id, [j["name"] for j in panel["judges"]],
-                                         hash_case_set(cases))
-        claim_mod.verify_binding(binding, actual)
-
-        rr, pkg = _score_and_report(ws, panel, keys, subject_spec, family, project=proj,
-                                    binding=binding)
+        if ex.executor_id == executors.PATIENT_EPISODE:
+            pkg = _run_patient_family(ws, proj, family_id, cases, pack_desc, subject_spec)
+        elif ex.executor_id == executors.RAG_TRACE:
+            pkg = _run_rag_family(ws, proj, family_id, cases, pack_desc, subject_spec)
+        else:
+            _generate(ws, subject_spec, family, cases, panel)
+            actual = claim_mod.build_binding(proj, family_id,
+                                             [j["name"] for j in panel["judges"]],
+                                             packsource.content_hash(cases, ex.pack_kind))
+            claim_mod.verify_binding(binding, actual)
+            _rr, pkg = _score_and_report(ws, panel, keys, subject_spec, family,
+                                         project=proj, binding=binding)
         results.append((family_id, pkg))
 
     print(f"project: {proj.name}   mode: {proj.mode}")
     for family_id, pkg in results:
-        print(f"  [{family_id}] claim: {pkg.get('claim_label')}  -> {pkg['final_report_md']}")
+        print(f"  [{family_id}] claim: {pkg.get('claim_label')}  -> {pkg.get('final_report_md')}")
+
+
+def _run_patient_family(ws, proj, family_id, cases, pack_desc, subject_spec):
+    """Multi-turn execution through the patient substrate.
+
+    The subject must be CONVERSATIONAL. A one-shot adapter cannot be driven
+    through an episode, so this refuses rather than sending the transcript as a
+    single prompt and scoring the reply as a trajectory.
+    """
+    from . import adapters, executors
+    from .patient import interop
+    from .patient.registry import TargetSpec
+    from .patient.run import run_case_pack
+
+    modality = subject_spec.get("modality", "single_turn")
+    executors.check_subject_compatibility(family_id, modality)
+
+    kind = subject_spec.get("kind", "mock")
+    if kind == "mock":
+        from .patient.mock_targets import TARGETS as MOCKS
+        arm = subject_spec.get("arm", "mock_repaired")
+        fn = MOCKS.get(arm) or MOCKS["mock_repaired"]
+        spec = TargetSpec(subject_spec.get("name", arm), str(subject_spec.get("version", "0")),
+                          fn, "mock", "project-declared mock subject", is_mock=True)
+        target_fn = fn
+    else:
+        aspec = adapters.AdapterSpec(
+            adapter_id=subject_spec.get("name", "target"),
+            kind="http_conversation",
+            version=str(subject_spec.get("version", "unknown")),
+            url=subject_spec["url"], headers=subject_spec.get("headers", {}),
+            extra=subject_spec.get("extra", {}))
+        adapter, probe = adapters.connect(aspec)
+        (ws.path / "adapter_probe.json").write_text(json.dumps(probe, indent=2))
+        target_fn = adapter
+        spec = TargetSpec(aspec.adapter_id, aspec.version, adapter, "http_adapter",
+                          f"endpoint {aspec.describe()['endpoint_host']}", is_mock=False)
+
+    run = run_case_pack(target_fn, cases, spec.target_id, spec.version,
+                        pack_descriptor=pack_desc, target_spec=spec)
+    records = interop.to_records(run)
+    queue = interop.review_queue(run)
+    claim = interop.claim_inputs(run)
+
+    (ws.path / "episodes.jsonl").write_text(
+        "\n".join(json.dumps(e) for e in run["episodes"]))
+    (ws.path / "results.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in records))
+    (ws.path / "analysis.json").write_text(json.dumps(
+        {"family_id": family_id, "summary": run["summary"], "coverage": run["coverage"],
+         "paired": run["paired"], "substitution_effects": run["substitution_effects"],
+         "skipped": run["skipped"], "claim_inputs": claim}, indent=2))
+    (ws.path / "human_review.csv").write_text(_patient_review_csv(queue))
+
+    md = ws.path / "final_report.md"
+    md.write_text(_patient_report_md(proj, family_id, run, claim))
+    ws.write_run_meta({"family_id": family_id, "executor": "patient_episode",
+                       "subject_spec": subject_spec, "case_pack": pack_desc,
+                       "claim_inputs": claim})
+    return {"final_report_md": str(md), "claim_label": _patient_claim_label(claim),
+            "n_review_selected": len(queue), "conformance_level": "L0",
+            "summary": run["summary"]}
+
+
+def _patient_claim_label(claim: dict) -> str:
+    if not claim.get("provenance_known"):
+        return "NO_CLAIM (target or case-pack provenance unknown)"
+    if claim.get("subject_is_mock"):
+        return "demonstration (mock subject)"
+    if not claim.get("case_pack_clinician_reviewed"):
+        return "exploratory (case pack not clinician-reviewed)"
+    return "experimental (family maturity caps every claim from this family)"
+
+
+def _patient_review_csv(queue) -> str:
+    import csv
+    import io
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["episode_id", "strata", "given_disposition", "required_disposition",
+                "reviewer_disposition", "reviewer_unsafe", "reviewer_notes"])
+    for q in queue:
+        # required_disposition is written for the ADJUDICATOR form only; the
+        # blinded reviewer packet is produced separately by caeval.review_packets.
+        w.writerow([q["episode_id"], ";".join(q["strata"]), q["given_disposition"],
+                    q["required_disposition"], "", "", ""])
+    return buf.getvalue()
+
+
+def _patient_report_md(proj, family_id, run, claim) -> str:
+    s, cov = run["summary"], run["coverage"]
+    L = [f"# Patient triage assessment — {proj.name}", "",
+         f"Family: `{family_id}` (executor: patient_episode, maturity: experimental)",
+         f"Target: `{run['target_spec'].get('target_id')}` "
+         f"(mock: {run['target_spec'].get('is_mock')})",
+         f"Case pack: `{run['case_pack'].get('pack_id')}` "
+         f"(clinician-reviewed: {run['case_pack'].get('clinician_reviewed')})",
+         f"Claim: **{_patient_claim_label(claim)}**", "",
+         "> Safety and usefulness are reported separately and are never combined "
+         "into a single score.", "",
+         "## Safety", "", "| endpoint | rate |", "|---|---|"]
+    L += [f"| {k} | {v:.1%} |" for k, v in s["safety"].items()]
+    L += ["", "## Usefulness (harms of over-reaction)", "", "| endpoint | rate |", "|---|---|"]
+    L += [f"| {k} | {v:.1%} |" for k, v in s["usefulness"].items()]
+    L += ["", "## Coverage", "",
+          f"- stress cells run: {cov['stress_cells_run']} / {cov['stress_cells_possible']}",
+          f"- skipped: {cov['stress_cells_skipped']}"]
+    for t, cells in cov.get("skipped_by_test", {}).items():
+        L.append(f"  - `{t}`: {len(cells)} cell(s) — the case cannot support this condition")
+    if cov.get("note"):
+        L += ["", f"> {cov['note']}"]
+    return "\n".join(L)
+
+
+def _run_rag_family(ws, proj, family_id, cases, pack_desc, subject_spec):
+    """Corpus-bound retrieval trace. Retrieval and generation scored separately."""
+    from .rag import execute as rag_exec
+    from .subject import build_subject
+
+    subject = build_subject(subject_spec)
+    queries = cases if isinstance(cases, list) and cases and isinstance(cases[0], dict) \
+        and "supporting_doc_id" in cases[0] else rag_exec.demo_queries()
+    corpus = None
+    if pack_desc.get("source"):
+        from .rag.corpus import load_corpus_dir
+        corpus = load_corpus_dir(pack_desc["source"])
+
+    run = rag_exec.run_family(family_id, subject, queries, corpus=corpus)
+    (ws.path / "rag_traces.jsonl").write_text(
+        "\n".join(json.dumps(t) for t in run["traces"]))
+    (ws.path / "results.jsonl").write_text(
+        "\n".join(json.dumps(r) for r in run["records"]))
+    (ws.path / "analysis.json").write_text(json.dumps(
+        {"family_id": family_id, "summary": run["summary"], "corpus": run["corpus"],
+         "skipped": run["skipped"]}, indent=2))
+
+    s = run["summary"]
+    L = [f"# Clinical RAG assessment — {proj.name}", "",
+         f"Family: `{family_id}` (executor: rag_trace, maturity: experimental)",
+         f"Corpus: `{run['corpus'].get('corpus_hash', '')[:16]}` "
+         f"({run['corpus'].get('n_documents', '?')} documents)", "",
+         "> Retrieval and generation are reported SEPARATELY. A good answer from bad "
+         "retrieval is luck, not safety.", "",
+         "## Retrieval", "", "| endpoint | rate |", "|---|---|"]
+    L += [f"| {k} | {v:.1%} |" for k, v in s["retrieval"].items()]
+    L += ["", "## Generation", "", "| endpoint | rate |", "|---|---|"]
+    L += [f"| {k} | {v:.1%} |" for k, v in s["generation"].items()]
+    md = ws.path / "final_report.md"
+    md.write_text("\n".join(L))
+    ws.write_run_meta({"family_id": family_id, "executor": "rag_trace",
+                       "subject_spec": subject_spec, "case_pack": pack_desc})
+    return {"final_report_md": str(md),
+            "claim_label": "demonstration (mock subject)" if subject_spec.get("kind") == "mock"
+                           else "exploratory (experimental family)",
+            "n_review_selected": 0, "conformance_level": "L0",
+            "summary": s}
 
 
 def cmd_judge(args):
@@ -596,20 +765,125 @@ def cmd_corpus(args):
               "failure modes and is not clinical guidance.")
 
 
+def _pack_load(path, kind):
+    """Load a pack from a user directory or a builtin id."""
+    from . import packsource
+    spec = {"source": path}
+    cases, desc = packsource.resolve(spec, kind)
+    return cases, desc
+
+
 def cmd_pack(args):
-    """Validate and content-address a case pack. Never marks it reviewed."""
+    """Case-pack studio: validate, inspect, sign and diff packs the USER authors.
+
+    Until v0.16 this command loaded the shipped smoke fixtures regardless of its
+    arguments, so it demonstrated validation without letting anyone validate their
+    own pack. Structural validation is never a clinical review: a pack stays
+    `unreviewed` until a named clinician signs its exact content hash.
+    """
     import json as _json
-    import sys as _sys
-    from pathlib import Path as _P
     from . import casepack
-    _sys.path.insert(0, str(_P(__file__).resolve().parent.parent
-                            / "casepacks" / "patient" / "public_dev"))
-    from smoke_worlds import SMOKE_CASES
-    meta = casepack.PackMeta(args.pack_id, args.version, args.kind, args.visibility)
-    built = casepack.build(meta, SMOKE_CASES)
-    print(_json.dumps(built, indent=2))
-    print("\nStructural validation only. This is NOT a clinical review: the pack stays "
-          "`unreviewed` until a named clinician signs this exact content hash.")
+
+    cases, desc = _pack_load(args.path, args.kind)
+    meta = casepack.PackMeta(
+        pack_id=args.pack_id or desc.get("pack_id") or "pack",
+        version=args.version or desc.get("version") or "0",
+        kind=args.kind,
+        visibility=args.visibility or desc.get("visibility") or "private_qualification")
+
+    if args.action == "validate":
+        built = casepack.build(meta, cases)
+        print(_json.dumps(built, indent=2))
+        v = built["validation"]
+        print(f"\n{len(v['errors'])} error(s), {len(v['warnings'])} warning(s); "
+              f"pack_hash={built['pack_hash'][:16]}")
+        print("Structural validation only. This is NOT a clinical review: the pack stays "
+              "`unreviewed` until a named clinician signs this exact content hash.")
+        if v["errors"]:
+            raise SystemExit(1)
+
+    elif args.action == "inspect":
+        print(_json.dumps({"descriptor": desc, "n_cases": len(cases),
+                           "pack_hash": casepack.pack_hash(meta, cases)}, indent=2))
+
+    elif args.action == "sign":
+        if not args.reviewer:
+            raise SystemExit("--reviewer NAME is required: anonymous review is not review")
+        digest = casepack.pack_hash(meta, cases)
+        meta = casepack.sign(meta, args.reviewer, args.role, digest)
+        out = pathlib_Path(args.path) / "pack.json"
+        payload = {"pack_id": meta.pack_id, "version": meta.version, "kind": meta.kind,
+                   "visibility": meta.visibility, "review_status": meta.review_status,
+                   "clinician_reviewed": True, "signed_by": meta.signed_by,
+                   "pack_hash": digest}
+        out.write_text(_json.dumps(payload, indent=2))
+        print(f"signed {meta.pack_id} @ {digest[:16]} by {args.reviewer} ({args.role})")
+        print("The signature binds to this content hash. Editing any case invalidates it.")
+
+    elif args.action == "diff":
+        if not args.other:
+            raise SystemExit("pack diff needs a second pack: --other PATH")
+        other_cases, _od = _pack_load(args.other, args.kind)
+        a = casepack.pack_hash(meta, cases)
+        b = casepack.pack_hash(meta, other_cases)
+        ids = lambda cs: {getattr(c, "case_id", None) or (c.get("item_id") if isinstance(c, dict) else None)
+                          or (c.get("query_id") if isinstance(c, dict) else None) for c in cs}
+        ia, ib = ids(cases), ids(other_cases)
+        print(_json.dumps({
+            "pack_a_hash": a, "pack_b_hash": b, "identical": a == b,
+            "only_in_a": sorted(x for x in ia - ib if x),
+            "only_in_b": sorted(x for x in ib - ia if x),
+            "in_both": len(ia & ib),
+            "note": "Cases present in both may still differ in content; the pack hashes "
+                    "settle that. A changed hash invalidates any clinician signature.",
+        }, indent=2))
+
+
+from pathlib import Path as pathlib_Path  # noqa: E402
+
+
+def cmd_procurement(args):
+    """Multi-vendor procurement: freeze conditions, run vendors, export a dossier."""
+    import json as _json
+    from . import procurement_workflow as pw
+
+    if args.action == "init":
+        hazards = _json.loads(Path(args.hazards).read_text()) if args.hazards else []
+        st = pw.init(args.path, args.name or "procurement",
+                     args.families or ["patient_red_flag"],
+                     {"pack_id": args.pack_id or "", "clinician_reviewed": False},
+                     args.panel or "configs/judge_panel.toml", hazards)
+        print(f"conditions frozen: {st['conditions_hash']}")
+        print("Every vendor run is checked against this hash. Editing the pack, families, "
+              "panel or thresholds after a vendor has run invalidates the comparison.")
+    elif args.action == "add-vendor":
+        spec = _json.loads(Path(args.subject).read_text()) if args.subject else {"kind": "mock"}
+        st = pw.add_vendor(args.path, args.vendor, spec, args.label or "")
+        v = st["vendors"][-1]
+        print(f"registered {v['vendor_id']} as blinded label {v['blinded_label']!r}")
+    elif args.action == "compare":
+        print(_json.dumps(pw.compare(args.path, args.family), indent=2))
+    elif args.action == "export":
+        out = args.out or str(Path(args.path) / "dossier.md")
+        pw.export_dossier(args.path, out)
+        print(f"dossier -> {out}")
+        print("Contains no combined score, no ranking and no buy/no-buy recommendation.")
+
+
+def cmd_capabilities(args):
+    """Print what this build can actually run, derived from the registries."""
+    import json as _json
+    from . import capabilities
+    if args.check:
+        problems = capabilities.check_consistency()
+        for p in problems:
+            print(f"INCONSISTENT: {p}")
+        if problems:
+            raise SystemExit(1)
+        print("registries agree: SDK, selection, executors and maturity are consistent")
+        return
+    print(_json.dumps(capabilities.table(), indent=2) if args.json
+          else capabilities.render_markdown())
 
 
 def main(argv=None):
@@ -670,14 +944,41 @@ def main(argv=None):
     pw.set_defaults(func=cmd_console)
     pcorp = sub.add_parser("corpus", help="show the pinned RAG corpus descriptor")
     pcorp.set_defaults(func=cmd_corpus)
-    ppack = sub.add_parser("pack", help="validate and content-address a case pack")
-    ppack.add_argument("--pack-id", default="public_smoke")
-    ppack.add_argument("--version", default="0.1")
+    ppack = sub.add_parser("pack", help="case-pack studio: validate, inspect, sign, diff")
+    ppack.add_argument("action", choices=["validate", "inspect", "sign", "diff"])
+    ppack.add_argument("path", help="pack directory, or a builtin: id")
+    ppack.add_argument("--other", default=None, help="second pack, for `diff`")
+    ppack.add_argument("--reviewer", default=None, help="named clinician, for `sign`")
+    ppack.add_argument("--role", default="clinician",
+                       choices=["clinician", "specialist_clinician"])
+    ppack.add_argument("--pack-id", default=None)
+    ppack.add_argument("--version", default=None)
     ppack.add_argument("--kind", default="patient_worlds",
-                       choices=["patient_worlds", "clinician_vignette"])
-    ppack.add_argument("--visibility", default="public_dev",
+                       choices=["patient_worlds", "clinician_vignette", "rag_corpus_bound"])
+    ppack.add_argument("--visibility", default=None,
                        choices=["public_dev", "private_qualification"])
     ppack.set_defaults(func=cmd_pack)
+    pproc = sub.add_parser("procurement", help="multi-vendor comparison workflow")
+    pproc.add_argument("action", choices=["init", "add-vendor", "compare", "export"])
+    pproc.add_argument("path")
+    pproc.add_argument("--name", default=None)
+    pproc.add_argument("--families", nargs="*", default=None)
+    pproc.add_argument("--pack-id", default=None)
+    pproc.add_argument("--panel", default=None)
+    pproc.add_argument("--hazards", default=None, help="JSON file of predeclared hazards")
+    pproc.add_argument("--vendor", default=None)
+    pproc.add_argument("--subject", default=None, help="vendor subject spec JSON")
+    pproc.add_argument("--label", default=None, help="blinded label reviewers see")
+    pproc.add_argument("--family", default="patient_red_flag")
+    pproc.add_argument("--out", default=None)
+    pproc.set_defaults(func=cmd_procurement)
+
+    pcap = sub.add_parser("capabilities", help="what this build can actually run")
+    pcap.add_argument("--json", action="store_true")
+    pcap.add_argument("--check", action="store_true",
+                      help="fail if the registries disagree with each other")
+    pcap.set_defaults(func=cmd_capabilities)
+
     pv = sub.add_parser("vault", help="inspect the private vault (metadata only)")
     pv.add_argument("--path", default=None)
     pv.set_defaults(func=cmd_vault)

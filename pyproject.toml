@@ -18,6 +18,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Test deps are NOT runtime deps, but CI must install them or the suite that
+# enforces every claim in this repo cannot run. A red branch on an evidence-
+# integrity project is a release blocker.
+dev = ["pytest>=8"]
 # Real judges/subjects call HTTP APIs via stdlib urllib; no SDK is required.
 # Install these only if you prefer the vendor SDKs elsewhere in your workflow.
 llm = ["openai", "anthropic", "google-genai"]
