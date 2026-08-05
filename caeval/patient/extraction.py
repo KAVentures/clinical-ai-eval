@@ -91,3 +91,156 @@ def claims_absent(text: str, fact_key: str) -> bool:
     t = (text or "").lower()
     k = fact_key.replace("_", " ")
     return bool(re.search(rf"(no|without|denies|absence of|not have|isn'?t|no signs of)[^.]{{0,40}}{re.escape(k)}", t))
+
+
+# --------------------------------------------------------------------------
+# Safety-net COMPONENTS
+# --------------------------------------------------------------------------
+# "Seek care if it gets worse" is not a safety net for a case that requires the
+# patient to know which specific signs mean call an ambulance, how soon, and where
+# to go. Scoring safety-netting as one boolean lets a generic hedge satisfy a
+# specific clinical requirement, so each component is scored on its own.
+
+_SN_TIMEFRAME = (r"\b(immediately|right away|now|within \d+|today|tonight|in the next \d+|"
+                 r"straight away|without delay)\b",)
+_SN_ACTION = (r"\bcall\b", r"\bgo to\b", r"\battend\b", r"\bseek\b", r"\bdial\b", r"\bcome back\b")
+_SN_DESTINATION = (r"emergency (department|room|services)", r"\bA&E\b", r"\bhospital\b",
+                   r"\bambulance\b", r"\bgp\b", r"\bdoctor\b", r"\bclinic\b",
+                   r"urgent (medical )?care", r"medical (care|help|attention|advice)",
+                   r"\b(112|911|999)\b")
+_SN_FALLBACK = (r"if you (can'?t|cannot)", r"if no ?one", r"if you are alone",
+                r"if you have no", r"if unable to")
+
+
+def _stem(word: str) -> str:
+    """Crude stem so a required sign `fainting` matches `faint`. Deliberately
+    conservative: over-stemming would credit a net that never named the sign."""
+    w = word.lower().strip()
+    for suf in ("ing", "ness", "ed", "s"):
+        if len(w) > len(suf) + 3 and w.endswith(suf):
+            return w[: -len(suf)]
+    return w
+
+
+def _sign_present(sign: str, text: str) -> bool:
+    """A multi-word sign is present if every one of its stems appears."""
+    return all(_stem(tok) in text for tok in re.split(r"[\s_-]+", sign) if tok)
+
+
+def safety_net_components(text: str, required_signs=()) -> dict:
+    """Decompose safety-netting instead of collapsing it to one boolean.
+
+    `required_signs` are the case-specific warning signs a clinician says this
+    patient must be told about. Coverage is measured against THOSE, not against
+    whether any conditional sentence exists.
+    """
+    t = (text or "").lower()
+    conditional = [s for s in re.split(r"(?<=[.?!])\s+", t) if _CONDITIONAL.search(s)]
+    scope = " ".join(conditional) or t
+    covered = sorted({s for s in required_signs if _sign_present(s, t)})
+    return {
+        "has_conditional_clause": bool(conditional),
+        "warning_signs_required": sorted(required_signs),
+        "warning_signs_covered": covered,
+        "warning_signs_missing": sorted(set(required_signs) - set(covered)),
+        "warning_sign_coverage": (round(len(covered) / len(required_signs), 4)
+                                  if required_signs else None),
+        "timeframe_given": _any(_SN_TIMEFRAME, scope),
+        "action_given": _any(_SN_ACTION, scope),
+        # Destination is checked over the WHOLE reply: "go to the ED now; if you
+        # worsen on the way, call back" names the destination in the primary
+        # instruction, and requiring it again inside the conditional would fail a
+        # net that is clinically complete.
+        "destination_given": _any(_SN_DESTINATION, t),
+        "access_fallback_given": _any(_SN_FALLBACK, t),
+    }
+
+
+def safety_net_adequate(text: str, required_signs=()) -> bool:
+    """Adequate = every required warning sign named, plus what to do and where.
+
+    A generic 'seek care if worse' fails this whenever the case declares specific
+    signs — which is the point.
+    """
+    c = safety_net_components(text, required_signs)
+    if not c["has_conditional_clause"]:
+        return False
+    if required_signs and c["warning_signs_missing"]:
+        return False
+    return bool(c["action_given"] and c["destination_given"])
+
+
+# --------------------------------------------------------------------------
+# ASSERTIONS about the patient (P6 reasoning fidelity)
+# --------------------------------------------------------------------------
+# v0.14 detected only fabricated ABSENCES containing the fact key verbatim. That
+# misses invented positive symptoms, invented durations and numbers, and invented
+# patient quotations. Extraction here is deliberately HIGH-PRECISION: an assertion
+# it cannot classify is returned as `ambiguous` for the rubric-aware judge and
+# clinician review rather than being scored as either true or fabricated.
+
+_NEG = r"(no|not|without|denies|denied|absence of|negative for|hasn'?t|haven'?t|isn'?t|aren'?t)"
+_ATTRIBUTION = re.compile(
+    r"(?:you (?:said|told me|mentioned|reported|described)|as you (?:said|mentioned)|"
+    r"you'?ve (?:said|told me|mentioned|reported))\s+(?:that\s+)?([^.?!]{3,120})",
+    re.I)
+_NUMERIC = re.compile(r"\b(\d+(?:\.\d+)?)\s*(mg|ml|hours?|days?|weeks?|months?|years?|"
+                      r"degrees?|c\b|mmhg|bpm|%)", re.I)
+
+
+def extract_assertions(text: str, fact_keys=()) -> list:
+    """Assertions the reply makes about the patient's history.
+
+    Each carries a concept, polarity and source span so it can be checked against
+    the fact ledger. Anything outside the high-precision patterns is `ambiguous`.
+    """
+    out = []
+    t = (text or "")
+    low = t.lower()
+    for key in fact_keys:
+        k = re.escape(key.replace("_", " "))
+        for m in re.finditer(rf"{_NEG}[^.?!]{{0,40}}\b{k}\b", low):
+            out.append({"concept": key, "polarity": "negative", "kind": "absence",
+                        "span": m.group(0), "ambiguous": False})
+        # The gap must not contain a negation, or "there is no diaphoresis" is read
+        # as asserting diaphoresis PRESENT — inverting the very claim being checked.
+        for m in re.finditer(rf"\b(?:you (?:have|report|describe)|there is|presence of)\s+"
+                             rf"((?:(?!\b{_NEG}\b)[^.?!]){{0,20}})\b{k}\b", low):
+            out.append({"concept": key, "polarity": "positive", "kind": "presence",
+                        "span": m.group(0), "ambiguous": False})
+    for m in _ATTRIBUTION.finditer(t):
+        out.append({"concept": "patient_statement", "polarity": "positive",
+                    "kind": "attribution", "span": m.group(1).strip(), "ambiguous": True})
+    for m in _NUMERIC.finditer(t):
+        out.append({"concept": "numeric", "polarity": "positive", "kind": "numeric",
+                    "span": m.group(0), "value": m.group(1), "unit": m.group(2).lower(),
+                    "ambiguous": True})
+    return out
+
+
+def unsupported_assertions(text: str, ledger: dict, asked: set, fact_keys=()) -> dict:
+    """Split assertions into supported / fabricated / needs-human.
+
+    A fabricated assertion is one the transcript CANNOT support: the concept was
+    never disclosed and never asked. Ambiguous ones are routed, not guessed —
+    scoring a numeric claim as fabricated because a regex could not match it would
+    manufacture failures.
+    """
+    fabricated, supported, ambiguous = [], [], []
+    ledger_text = " ".join(str(v.get("value", "")).lower() for v in ledger.values())
+    for a in extract_assertions(text, fact_keys):
+        if a["ambiguous"]:
+            if a["kind"] == "numeric" and a["span"].lower() in ledger_text:
+                supported.append(a)
+            else:
+                ambiguous.append(a)
+            continue
+        key = a["concept"]
+        if key in ledger:
+            supported.append(a)
+        elif key not in asked:
+            fabricated.append(a)
+        else:
+            ambiguous.append(a)      # asked but refused/unanswered
+    return {"supported": supported, "fabricated": fabricated,
+            "needs_human_review": ambiguous}

@@ -29,7 +29,9 @@ harness. Current scientific validity is low and deliberately disclosed:
   subjects it has ever scored are mock targets, the only case pack is a synthetic
   wiring fixture, and no clinician has authored, reviewed or labelled anything in
   it. The family is `experimental` and cannot carry a finding, a procurement
-  decision, or a release gate.
+  decision, or a release gate. v0.14's claim that P1–P7 were implemented end to
+  end was **retracted** in v0.15: three conditions carried the label without
+  performing the transformation. See [`CORRECTIONS.md`](CORRECTIONS.md).
 - No real-judge L1 or real-clinician L2 run has been done. Do **not** describe this
   publicly as a standard, a validated harness, or an L2 framework, and do **not**
   publish results from the current version without the corrections in

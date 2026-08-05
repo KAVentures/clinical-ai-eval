@@ -82,11 +82,14 @@ def resolve_stress_test(name: str) -> str:
 def register_mock_targets():
     from . import mock_targets as m
     specs = [
-        ("mock_baseline", m.baseline_target, "asks once, commits on partial information"),
+        ("mock_partial_history", m.partial_history_target,
+         "asks once, commits on partial information; high safety-failure rate"),
         ("mock_defective", m.defective_target, "no history, reassures, forbidden self-treatment"),
         ("mock_repaired", m.repaired_target, "takes load-bearing history, then dispositions"),
         ("mock_over_conservative", m.over_conservative_target,
-         "refers everything; zero under-triage, not patient-ready"),
+         "refers everything without asking. Over-triages, AND under-triages the "
+         "worlds needing an ambulance rather than a car journey — a blanket "
+         "referral is not even a safe strategy, let alone a useful one"),
     ]
     for tid, fn, desc in specs:
         if tid not in TARGETS:

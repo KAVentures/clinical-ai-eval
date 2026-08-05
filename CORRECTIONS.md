@@ -1,5 +1,119 @@
 # Corrections log
 
+## v0.15 — patient stress-test semantics; RETRACTION of a v0.14 claim (2026-08)
+
+### Retraction
+v0.14 said the patient substrate implemented P1–P7. **That is retracted.** The
+labels existed; three of the conditions did not perform the clinical
+transformation they named. The honest v0.14 claim was: *patient conversation
+engine shipped, stress-test semantics partially shipped.*
+
+### The P1 defect — the worst bug in this repository to date
+`DisclosurePolicy` marked every spontaneous fact as disclosed at construction.
+P1 then suppressed those facts from the rendered opening only. The result:
+
+* the target never saw the fact;
+* the measurement system recorded it as disclosed at turn 0;
+* asking could not reveal it, because `question_targets()` skips disclosed facts;
+* `missed_red_flag` could not fire, because the ledger said the fact was present.
+
+So the information-removal experiment removed the information from the subject and
+kept it in the measurement — **fail-open, and precisely the subject/measurement
+mismatch this repository exists to detect, committed inside the harness itself.**
+
+The fix is structural, not local: **a condition that changes what the subject can
+know must transform the WORLD, not the rendering.** `caeval/patient/stress.py`
+now moves the fact from `spontaneous` to `when_asked`, so there is exactly one
+source of truth about what the patient knows. The fact stays obtainable — making
+it `unavailable` would test an unwinnable world and blame the product for the
+fixture.
+
+### P5 substituted nothing; P7 changed prose, not the world
+P5 ran the *same world* under a different label; the test asserting sibling worlds
+disagree said nothing about the episode. P7 appended "it's getting worse" —
+no fact, no ledger entry, no disposition change. Both now transform the world:
+P5 swaps load-bearing values and carries the sibling's required disposition
+(recording which facts moved); P7 fires declared `TrajectoryEvent`s that add facts
+at a configured turn and can raise the required disposition, recording the
+transition.
+
+Conditions a case cannot support now RAISE and are counted in
+`coverage.skipped_by_test`. Running them as relabelled baselines was the deeper
+error: **a hollow episode is indistinguishable from a passing one**, and coverage
+looked complete when 20 of 84 stress cells could not actually run.
+
+### Premature commitment — the endpoint final-state scoring cannot see
+A system could advise "safe at home" on turn 1, ask good questions on turn 2, and
+correct itself on turn 3. Every v0.14 metric scored that as a pass. The patient who
+acted on turn 1 is already gone. `caeval/patient/determinacy.py` reconstructs, for
+each system turn, which worlds were still compatible with what the patient had
+said **before the system spoke**; committing while the answer was still
+underdetermined is `premature_commitment`, now a PRIMARY endpoint beside
+under-triage.
+
+### Three further measurement corrections
+* **Escalation clock.** Delay was measured from the LAST red flag to arrive, so a
+  first decisive finding followed by three more reset the clock. It now starts at
+  the first turn where *every* compatible world required emergency care.
+* **History denominator.** Requiring every load-bearing fact rewards interrogation;
+  clinical histories have several sufficient routes. `decision_closure_reached`
+  (is the disposition identifiable from what was disclosed?) is now the primary
+  measure, with `raw_critical_fact_recall` reported beside it.
+* **Safety net.** One boolean let "seek help if it gets worse" satisfy a case
+  requiring specific warning signs. Scored by component: which required signs were
+  named, plus timeframe, action, destination, access fallback.
+
+### P6 beyond fabricated absences
+The extractor caught only absence claims containing the fact key verbatim. It now
+also extracts positive assertions, patient attributions and numeric claims.
+Assertions it cannot settle are routed to `needs_human_review` and to the review
+queue — **never scored as fabricated**. Guessing either way manufactures failures
+or hides them; routing is the only honest option for an ambiguous claim.
+
+### The judge was being handed a blank response
+`episode_to_record` put the transcript in `input_text` and left `response_text`
+empty, so the generic formatter produced a prompt with an empty
+"PRODUCT RESPONSE TO SCORE" and a one-shot missing-information rubric applied to a
+conversation. The judges would have returned confident labels on nothing.
+`caeval/patient/judging.py` + `prompts/patient_judge_prompt.txt` define a
+patient-specific contract carrying the transcript **and what was known before each
+system turn** — without which a judge cannot see premature commitment at all.
+The hardened panel machinery (≥2 distinct providers, fail-closed quorum,
+disagreement, review packets, L2 gate) is reused unchanged; the one-shot prompt
+contract is not.
+
+Blinding is enforced structurally by walking the payload keys. The first version
+scanned `str(payload)` for double-quoted keys — which a Python repr never
+contains — so it would have passed a payload naming the required disposition.
+
+### Provenance is bound, not inferred
+Mock status came from `target_id.startswith("mock_")` and the dataset was the
+hardcoded string `patient_public_smoke`. Both would mislabel the first real
+qualification run. Runs now carry the registered `TargetSpec` and case-pack
+descriptor, and **unknown provenance blocks a claim** rather than defaulting to the
+permissive answer (`subject_is_mock: None`, `may_support_a_claim: false`).
+
+### Two more bugs found while fixing these
+* P7 mutated the shared world object, so one trajectory episode permanently
+  altered the fixture: later P7 runs were skipped ("fact already present") and
+  every subsequent baseline was scored against a mutated world. Now deep-copied.
+* P7-revealed facts reached the simulator but not the trace ledger, making a P7
+  escalation unverifiable against the transcript — the same split as the P1 bug,
+  one layer down.
+
+### Naming
+`mock_baseline` (0.75 safety-failure rate) is renamed `mock_partial_history`;
+"baseline" now names only the paired control condition. The registry no longer
+describes the over-conservative target as having "zero under-triage" — it
+under-triages the worlds needing an ambulance rather than a car journey.
+
+### What v0.15 claims
+The multi-turn patient substrate is implemented: world transformations for P1/P5/P7,
+turn-by-turn determinacy, premature-commitment detection, decision closure,
+component safety-net scoring, assertion support checking, and a patient-specific
+judge contract. It remains `experimental`: no clinician has authored, reviewed or
+labelled anything in it, and no real product has been connected.
+
 ## v0.15 — operator layer: console, review UI, case-pack studio, comparison, RAG, adapters (2026-08)
 
 Roadmap items 3, 4, 5, 7, 8 and 10. The kernel was rigorous and unoperable: the only

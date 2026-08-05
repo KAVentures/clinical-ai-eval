@@ -126,6 +126,9 @@ class PatientCase:
     source: str = "clinician_authored"
     profile: dict = field(default_factory=dict)         # benchmark profiling (Gu et al.)
     provenance: str = ""
+    # Declared P7 state changes. Absent means this case cannot support P7 — the
+    # harness raises rather than running a relabelled baseline.
+    trajectory: object = None
 
     def __post_init__(self):
         ids = [w.world_id for w in self.worlds]
