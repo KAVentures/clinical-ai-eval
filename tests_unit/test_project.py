@@ -27,6 +27,8 @@ def _filled(mode="demonstration", subject_kind="mock", reviewers=None):
         d["subject"]["model"] = "some-model"
     if reviewers:
         d["clinical_review"]["reviewers"] = reviewers
+        # v0.17: two reviewers need a tie adjudicator who is not one of them.
+        d["clinical_review"]["tie_reviewer"] = "drTie"
     return d
 
 
@@ -86,6 +88,40 @@ class TestModeGuards(unittest.TestCase):
     def test_calibrated_with_real_subject_and_reviewers_is_valid(self):
         d = _filled(mode="calibrated_assessment", subject_kind="http", reviewers=["drA", "drB"])
         self.assertEqual(_write(d).validate(), [])
+
+    def test_one_reviewer_does_not_satisfy_the_two_clinician_gate(self):
+        """The error text promised >=2 named clinicians while the check only tested
+        for a non-empty list, so one reviewer passed a gate the message described
+        as requiring two."""
+        d = _filled(mode="calibrated_assessment", subject_kind="http", reviewers=["drA"])
+        problems = _write(d).validate()
+        self.assertTrue(any("TWO named clinicians" in x for x in problems), problems)
+
+    def test_duplicate_reviewers_are_one_reviewer(self):
+        d = _filled(mode="calibrated_assessment", subject_kind="http",
+                    reviewers=["drA", "drA"])
+        self.assertTrue(any("duplicates" in x for x in _write(d).validate()))
+
+    def test_tie_adjudicator_is_required_and_must_be_independent(self):
+        d = _filled(mode="calibrated_assessment", subject_kind="http",
+                    reviewers=["drA", "drB"])
+        d["clinical_review"]["tie_reviewer"] = ""
+        self.assertTrue(any("tie_reviewer" in x for x in _write(d).validate()))
+        d["clinical_review"]["tie_reviewer"] = "drA"
+        self.assertTrue(any("party to" in x for x in _write(d).validate()))
+
+    def test_product_identity_is_required(self):
+        """Evidence must bind to a specific tested product and version."""
+        for field in ("name", "version"):
+            d = _filled(mode="demonstration")
+            d["target"][field] = ""
+            self.assertTrue(any(f"target.{field}" in x for x in _write(d).validate()))
+
+    def test_vendor_required_beyond_demonstration(self):
+        d = _filled(mode="calibrated_assessment", subject_kind="http",
+                    reviewers=["drA", "drB"])
+        d["target"]["vendor"] = ""
+        self.assertTrue(any("target.vendor" in x for x in _write(d).validate()))
 
     def test_every_mode_has_a_claim_label(self):
         for mode in P.VALID_MODES:

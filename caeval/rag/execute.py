@@ -17,9 +17,15 @@ from ..util import stable_hash_text, utc_now_iso
 from .corpus import build_demo_corpus
 from .probes import (CITATION_PROBES, RETRIEVAL_PROBES, apply_probe, check_citations)
 
+# citation_verification is NOT here. Mapping its three conditions onto
+# `no_supporting_document` produced three relabelled copies of one probe, and the
+# family's central question — does the cited document SUPPORT the claim — is
+# deferred by check_citations() as `unverified_support` and needs a judge or
+# clinician verdict that is not wired. Retrieval-side citation defects (ids that do
+# not resolve, ids that are superseded) ARE decided deterministically and are
+# reported by retrieval_failure.
 PROBES_BY_FAMILY = {
     "retrieval_failure": sorted(RETRIEVAL_PROBES),
-    "citation_verification": sorted(CITATION_PROBES),
 }
 
 
@@ -46,7 +52,10 @@ def _deterministic_flags(answer: str, probe, citations: dict) -> dict:
 def run_family(family_id: str, subject_fn, queries, corpus=None, k: int = 3) -> dict:
     """`queries` = [{query_id, query, supporting_doc_id, claim_terms}]."""
     if family_id not in PROBES_BY_FAMILY:
-        raise KeyError(f"{family_id!r} is not a rag_trace family")
+        raise KeyError(
+            f"{family_id!r} has no distinct probe set in this build; runnable "
+            f"rag_trace families: {sorted(PROBES_BY_FAMILY)}. Refusing to substitute "
+            f"another family's perturbation under this label.")
     corpus = corpus or build_demo_corpus()
     corpus_desc = corpus.descriptor()
     traces, records, skipped = [], [], []

@@ -122,20 +122,45 @@ def build_demo_corpus() -> Corpus:
 
 
 def load_corpus_dir(path):
-    """Load a user-supplied corpus directory (documents.json).
+    """Load a user-supplied corpus directory.
 
     A RAG assessment is only about the buyer's product if it runs on the buyer's
-    corpus; the shipped demo corpus is a fixture.
+    corpus; the shipped demo corpus is a fixture. The previous version called
+    `Corpus(docs)` and could never construct — `corpus_id` and `version` are
+    required — so no external corpus could be loaded at all, and the integration
+    test only exercised the builtin.
+
+    Corpus identity and provenance are REQUIRED, not defaulted: a corpus with no
+    version cannot be bound to a run, and an unlabelled corpus cannot be reported
+    as synthetic or real.
     """
     import json
     from pathlib import Path
-    p = Path(path) / "documents.json"
-    if not p.exists():
+    d = Path(path)
+    docs_file = d / "documents.json"
+    if not docs_file.exists():
         raise FileNotFoundError(
             f"{path} has no documents.json — a rag_corpus_bound pack must ship the "
             f"corpus its queries are bound to, or the retrieval probes are meaningless")
-    docs = [Document(d["doc_id"], d.get("title", ""), d.get("text", ""),
-                     version=str(d.get("version", "1")),
-                     superseded_by=d.get("superseded_by"))
-            for d in json.loads(p.read_text())]
-    return Corpus(docs)
+    meta_file = d / "corpus.json"
+    if not meta_file.exists():
+        raise ValueError(
+            f"{path} has no corpus.json. A corpus must declare `corpus_id`, `version` "
+            f"and `provenance`: an unversioned corpus cannot be bound to a run, and "
+            f"guideline text could change while the plan binding stayed identical.")
+    meta = json.loads(meta_file.read_text())
+    for k in ("corpus_id", "version", "provenance"):
+        if not str(meta.get(k, "")).strip():
+            raise ValueError(f"{meta_file} is missing required field {k!r}")
+    docs = []
+    for x in json.loads(docs_file.read_text()):
+        if not str(x.get("doc_id", "")).strip():
+            raise ValueError(f"{docs_file}: a document has no doc_id")
+        docs.append(Document(
+            x["doc_id"], x.get("title", ""), x.get("text", ""),
+            version=str(x.get("version", "1")),
+            superseded_by=x.get("superseded_by"),
+            **({"effective_date": x["effective_date"]} if "effective_date" in x
+               and "effective_date" in Document.__dataclass_fields__ else {})))
+    return Corpus(corpus_id=meta["corpus_id"], version=str(meta["version"]),
+                  documents=docs, provenance=meta["provenance"])

@@ -172,10 +172,43 @@ class Project:
                             f"produces synthetic fixtures and can only support "
                             f"mode='demonstration'.")
         if self.mode in ("calibrated_assessment", "procurement_comparison"):
-            if not d.get("clinical_review", {}).get("reviewers"):
-                problems.append(f"mode {self.mode!r} requires clinical_review.reviewers "
-                                f"(>=2 named clinicians); automated-only runs cannot carry "
-                                f"a calibrated or procurement claim")
+            # The error text promised ">=2 named clinicians" while the check only
+            # tested for a non-empty list, so ONE reviewer satisfied it and the
+            # message described a gate that was not enforced.
+            reviewers = [str(r).strip() for r in
+                         (d.get("clinical_review", {}).get("reviewers") or []) if str(r).strip()]
+            if len(reviewers) < 2:
+                problems.append(
+                    f"mode {self.mode!r} requires at least TWO named clinicians in "
+                    f"clinical_review.reviewers (found {len(reviewers)}); a single "
+                    f"reviewer yields no inter-rater agreement, so the run cannot carry "
+                    f"a calibrated or procurement claim")
+            if len(set(reviewers)) != len(reviewers):
+                problems.append(
+                    "clinical_review.reviewers contains duplicates: the same person "
+                    "listed twice is one reviewer, not two")
+            tie = str(d.get("clinical_review", {}).get("tie_reviewer", "")).strip()
+            if not tie:
+                problems.append(
+                    f"mode {self.mode!r} requires clinical_review.tie_reviewer: with two "
+                    f"reviewers a disagreement has no resolution path, and an unresolved "
+                    f"high-severity cell must not be silently dropped")
+            elif tie in reviewers:
+                problems.append(
+                    "clinical_review.tie_reviewer is also a primary reviewer; someone "
+                    "cannot adjudicate a tie they are party to")
+
+        # --- product identity: evidence must bind to a specific tested product ---
+        target = d.get("target", {}) or {}
+        for f in ("name", "version"):
+            if not str(target.get(f, "")).strip():
+                problems.append(
+                    f"target.{f} is required: an evidence package that does not name the "
+                    f"exact product and version it tested cannot be bound to anything")
+        if self.mode != "demonstration" and not str(target.get("vendor", "")).strip():
+            problems.append(
+                f"target.vendor is required for mode {self.mode!r}: a comparative or "
+                f"calibrated claim must identify whose product was tested")
         return problems
 
     def require_valid(self) -> None:

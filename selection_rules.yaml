@@ -29,7 +29,14 @@ suites:
   # or a consistency-scoring mode that would be a new (non-inherited) component:
   # Runnable as of v0.15 (caeval/rag/). Corpus is SYNTHETIC; family is experimental.
   retrieval_failure:        { implemented: true, maturity: experimental, note: "pinned synthetic corpus + deterministic lexical retriever; whether a context SUPPORTS an answer has never been clinician-anchored." }
-  citation_verification:    { implemented: true, maturity: experimental, note: "citation existence and currency are deterministic; whether a document SUPPORTS a claim is deferred to a judge, not decided here." }
+  # DOWNGRADED in v0.17 after external review. The three declared citation
+  # conditions all collapsed to the same underlying retrieval perturbation
+  # (`no_supporting_document`) and differed only by label, and the family's central
+  # construct — does a cited document SUPPORT the claim — is deliberately deferred
+  # by check_citations() as `unverified_support` and was never sent to a judge or a
+  # clinician. The declared metric `unsupported_claim_rate` was never computed.
+  # Running it produced three relabelled copies of one probe.
+  citation_verification:    { implemented: false, blocked_reason: "citation conditions are not yet distinct probes and the central `citation_does_not_support` construct requires a judge or clinician verdict that is not yet wired; `unsupported_claim_rate` is not computed. Retrieval-side citation defects (nonexistent / superseded ids) ARE detected deterministically and are reported by retrieval_failure." }
   unsupported_inference:    { implemented: false, blocked_reason: "needs a consistency/label-flip scoring mode over answerable pairs (distractor/paraphrase); not the paired-underdetermined frame this build implements." }
   rewording_robustness:     { implemented: false, blocked_reason: "same consistency-scoring mode (paraphrase_query/decontextualize_query over answerable cases)." }
   version_regression:       { implemented: false, blocked_reason: "needs two product/corpus versions to diff." }

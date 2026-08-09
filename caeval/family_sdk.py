@@ -62,6 +62,14 @@ KNOWN_UNPROVIDED = {
     "action_extraction": ("patient/extraction.py extracts TRIAGE dispositions, not "
                           "clinician-facing proposed actions; decision_certifiability "
                           "needs the latter"),
+    "citation_support_adjudication": ("deciding whether a cited document SUPPORTS a "
+                                     "claim is deferred by check_citations() as "
+                                     "`unverified_support`; no judge or clinician "
+                                     "verdict is wired, so `unsupported_claim_rate` "
+                                     "cannot be computed"),
+    "distinct_citation_probes": ("the three declared citation conditions currently "
+                                 "collapse to one retrieval perturbation and differ "
+                                 "only by label"),
     "critical_question_closure": "no clinician-authored critical-question sets exist",
 }
 

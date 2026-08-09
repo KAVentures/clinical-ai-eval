@@ -527,14 +527,34 @@ def test_clean_citation_passes(corpus):
     assert r["unresolved"] == [] and r["superseded"] == []
 
 
-def test_rag_families_are_runnable_but_experimental():
-    from caeval import family_sdk
-    for fid in ("retrieval_failure", "citation_verification"):
-        d = family_sdk.load_family_definition(fid)
-        assert family_sdk.YamlFamily(d).supported()[0], fid
-        assert d["maturity"]["level"] == "experimental", fid
-        assert d["corpus_source"]["synthetic"] is True, fid
+def test_rag_family_status_matches_what_is_actually_implemented():
+    """v0.17: `retrieval_failure` is runnable; `citation_verification` is NOT.
 
+    Its three declared conditions all collapsed to `no_supporting_document` and
+    differed only by label, and its central construct (does the cited document
+    SUPPORT the claim) is deferred as `unverified_support` with no judge wired.
+    Advertising it as runnable would have shipped three relabelled copies of one
+    probe under three separate metric names.
+    """
+    import yaml
+    from caeval import family_sdk, selection
+    from caeval.util import repo_root
+
+    rules = selection.load_rules()["suites"]
+    assert rules["retrieval_failure"]["implemented"] is True
+    assert rules["citation_verification"]["implemented"] is False
+
+    for fid in ("retrieval_failure", "citation_verification"):
+        fam = yaml.safe_load((repo_root() / "tests" / fid / "family.yaml").read_text())
+        assert fam["maturity"]["level"] == "experimental"
+
+    ok, _why = family_sdk.YamlFamily(
+        family_sdk.load_family_definition("retrieval_failure")).supported()
+    assert ok
+    ok, why = family_sdk.YamlFamily(
+        family_sdk.load_family_definition("citation_verification")).supported()
+    assert not ok
+    assert "citation_support_adjudication" in why or "distinct_citation_probes" in why
 
 def test_rag_families_guard_against_abstaining_from_retrieval():
     """A system that never cites anything must not outscore one that cites imperfectly."""

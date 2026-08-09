@@ -55,15 +55,16 @@ Generated from the family declarations, selection rules, executor registry and m
 
 | family | runnable | executor | maturity | audiences |
 |---|---|---|---|---|
-| `citation_verification` | yes | rag_trace | experimental | clinician |
 | `conflicting_evidence` | yes | generic_paired_text | experimental | clinician |
 | `missing_information` | yes | generic_paired_text | experimental | clinician |
 | `patient_red_flag` | yes | patient_episode | experimental | patient |
 | `retrieval_failure` | yes | rag_trace | experimental | clinician |
+| `citation_verification` | no | — | experimental | clinician |
 | `decision_certifiability` | no | — | experimental | clinician |
 
 ### Declared but not runnable
 
+- `citation_verification`: citation conditions are not yet distinct probes and the central `citation_does_not_support` construct requires a judge or clinician verdict that is not yet wired; `unsupported_claim_rate` is not computed. Retrieval-side citation defects (nonexistent / superseded ids) ARE detected deterministically and are reported by retrieval_failure.
 - `decision_certifiability`: evidence-grounding layer: the certificate verifier and minimum-information solver EXIST (caeval/certificates/), but rule bundles, provenance chains, action extraction and clinician-authored critical-question sets do not. Blocked until those exist AND the measurement is clinician-calibrated.
 
 **Every family is `experimental`.** None has been calibrated against clinician judgement, so no result from this build can support a published finding, a procurement decision, or a release gate.

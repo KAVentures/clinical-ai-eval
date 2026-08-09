@@ -27,12 +27,15 @@ RAG_TRACE = "rag_trace"
 
 # family_id -> executor. The single source of truth; docs and selection derive
 # from it rather than restating it.
+# `citation_verification` is deliberately ABSENT: its three declared conditions all
+# collapsed to one retrieval perturbation and its central construct needs a judge
+# verdict that is not wired. Registering an executor for it would make it
+# selectable and produce three relabelled copies of one probe.
 FAMILY_EXECUTORS = {
     "missing_information": GENERIC_PAIRED_TEXT,
     "conflicting_evidence": GENERIC_PAIRED_TEXT,
     "patient_red_flag": PATIENT_EPISODE,
     "retrieval_failure": RAG_TRACE,
-    "citation_verification": RAG_TRACE,
 }
 
 # What each executor needs a case pack to BE. A patient family handed clinician

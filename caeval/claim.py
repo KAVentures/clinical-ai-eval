@@ -73,11 +73,35 @@ class PlanBindingError(RuntimeError):
     """The executed assessment does not match the validated plan."""
 
 
+# CASE-PACK AUTHORITY. A run is bounded by the evidence status of the cases it
+# used: a real product measured on a synthetic smoke fixture is a demonstration,
+# whatever else is true. v0.16 recorded `demonstration_only` on the pack descriptor
+# but never fed it into claim authority, so such a run could be labelled
+# "exploratory".
+_PACK_CEILING = {
+    "demonstration_fixture": "demonstration",
+    "unreviewed": "internal_regression",
+    "clinician_reviewed": "procurement_comparison",
+    "unknown": "none",
+}
+
+# TARGET PROVENANCE. A mock subject can never support more than a demonstration,
+# and an unregistered subject supports nothing at all — unknown provenance must
+# block, not default.
+_TARGET_CEILING = {
+    "mock": "demonstration",
+    "real": "procurement_comparison",
+    "unknown": "none",
+}
+
+
 @dataclass
 class ClaimAuthority:
     project_mode: str
     run_conformance: str
     family_maturity: str
+    case_pack_authority: str = "unknown"
+    target_provenance: str = "unknown"
     effective_claim: str = ""
     label: str = ""
     permitted_claims: list = field(default_factory=list)
@@ -88,19 +112,33 @@ class ClaimAuthority:
         return asdict(self)
 
 
-def compute(project_mode: str, run_conformance: str, family_maturity: str) -> ClaimAuthority:
-    """The effective claim is the WEAKEST of the three axes."""
+def compute(project_mode: str, run_conformance: str, family_maturity: str,
+            case_pack_authority: str = "unknown",
+            target_provenance: str = "unknown") -> ClaimAuthority:
+    """The effective claim is the WEAKEST of the axes.
+
+    Five axes, not three. The case pack and the subject are part of what was
+    measured: a real product on a synthetic fixture, or a mock on a
+    clinician-authored pack, is a demonstration either way.
+
+    Both new axes default to `unknown` -> `none`, so a caller that does not state
+    them gets NO claim rather than a permissive one.
+    """
     axes = {
         "project_mode": _MODE_CEILING.get(project_mode, "none"),
         "run_conformance": _CONFORMANCE_CEILING.get(run_conformance, "none"),
         "family_maturity": _MATURITY_CEILING.get(family_maturity, "none"),
+        "case_pack_authority": _PACK_CEILING.get(case_pack_authority, "none"),
+        "target_provenance": _TARGET_CEILING.get(target_provenance, "none"),
     }
     limiting = min(axes, key=lambda k: _RANK[axes[k]])
     effective = axes[limiting]
     permitted = list(_PERMITS.get(effective, []))
     return ClaimAuthority(
         project_mode=project_mode, run_conformance=run_conformance,
-        family_maturity=family_maturity, effective_claim=effective,
+        family_maturity=family_maturity,
+        case_pack_authority=case_pack_authority, target_provenance=target_provenance,
+        effective_claim=effective,
         label=CLAIM_LABELS.get(effective, CLAIM_LABELS["none"]),
         permitted_claims=permitted,
         blocked_claims=[c for c in ALL_CLAIM_USES if c not in permitted],
@@ -177,3 +215,25 @@ def verify_binding(expected: dict, actual: dict) -> None:
         + "\n  ".join(diffs or [f"plan_hash {exp_hash} != {act_hash}"])
         + "\nAn evidence package must describe the assessment that was planned, "
           "reviewed and validated. Re-plan, or correct the run.")
+
+
+def pack_authority(pack_descriptor: dict) -> str:
+    """Map a resolved case-pack descriptor onto its claim axis."""
+    if not pack_descriptor:
+        return "unknown"
+    if pack_descriptor.get("demonstration_only") or pack_descriptor.get("is_builtin"):
+        return "demonstration_fixture"
+    reviewed = pack_descriptor.get("clinician_reviewed")
+    if reviewed is None:
+        return "unknown"
+    return "clinician_reviewed" if reviewed else "unreviewed"
+
+
+def target_provenance(target_descriptor: dict) -> str:
+    """Map a registered target descriptor onto its claim axis."""
+    if not target_descriptor:
+        return "unknown"
+    is_mock = target_descriptor.get("is_mock")
+    if is_mock is None:
+        return "unknown"
+    return "mock" if is_mock else "real"

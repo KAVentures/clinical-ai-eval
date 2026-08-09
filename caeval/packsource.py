@@ -127,8 +127,12 @@ def resolve(spec: dict, expected_kind: str):
         cases = _load_builtin(source)
         descriptor = {"pack_id": source, "version": "builtin", "kind": kind,
                       "visibility": "public_dev", "clinician_reviewed": False,
+                      "review_status": "unreviewed",
                       "is_builtin": True, "note": note,
                       "demonstration_only": True}
+        if kind == "rag_corpus_bound":
+            from .rag.corpus import build_demo_corpus
+            descriptor["corpus"] = build_demo_corpus().descriptor()
     else:
         path = Path(source)
         if not path.is_dir():
@@ -143,20 +147,52 @@ def resolve(spec: dict, expected_kind: str):
             "version": str(spec.get("version") or meta.get("version") or "unversioned"),
             "kind": kind,
             "visibility": meta.get("visibility", "private_qualification"),
-            # NEVER inferred: a pack is reviewed only if a signature says so.
-            "clinician_reviewed": bool(meta.get("clinician_reviewed", False)),
             "is_builtin": False,
             "source": str(path),
             "demonstration_only": False,
         }
+        # Review status is DERIVED from signature verification against the current
+        # content, never read from the file. v0.16 trusted a `clinician_reviewed`
+        # boolean in an editable pack.json, so a user could self-declare review by
+        # typing `true` — the exact fail-open the signing machinery exists to stop.
+        if kind == "rag_corpus_bound":
+            # The corpus IS part of a RAG pack: the queries mean nothing without the
+            # documents they are bound to.
+            from .rag.corpus import load_corpus_dir
+            descriptor["corpus"] = load_corpus_dir(path).descriptor()
+        descriptor.update(_verified_review_status(meta, kind, cases, path))
 
     if descriptor["kind"] != expected_kind:
         raise PackSourceError(
             f"pack {descriptor['pack_id']!r} is a {descriptor['kind']!r} pack, but the "
             f"selected family needs {expected_kind!r}. Running it would produce numbers "
             f"that do not describe the product.")
-    descriptor["content_hash"] = content_hash(cases, descriptor["kind"])
+    descriptor["content_hash"] = content_hash(cases, descriptor["kind"],
+                                              descriptor.get("corpus"))
     return cases, descriptor
+
+
+def _verified_review_status(meta: dict, kind: str, cases, path) -> dict:
+    """Reconstruct the signed metadata and verify it against the CURRENT content."""
+    from .casepack import PackMeta, verify_signatures
+    signed = meta.get("signed_by") or []
+    if not signed:
+        return {"clinician_reviewed": False, "review_status": "unreviewed",
+                "review_note": "no signatures in pack.json"}
+    pm = PackMeta(pack_id=meta.get("pack_id", path.name),
+                  version=str(meta.get("version", "0")), kind=kind,
+                  visibility=meta.get("visibility", "private_qualification"),
+                  review_status=meta.get("review_status", "unreviewed"),
+                  signed_by=signed)
+    v = verify_signatures(pm, cases)
+    return {
+        "clinician_reviewed": bool(v["ok"]),
+        "review_status": v["review_status_effective"],
+        "review_note": v["note"] or ("signature verified against current content"
+                                     if v["ok"] else "no valid signature"),
+        "valid_signatures": v["valid_signatures"],
+        "stale_signatures": v["stale_signatures"],
+    }
 
 
 def _load_builtin(source: str):
@@ -175,7 +211,7 @@ def _load_builtin(source: str):
     return list(SMOKE_CASES)
 
 
-def content_hash(cases, kind: str) -> str:
+def content_hash(cases, kind: str, corpus_descriptor: dict | None = None) -> str:
     from .casepack import PackMeta, pack_hash
     meta = PackMeta("resolve", "0", kind, "private_qualification")
-    return pack_hash(meta, cases)
+    return pack_hash(meta, cases, corpus_descriptor)

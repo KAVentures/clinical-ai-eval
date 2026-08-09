@@ -1,5 +1,93 @@
 # Corrections log
 
+## v0.17 — the executors reach the assurance lifecycle (2026-08)
+
+v0.16 connected the user journey to the executors. An external review found the
+executors then stopped: patient and RAG wrote their own analysis, their own report,
+and a **hardcoded `L0`**, bypassing the judge panel, central claim authority, the
+review manifest, the L2 gate and the assessment manifest. `verify-package` had
+nothing to verify. The same defect one layer deeper — reachable, but outside the
+machinery that makes a result trustworthy.
+
+**A conformance level asserted by a literal is a claim made by a constant rather
+than derived from what happened.** `caeval/lifecycle.py` is now the shared tail
+every executor passes through: it DERIVES conformance from the panel that actually
+ran, computes claim authority, writes the blinded review queue, emits the full
+evidence package (responses, provenance, limitations) and builds the assessment
+manifest. Patient and RAG runs now verify `VALID`.
+
+### Claim authority has five axes, not three
+The case pack and the subject are part of what was measured. v0.16 recorded
+`demonstration_only` on the pack descriptor and never fed it into the claim, so a
+real product measured on a synthetic smoke fixture could be labelled "exploratory".
+Now:
+
+    project mode x conformance x family maturity x case-pack authority x target provenance
+
+Both new axes default to `unknown` -> `none`: **unknown provenance blocks a claim
+rather than defaulting to the permissive answer.** Wiring the axes exposed that the
+generic path passed only three, so it briefly reported NO CLAIM for every run —
+failing closed on missing wiring rather than missing evidence. Fixed.
+
+### Case-pack review could be self-declared
+`packsource.resolve()` read `clinician_reviewed` straight from an editable
+`pack.json`, next to a comment saying review must be signature-derived. A user
+could type `true`. Review status is now reconstructed and verified against the
+CURRENT content via `verify_signatures()`, and only `review_status_effective` is
+used. Editing a case invalidates the signature instead of inheriting it.
+
+### The content hash missed decision-bearing fields
+The pack hash covered world ids, dispositions and fact values. It omitted
+`asked_by` (which decides whether a question counts as eliciting a fact, and so
+whether a product earns history-acquisition credit), trajectories (which change the
+required disposition mid-episode), and population/specialty/profile (which drive
+review strata). All are now hashed. For RAG packs the **corpus** is hashed with the
+queries: guideline text could otherwise change while the plan binding stayed
+identical.
+
+### External RAG packs could not load at all
+`load_corpus_dir()` ended in `Corpus(docs)`, which cannot construct — `corpus_id`
+and `version` are required. No external corpus was loadable; the tests only used
+the builtin, so nothing failed. Corpus identity and provenance are now required,
+not defaulted.
+
+### `citation_verification` is DOWNGRADED to not-runnable
+Its three declared conditions all mapped onto `no_supporting_document` and differed
+only by label, and its central construct — does a cited document SUPPORT the claim
+— is deliberately deferred by `check_citations()` as `unverified_support` with no
+judge wired, so `unsupported_claim_rate` was never computed. Advertising it would
+have shipped three relabelled copies of one probe under three metric names. It is
+blocked in the SDK gate, in selection, and in the RAG runner, which now refuses to
+substitute another family's perturbation under its label.
+
+`retrieval_failure` now declares its scope: the harness retrieves with its OWN
+retriever and supplies the context, so it measures **synthesis robustness over
+supplied context, not end-to-end RAG**. It does not evaluate the vendor's query
+rewriting, retrieval, ranking or chunking.
+
+### Procurement accepted results from unknown conditions
+`record_result()` checked the conditions hash only when the result volunteered one,
+so the frozen-conditions guarantee constrained only results that chose to be
+constrained. A missing hash is now refused.
+
+### Smaller fail-opens closed
+* An unknown patient mock arm fell back to `mock_repaired` — the most favourable
+  target in the set — so a typo silently evaluated a different product. Now raises.
+* The patient panel scored with every judge including rubric-aware ones. Headline
+  quorum is now blinded-only and counts DISTINCT PROVIDERS, not judges: this repo
+  measured a +64pp cueing gap, and one vendor's model agreeing with itself is not
+  a panel.
+* Project validation promised ">=2 named clinicians" while testing only for a
+  non-empty list, so one reviewer passed. Now enforces two distinct reviewers, an
+  independent tie adjudicator, and non-blank target name/version (plus vendor
+  beyond demonstration mode).
+
+### Still not true
+No clinician has authored, reviewed or labelled a pack; no real product has been
+connected; no family has measured sensitivity or false-alert performance against an
+independent clinical reference. Every family remains `experimental`. Defensible:
+*"the experimental harness detected these behaviours in this locked run."*
+
 ## v0.16 — the product workflow reaches the capabilities (2026-08)
 
 An external review found that the patient and RAG engines were implemented,

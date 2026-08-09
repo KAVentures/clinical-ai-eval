@@ -109,7 +109,14 @@ def record_result(directory, vendor_id: str, family_id: str, cells: list,
     if not any(v["vendor_id"] == vendor_id for v in state["vendors"]):
         raise ProcurementError(f"vendor {vendor_id!r} is not registered")
     declared = environment.get("conditions_hash")
-    if declared and declared != state["conditions_hash"]:
+    if not declared:
+        # An absent hash previously passed the guard entirely, so the frozen
+        # conditions constrained only results that volunteered to be constrained.
+        raise ProcurementError(
+            f"vendor {vendor_id!r} supplied no conditions_hash. A result that does not "
+            f"state which conditions produced it cannot be compared with one that does; "
+            f"the frozen-conditions guarantee is not optional.")
+    if declared != state["conditions_hash"]:
         raise ProcurementError(
             f"vendor {vendor_id!r} was evaluated under conditions {declared!r}, but this "
             f"procurement froze {state['conditions_hash']!r}. Comparing them would "

@@ -13,6 +13,15 @@ from pathlib import Path
 import yaml
 
 from caeval import claim, project as P
+
+
+def _c(project_mode, run_conformance, family_maturity,
+       case_pack_authority="clinician_reviewed", target_provenance="real"):
+    """v0.17: compute() has five axes. These tests are about the interaction of the
+    first three, so the two new ones are pinned at their permissive values here;
+    their own behaviour is tested in TestPackAndTargetAxes below."""
+    return claim.compute(project_mode, run_conformance, family_maturity,
+                         case_pack_authority, target_provenance)
 from caeval.claim import PlanBindingError, build_binding, compute, permits, verify_binding
 
 
@@ -37,20 +46,20 @@ class TestClaimAuthorityIsTheWeakestAxis(unittest.TestCase):
             ("procurement_comparison", "L0", "qualification_ready", "demonstration", "run_conformance"),
         ]
         for mode, conf, mat, expected, axis in cases:
-            a = compute(mode, conf, mat)
+            a = _c(mode, conf, mat)
             self.assertEqual(a.effective_claim, expected, f"{mode}/{conf}/{mat}")
             self.assertEqual(a.limiting_axis, axis)
 
     def test_experimental_family_never_permits_a_clinical_finding(self):
         for mode in P.VALID_MODES:
             for conf in ("L0", "L1", "L2"):
-                a = compute(mode, conf, "experimental")
+                a = _c(mode, conf, "experimental")
                 self.assertFalse(permits(a, "clinical finding"),
                                  f"{mode}/{conf}/experimental permitted a clinical finding")
                 self.assertIn("clinical finding", a.blocked_claims)
 
     def test_demo_project_cannot_be_upgraded_by_a_strong_panel(self):
-        a = compute("demonstration", "L2", "validated")
+        a = _c("demonstration", "L2", "validated")
         self.assertEqual(a.effective_claim, "demonstration")
         self.assertEqual(a.permitted_claims, [])
 
@@ -118,3 +127,36 @@ class TestRunRefusesOverrides(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPackAndTargetAxes(unittest.TestCase):
+    """The case pack and the subject are part of what was measured."""
+
+    def test_real_product_on_a_demo_fixture_is_only_a_demonstration(self):
+        a = claim.compute("calibrated_assessment", "L2", "calibrated",
+                          "demonstration_fixture", "real")
+        self.assertEqual(a.effective_claim, "demonstration")
+        self.assertEqual(a.limiting_axis, "case_pack_authority")
+
+    def test_mock_subject_caps_the_claim(self):
+        a = claim.compute("calibrated_assessment", "L2", "calibrated",
+                          "clinician_reviewed", "mock")
+        self.assertEqual(a.effective_claim, "demonstration")
+        self.assertEqual(a.limiting_axis, "target_provenance")
+
+    def test_unknown_provenance_blocks_rather_than_defaults(self):
+        for pack, target in (("unknown", "real"), ("clinician_reviewed", "unknown")):
+            a = claim.compute("calibrated_assessment", "L2", "calibrated", pack, target)
+            self.assertEqual(a.effective_claim, "none")
+            self.assertEqual(a.permitted_claims, [])
+
+    def test_axes_are_derived_from_descriptors(self):
+        self.assertEqual(claim.pack_authority({"demonstration_only": True}),
+                         "demonstration_fixture")
+        self.assertEqual(claim.pack_authority({"clinician_reviewed": True}),
+                         "clinician_reviewed")
+        self.assertEqual(claim.pack_authority({"clinician_reviewed": None}), "unknown")
+        self.assertEqual(claim.pack_authority({}), "unknown")
+        self.assertEqual(claim.target_provenance({"is_mock": False}), "real")
+        self.assertEqual(claim.target_provenance({"is_mock": True}), "mock")
+        self.assertEqual(claim.target_provenance({}), "unknown")

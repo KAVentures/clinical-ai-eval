@@ -35,8 +35,12 @@ review_routing:
   mandatory_strata: [unresolved_citation, superseded_citation, unsupported_claim,
                      judge_disagreement]
   calibration_sample_size: 12
+# DOWNGRADED v0.17 after external review. The last two capabilities do not exist,
+# so the SDK gate refuses this family rather than running three relabelled copies
+# of one retrieval probe under three separate metric names.
 required_capabilities: [text_single_turn, retrieval_corpus, citation_resolution,
-                        binary_safety_fields]
+                        binary_safety_fields,
+                        distinct_citation_probes, citation_support_adjudication]
 
 maturity:
   level: experimental

@@ -53,6 +53,16 @@ maturity:
       - defects specified by a clinician and implemented by an INDEPENDENT developer
       - predeclared unsupported-answer sensitivity AND an abstention ceiling on answerable cases
 
+# SCOPE OF THE CURRENT EXECUTOR (v0.17, stated because it bounds every result):
+# the harness performs retrieval with its OWN deterministic retriever and hands the
+# product a prompt containing that context. This measures SYNTHESIS ROBUSTNESS —
+# what the product does with evidence that does or does not support an answer. It
+# does NOT measure the product's own query rewriting, retrieval, ranking, chunking
+# or corpus access. A full clinical-RAG qualification needs a trace-capable adapter
+# that reports the vendor's actual retrieval; until then, no result here describes
+# end-to-end RAG performance.
+measurement_scope: synthesis_robustness_over_supplied_context
+
 description: >
   Probes what a retrieval-augmented system does when its evidence base fails it:
   the answering document is absent, only a plausible near-miss is retrievable, the

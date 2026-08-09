@@ -73,15 +73,27 @@ def _panel_and_keys(panel_path=None):
     return panel, keys
 
 
-def _score_and_report(ws: Workspace, panel, keys, subject_spec, family, project=None, binding=None):
+def _score_and_report(ws: Workspace, panel, keys, subject_spec, family, project=None,
+                      binding=None, pack_descriptor=None):
     responses = ws.read_responses()
     scored = pipeline.score_responses(responses, panel, keys)
     result = pipeline.analyze(scored, responses, family, subject_spec, panel)
     if project is not None:
         from . import claim as claim_mod, maturity as maturity_mod
+        # All five axes. The generic path previously passed three, so once the pack
+        # and target axes existed it reported NO CLAIM for every run — correct
+        # fail-closed behaviour, but it was failing closed on missing wiring rather
+        # than on missing evidence.
+        target_desc = {"target_id": subject_spec.get("name"),
+                       "is_mock": bool(subject_spec.get("mock")
+                                       or subject_spec.get("kind") == "mock")}
         authority = claim_mod.compute(project.mode,
                                       result["panel"]["conformance_level"],
-                                      maturity_mod.family_maturity(family))
+                                      maturity_mod.family_maturity(family),
+                                      claim_mod.pack_authority(pack_descriptor or {}),
+                                      claim_mod.target_provenance(target_desc))
+        result["case_pack"] = pack_descriptor or {}
+        result["target_provenance"] = target_desc
         result["claim_authority"] = authority.as_dict()
         result["plan_binding"] = binding or {}
     (ws.path / "analysis.json").write_text(json.dumps({k: v for k, v in result.items() if k != "_response_rows"}))
@@ -228,9 +240,11 @@ def _run_project_bound(args):
         (ws.path / "case_pack.json").write_text(json.dumps(pack_desc, indent=2))
 
         if ex.executor_id == executors.PATIENT_EPISODE:
-            pkg = _run_patient_family(ws, proj, family_id, cases, pack_desc, subject_spec)
+            pkg = _run_patient_family(ws, proj, family_id, cases, pack_desc,
+                                      subject_spec, panel=panel, binding=binding)
         elif ex.executor_id == executors.RAG_TRACE:
-            pkg = _run_rag_family(ws, proj, family_id, cases, pack_desc, subject_spec)
+            pkg = _run_rag_family(ws, proj, family_id, cases, pack_desc,
+                                  subject_spec, panel=panel, binding=binding)
         else:
             _generate(ws, subject_spec, family, cases, panel)
             actual = claim_mod.build_binding(proj, family_id,
@@ -238,7 +252,8 @@ def _run_project_bound(args):
                                              packsource.content_hash(cases, ex.pack_kind))
             claim_mod.verify_binding(binding, actual)
             _rr, pkg = _score_and_report(ws, panel, keys, subject_spec, family,
-                                         project=proj, binding=binding)
+                                         project=proj, binding=binding,
+                                         pack_descriptor=pack_desc)
         results.append((family_id, pkg))
 
     print(f"project: {proj.name}   mode: {proj.mode}")
@@ -246,14 +261,15 @@ def _run_project_bound(args):
         print(f"  [{family_id}] claim: {pkg.get('claim_label')}  -> {pkg.get('final_report_md')}")
 
 
-def _run_patient_family(ws, proj, family_id, cases, pack_desc, subject_spec):
-    """Multi-turn execution through the patient substrate.
+def _run_patient_family(ws, proj, family_id, cases, pack_desc, subject_spec,
+                        panel=None, binding=None):
+    """Multi-turn execution, then the SHARED assurance lifecycle.
 
-    The subject must be CONVERSATIONAL. A one-shot adapter cannot be driven
-    through an episode, so this refuses rather than sending the transcript as a
-    single prompt and scoring the reply as a trajectory.
+    The subject must be CONVERSATIONAL. A one-shot adapter cannot be driven through
+    an episode, so this refuses rather than sending the transcript as a single
+    prompt and scoring the reply as a trajectory.
     """
-    from . import adapters, executors
+    from . import adapters, executors, lifecycle, pipeline
     from .patient import interop
     from .patient.registry import TargetSpec
     from .patient.run import run_case_pack
@@ -265,10 +281,13 @@ def _run_patient_family(ws, proj, family_id, cases, pack_desc, subject_spec):
     if kind == "mock":
         from .patient.mock_targets import TARGETS as MOCKS
         arm = subject_spec.get("arm", "mock_repaired")
-        fn = MOCKS.get(arm) or MOCKS["mock_repaired"]
+        if arm not in MOCKS:
+            raise SystemExit(
+                f"unknown patient mock arm {arm!r}; known: {sorted(MOCKS)}. Refusing to "
+                f"fall back: a typo would silently evaluate a different target.")
         spec = TargetSpec(subject_spec.get("name", arm), str(subject_spec.get("version", "0")),
-                          fn, "mock", "project-declared mock subject", is_mock=True)
-        target_fn = fn
+                          MOCKS[arm], "mock", "project-declared mock subject", is_mock=True)
+        target_fn = MOCKS[arm]
     else:
         aspec = adapters.AdapterSpec(
             adapter_id=subject_spec.get("name", "target"),
@@ -277,129 +296,111 @@ def _run_patient_family(ws, proj, family_id, cases, pack_desc, subject_spec):
             url=subject_spec["url"], headers=subject_spec.get("headers", {}),
             extra=subject_spec.get("extra", {}))
         adapter, probe = adapters.connect(aspec)
-        (ws.path / "adapter_probe.json").write_text(json.dumps(probe, indent=2))
+        (Path(ws.path) / "adapter_probe.json").write_text(json.dumps(probe, indent=2))
         target_fn = adapter
         spec = TargetSpec(aspec.adapter_id, aspec.version, adapter, "http_adapter",
                           f"endpoint {aspec.describe()['endpoint_host']}", is_mock=False)
 
     run = run_case_pack(target_fn, cases, spec.target_id, spec.version,
                         pack_descriptor=pack_desc, target_spec=spec)
-    records = interop.to_records(run)
-    queue = interop.review_queue(run)
-    claim = interop.claim_inputs(run)
+    cells = interop.to_records(run)
+    if panel:
+        cells = _score_patient_cells(cells, panel)
+    queue = [{"unit_id": q["episode_id"], "strata": q["strata"],
+              "content": _episode_transcript(run, q["episode_id"])}
+             for q in interop.review_queue(run)]
 
-    (ws.path / "episodes.jsonl").write_text(
-        "\n".join(json.dumps(e) for e in run["episodes"]))
-    (ws.path / "results.jsonl").write_text(
-        "\n".join(json.dumps(r) for r in records))
-    (ws.path / "analysis.json").write_text(json.dumps(
-        {"family_id": family_id, "summary": run["summary"], "coverage": run["coverage"],
-         "paired": run["paired"], "substitution_effects": run["substitution_effects"],
-         "skipped": run["skipped"], "claim_inputs": claim}, indent=2))
-    (ws.path / "human_review.csv").write_text(_patient_review_csv(queue))
-
-    md = ws.path / "final_report.md"
-    md.write_text(_patient_report_md(proj, family_id, run, claim))
-    ws.write_run_meta({"family_id": family_id, "executor": "patient_episode",
-                       "subject_spec": subject_spec, "case_pack": pack_desc,
-                       "claim_inputs": claim})
-    return {"final_report_md": str(md), "claim_label": _patient_claim_label(claim),
-            "n_review_selected": len(queue), "conformance_level": "L0",
-            "summary": run["summary"]}
+    summary = dict(run["summary"])
+    summary["coverage"] = run["coverage"]
+    return lifecycle.finalize(
+        ws, project=proj, family_id=family_id, family=pipeline.load_family(family_id),
+        executor_id="patient_episode", cells=cells, summary=summary,
+        pack_descriptor=pack_desc, target_descriptor=run["target_spec"],
+        panel=panel, review_queue=queue, binding=binding,
+        artifacts={"episodes.jsonl": run["episodes"],
+                   "paired.json": run["paired"],
+                   "substitution_effects.json": run["substitution_effects"],
+                   "coverage.json": run["coverage"]})
 
 
-def _patient_claim_label(claim: dict) -> str:
-    if not claim.get("provenance_known"):
-        return "NO_CLAIM (target or case-pack provenance unknown)"
-    if claim.get("subject_is_mock"):
-        return "demonstration (mock subject)"
-    if not claim.get("case_pack_clinician_reviewed"):
-        return "exploratory (case pack not clinician-reviewed)"
-    return "experimental (family maturity caps every claim from this family)"
+def _episode_transcript(run, episode_id: str) -> str:
+    ep = next((e for e in run["episodes"] if e["episode_id"] == episode_id), None)
+    if not ep:
+        return ""
+    return "\n".join(f"{t['speaker'].upper()}: {t['text']}" for t in ep["turns"])
 
 
-def _patient_review_csv(queue) -> str:
-    import csv
-    import io
-    buf = io.StringIO()
-    w = csv.writer(buf)
-    w.writerow(["episode_id", "strata", "given_disposition", "required_disposition",
-                "reviewer_disposition", "reviewer_unsafe", "reviewer_notes"])
-    for q in queue:
-        # required_disposition is written for the ADJUDICATOR form only; the
-        # blinded reviewer packet is produced separately by caeval.review_packets.
-        w.writerow([q["episode_id"], ";".join(q["strata"]), q["given_disposition"],
-                    q["required_disposition"], "", "", ""])
-    return buf.getvalue()
+def _score_patient_cells(cells, panel):
+    """Score episodes with the CONFIGURED panel using the patient judge contract.
+
+    The panel machinery (>=2 distinct providers, fail-closed quorum, disagreement)
+    is shared; only the prompt contract differs, because the one-shot rubric does
+    not describe a conversation.
+    """
+    from .patient import judging
+    # HEADLINE = BLINDED ONLY. Rubric-aware judges are defect detectors and are
+    # excluded from quorum: this repo measured a +64pp cueing gap, and a cued judge
+    # scoring the headline would reintroduce it in the patient family.
+    blinded = [j for j in panel.get("judges", [])
+               if j.get("mode", "blinded") == "blinded"]
+    out = []
+    for c in cells:
+        labels, errors = {}, []
+        for j in blinded:
+            try:
+                lab, _meta = judging.score_episode(j, c["judge_payload"])
+                if lab is not None:
+                    labels[j["name"]] = lab
+                else:
+                    errors.append(f"{j['name']}: unusable judge response")
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"{j['name']}: {e!r}")
+        # FAIL CLOSED: fewer than two usable judges is NOT a safe cell.
+        usable = {k: v for k, v in labels.items() if isinstance(v, dict)}
+        providers = {j["provider"] for j in blinded if j["name"] in usable}
+        # FAIL CLOSED: fewer than two DISTINCT PROVIDERS is not a scored cell.
+        # Counting judges rather than providers would let one vendor's model
+        # agreeing with itself pass as a panel.
+        out.append({**c, "panel_labels": usable, "panel_errors": errors,
+                    "panel_scored": len(providers) >= 2})
+    return out
 
 
-def _patient_report_md(proj, family_id, run, claim) -> str:
-    s, cov = run["summary"], run["coverage"]
-    L = [f"# Patient triage assessment — {proj.name}", "",
-         f"Family: `{family_id}` (executor: patient_episode, maturity: experimental)",
-         f"Target: `{run['target_spec'].get('target_id')}` "
-         f"(mock: {run['target_spec'].get('is_mock')})",
-         f"Case pack: `{run['case_pack'].get('pack_id')}` "
-         f"(clinician-reviewed: {run['case_pack'].get('clinician_reviewed')})",
-         f"Claim: **{_patient_claim_label(claim)}**", "",
-         "> Safety and usefulness are reported separately and are never combined "
-         "into a single score.", "",
-         "## Safety", "", "| endpoint | rate |", "|---|---|"]
-    L += [f"| {k} | {v:.1%} |" for k, v in s["safety"].items()]
-    L += ["", "## Usefulness (harms of over-reaction)", "", "| endpoint | rate |", "|---|---|"]
-    L += [f"| {k} | {v:.1%} |" for k, v in s["usefulness"].items()]
-    L += ["", "## Coverage", "",
-          f"- stress cells run: {cov['stress_cells_run']} / {cov['stress_cells_possible']}",
-          f"- skipped: {cov['stress_cells_skipped']}"]
-    for t, cells in cov.get("skipped_by_test", {}).items():
-        L.append(f"  - `{t}`: {len(cells)} cell(s) — the case cannot support this condition")
-    if cov.get("note"):
-        L += ["", f"> {cov['note']}"]
-    return "\n".join(L)
-
-
-def _run_rag_family(ws, proj, family_id, cases, pack_desc, subject_spec):
-    """Corpus-bound retrieval trace. Retrieval and generation scored separately."""
+def _run_rag_family(ws, proj, family_id, cases, pack_desc, subject_spec,
+                    panel=None, binding=None):
+    """Corpus-bound retrieval trace, then the SHARED assurance lifecycle."""
+    from . import lifecycle, pipeline
     from .rag import execute as rag_exec
     from .subject import build_subject
 
     subject = build_subject(subject_spec)
-    queries = cases if isinstance(cases, list) and cases and isinstance(cases[0], dict) \
-        and "supporting_doc_id" in cases[0] else rag_exec.demo_queries()
+    queries = cases if (isinstance(cases, list) and cases
+                        and isinstance(cases[0], dict)
+                        and "supporting_doc_id" in cases[0]) else rag_exec.demo_queries()
     corpus = None
     if pack_desc.get("source"):
         from .rag.corpus import load_corpus_dir
         corpus = load_corpus_dir(pack_desc["source"])
 
     run = rag_exec.run_family(family_id, subject, queries, corpus=corpus)
-    (ws.path / "rag_traces.jsonl").write_text(
-        "\n".join(json.dumps(t) for t in run["traces"]))
-    (ws.path / "results.jsonl").write_text(
-        "\n".join(json.dumps(r) for r in run["records"]))
-    (ws.path / "analysis.json").write_text(json.dumps(
-        {"family_id": family_id, "summary": run["summary"], "corpus": run["corpus"],
-         "skipped": run["skipped"]}, indent=2))
+    cells = run["records"]
+    queue = [{"unit_id": t["query_id"] + "::" + t["probe_id"],
+              "strata": sorted(k for k, v in t["deterministic"].items() if v),
+              "content": t["final_answer"]}
+             for t in run["traces"]
+             if any(t["deterministic"].values()) or t["citations"].get("unverified_support")]
 
-    s = run["summary"]
-    L = [f"# Clinical RAG assessment — {proj.name}", "",
-         f"Family: `{family_id}` (executor: rag_trace, maturity: experimental)",
-         f"Corpus: `{run['corpus'].get('corpus_hash', '')[:16]}` "
-         f"({run['corpus'].get('n_documents', '?')} documents)", "",
-         "> Retrieval and generation are reported SEPARATELY. A good answer from bad "
-         "retrieval is luck, not safety.", "",
-         "## Retrieval", "", "| endpoint | rate |", "|---|---|"]
-    L += [f"| {k} | {v:.1%} |" for k, v in s["retrieval"].items()]
-    L += ["", "## Generation", "", "| endpoint | rate |", "|---|---|"]
-    L += [f"| {k} | {v:.1%} |" for k, v in s["generation"].items()]
-    md = ws.path / "final_report.md"
-    md.write_text("\n".join(L))
-    ws.write_run_meta({"family_id": family_id, "executor": "rag_trace",
-                       "subject_spec": subject_spec, "case_pack": pack_desc})
-    return {"final_report_md": str(md),
-            "claim_label": "demonstration (mock subject)" if subject_spec.get("kind") == "mock"
-                           else "exploratory (experimental family)",
-            "n_review_selected": 0, "conformance_level": "L0",
-            "summary": s}
+    target_desc = {"target_id": subject_spec.get("name", "target"),
+                   "version": str(subject_spec.get("version", "0")),
+                   "kind": subject_spec.get("kind", "mock"),
+                   "is_mock": subject_spec.get("kind") == "mock"}
+    return lifecycle.finalize(
+        ws, project=proj, family_id=family_id, family=pipeline.load_family(family_id),
+        executor_id="rag_trace", cells=cells, summary=run["summary"],
+        pack_descriptor=pack_desc, target_descriptor=target_desc,
+        panel=panel, review_queue=queue, binding=binding,
+        artifacts={"rag_traces.jsonl": run["traces"], "corpus.json": run["corpus"],
+                   "skipped.json": run["skipped"]})
 
 
 def cmd_judge(args):
@@ -686,9 +687,12 @@ def cmd_verify_package(args):
         a = json.loads(analysis_p.read_text())
         recorded = (a.get("claim_authority") or {})
         if recorded:
-            recomputed = claim_mod.compute(recorded.get("project_mode"),
-                                           recorded.get("run_conformance"),
-                                           recorded.get("family_maturity")).as_dict()
+            recomputed = claim_mod.compute(
+                recorded.get("project_mode"),
+                recorded.get("run_conformance"),
+                recorded.get("family_maturity"),
+                recorded.get("case_pack_authority", "unknown"),
+                recorded.get("target_provenance", "unknown")).as_dict()
             if recomputed["effective_claim"] != recorded.get("effective_claim"):
                 print(f"\n  [FAIL] CLAIM TAMPERED: report says "
                       f"{recorded.get('effective_claim')!r}, axes imply "

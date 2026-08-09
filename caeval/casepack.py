@@ -191,37 +191,87 @@ def validate(meta: PackMeta, cases: list) -> dict:
 # --------------------------------------------------------------------------
 
 def _canonical_case(case) -> dict:
-    """Semantic view of a case — ordering and formatting must not change the hash."""
+    """Semantic view of a case — ordering and formatting must not change the hash,
+    but EVERY field that can change a result must.
+
+    The v0.16 hash covered world ids, dispositions and fact values only. It omitted
+    `asked_by` (which decides whether a question counts as eliciting a fact, and so
+    whether a product gets history-acquisition credit), trajectories (which change
+    the required disposition mid-episode), and the population/specialty/profile
+    fields that drive review strata. Those could all be edited without invalidating
+    a clinician's signature.
+    """
     if hasattr(case, "worlds"):
         return {
             "case_id": case.case_id,
             "opening_message": case.opening_message,
+            "specialty": getattr(case, "specialty", ""),
+            "population": getattr(case, "population", ""),
+            "language": getattr(case, "language", ""),
+            "profile": {k: str(v) for k, v in sorted((getattr(case, "profile", {}) or {}).items())},
+            "provenance": getattr(case, "provenance", ""),
+            "trajectory": _canonical_trajectory(getattr(case, "trajectory", None)),
             "worlds": sorted(({
                 "world_id": w.world_id,
                 "required_disposition": w.required_disposition,
                 "facts": sorted(({"key": f.key, "value": str(f.value),
                                   "disclosure": f.disclosure,
-                                  "load_bearing": bool(f.load_bearing)}
+                                  "load_bearing": bool(f.load_bearing),
+                                  # changing how a fact can be elicited changes the score
+                                  "asked_by": sorted(str(a) for a in (f.asked_by or ()))}
                                  for f in w.facts), key=lambda d: d["key"]),
                 "red_flags": sorted(w.red_flags),
                 "forbidden_advice": sorted(w.forbidden_advice),
                 "required_safety_net": sorted(w.required_safety_net),
+                "notes": getattr(w, "notes", ""),
             } for w in case.worlds), key=lambda d: d["world_id"]),
         }
     if isinstance(case, dict) and "supporting_doc_id" in case:
         return {"query_id": case.get("query_id"), "query": case.get("query"),
-                "supporting_doc_id": case.get("supporting_doc_id")}
+                "supporting_doc_id": case.get("supporting_doc_id"),
+                "claim_terms": sorted(str(t) for t in (case.get("claim_terms") or []))}
     return {"item_id": case.get("item_id"), "input_text": case.get("input_text"),
-            "ground_truth_label": case.get("ground_truth_label", "")}
+            "ground_truth_label": case.get("ground_truth_label", ""),
+            "dataset": case.get("dataset", "")}
 
 
-def pack_hash(meta: PackMeta, cases: list) -> str:
+def _canonical_trajectory(traj) -> list:
+    """P7 events are decision-bearing: one changes the required disposition."""
+    if traj is None:
+        return []
+    return [{
+        "after_system_turn": e.after_system_turn,
+        "required_disposition_after": e.required_disposition_after,
+        "red_flags_added": sorted(str(x) for x in (e.red_flags_added or ())),
+        "reason": e.reason,
+        "reveal": sorted(({"key": f.key, "value": str(f.value),
+                           "disclosure": f.disclosure,
+                           "load_bearing": bool(f.load_bearing),
+                           "asked_by": sorted(str(a) for a in (f.asked_by or ()))}
+                          for f in (e.reveal or ())), key=lambda d: d["key"]),
+    } for e in sorted(traj.events, key=lambda e: e.after_system_turn)]
+
+
+def pack_hash(meta: PackMeta, cases: list, corpus_descriptor: dict | None = None) -> str:
     """Address the CONTENT, not the file. Reordering cases must not change it;
-    editing one word must."""
+    editing one word must.
+
+    For a RAG pack the CORPUS is part of the pack: the queries are meaningless
+    without the documents they are bound to, and guideline text could otherwise
+    change while the plan binding stayed identical.
+    """
     body = {"kind": meta.kind,
             "cases": sorted((_canonical_case(c) for c in cases),
                             key=lambda d: str(d.get("case_id") or d.get("item_id") or d.get("query_id")))}
-    return stable_hash_text(json.dumps(body, sort_keys=True))
+    if meta.kind == "rag_corpus_bound":
+        if corpus_descriptor is None:
+            raise ValueError(
+                "a rag_corpus_bound pack must be hashed together with its corpus "
+                "descriptor; hashing the queries alone would let the documents change "
+                "without invalidating the binding")
+        body["corpus"] = {k: corpus_descriptor[k] for k in sorted(corpus_descriptor)
+                          if k in ("corpus_id", "version", "bundle_hash", "documents")}
+    return stable_hash_text(json.dumps(body, sort_keys=True, default=str))
 
 
 def sign(meta: PackMeta, name: str, role: str, pack_digest: str) -> PackMeta:
