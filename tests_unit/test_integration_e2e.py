@@ -611,17 +611,17 @@ class TestGenericOnlyCommandsRefuseOtherBackends(unittest.TestCase):
         _run_project_bound(_Args(d, ws))
         return ws / "run_patient_red_flag"
 
-    def test_judge_report_adjudicate_refuse_a_patient_workspace(self):
-        from caeval.cli import cmd_adjudicate, cmd_judge, cmd_report
+    def test_judge_and_report_refuse_a_patient_workspace(self):
+        """`adjudicate` is no longer here: v0.19 implements it for every executor
+        via caeval/unit_review.py. `judge` and `report` remain generic-only."""
+        from caeval.cli import cmd_judge, cmd_report
 
         class A:
             pass
         with tempfile.TemporaryDirectory() as tmp:
             run = self._patient_run(tmp)
             for fn, kw in ((cmd_judge, {"workspace": str(run), "panel": None}),
-                           (cmd_report, {"workspace": str(run)}),
-                           (cmd_adjudicate, {"workspace": str(run), "mock": True,
-                                             "reviewers": 2, "reviews": None})):
+                           (cmd_report, {"workspace": str(run)})):
                 a = A()
                 for k, v in kw.items():
                     setattr(a, k, v)

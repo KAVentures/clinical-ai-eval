@@ -28,7 +28,17 @@ from pathlib import Path
 
 from . import claim as claim_mod
 from . import manifest as manifest_mod
-from .util import utc_now_iso
+from . import unit_review
+from .util import stable_hash_text, utc_now_iso
+
+
+# Strata that make a reviewed unit MANDATORY to resolve. Declared here so the
+# lifecycle locks the same set for every executor rather than each inventing one.
+DEFAULT_MANDATORY_STRATA = [
+    "under_triage", "premature_commitment", "missed_red_flag", "over_reassurance",
+    "unsafe_self_treatment", "fabricated_history", "inadequate_safety_net",
+    "answered_without_support", "cited_nonexistent_source", "cited_superseded_source",
+]
 
 
 def conformance_from(panel: dict | None, cells: list, l2_gate_passed: bool = False) -> str:
@@ -84,7 +94,8 @@ def finalize(ws, *, project, family_id: str, family: dict, executor_id: str,
              cells: list, summary: dict, pack_descriptor: dict,
              target_descriptor: dict, panel: dict | None = None,
              review_queue: list | None = None, binding: dict | None = None,
-             artifacts: dict | None = None, l2_gate_passed: bool = False) -> dict:
+             artifacts: dict | None = None, mandatory_strata: list | None = None,
+             conditions_hash: str = "") -> dict:
     """Run the shared tail and emit an evidence package.
 
     Every executor calls this. Nothing here is executor-specific: the domain
@@ -118,6 +129,11 @@ def finalize(ws, *, project, family_id: str, family: dict, executor_id: str,
         "response_text": c.get("response_text", ""),
     }) for c in cells))
 
+    # L2 comes from an adjudication report that is present and PASSED — re-read
+    # from disk each time, never carried in as a parameter. Until v0.19 no executor
+    # could produce one, so L2 was unreachable and had to be declared as a ceiling.
+    adjudication = unit_review.load_adjudication(out)
+    l2_gate_passed = bool(adjudication and adjudication.get("l2_adjudication_gate_passed"))
     conformance = conformance_from(panel, cells, l2_gate_passed)
     participation = panel_participation(panel, cells)
     authority = claim_mod.compute(
@@ -128,6 +144,14 @@ def finalize(ws, *, project, family_id: str, family: dict, executor_id: str,
         target_provenance=claim_mod.target_provenance(target_descriptor))
 
     _write_review_csv(out / "human_review.csv", review_queue)
+    # LOCK the expected queue now, before any review exists, so the denominator
+    # cannot later shrink to match whatever came back.
+    unit_review.build_review_manifest(
+        out, review_queue,
+        run_id=str((binding or {}).get("plan_hash") or family_id),
+        results_hash=stable_hash_text(json.dumps(
+            sorted(str(c.get("item_id") or c.get("perturbation_id")) for c in cells))),
+        mandatory_strata=mandatory_strata or DEFAULT_MANDATORY_STRATA)
 
     analysis = {
         "family_id": family_id,
@@ -141,6 +165,9 @@ def finalize(ws, *, project, family_id: str, family: dict, executor_id: str,
         "panel_participation": participation,
         "n_cells": len(cells),
         "n_review_selected": len(review_queue),
+        "adjudication": adjudication,
+        # Which frozen procurement conditions produced this run, if any.
+        "conditions_hash": conditions_hash or None,
         # The executor's own summary travels alongside, never replacing the axes.
         "summary": summary,
         "generated_at": utc_now_iso(),
@@ -161,6 +188,9 @@ def finalize(ws, *, project, family_id: str, family: dict, executor_id: str,
         "conformance_level": conformance,
         "claim_authority": authority.as_dict(),
         "panel": analysis["panel"],
+        # Kept so a re-emit after adjudication recomputes conformance against the
+        # panel that actually scored, instead of silently downgrading to L0.
+        "panel_config": (panel or {}).get("judges", []),
     })
     if binding is not None:
         (out / "plan_binding.json").write_text(json.dumps(binding, indent=2))
@@ -235,8 +265,13 @@ def _limitations(analysis: dict, authority) -> str:
                      "(mock) or had fewer than two distinct blinded providers, so it "
                      "cannot support a conclusion.")
     elif analysis["conformance_level"] == "L1":
-        L.append("- Conformance L1: automated judges only. No human adjudication has "
-                 "confirmed these labels.")
+        adj = analysis.get("adjudication")
+        if adj and not adj.get("l2_adjudication_gate_passed"):
+            L.append(f"- Conformance L1: human adjudication ran and did NOT pass the L2 "
+                     f"gate. {adj.get('note', '')}")
+        else:
+            L.append("- Conformance L1: automated judges only. No human adjudication has "
+                     "confirmed these labels.")
     cov = (analysis.get("summary") or {}).get("coverage") or {}
     if cov.get("stress_cells_skipped"):
         L.append(f"- {cov['stress_cells_skipped']} of {cov['stress_cells_possible']} stress "

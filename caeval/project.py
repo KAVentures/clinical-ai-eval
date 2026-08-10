@@ -269,6 +269,11 @@ def template(name: str = "my-clinical-ai", mode: str = "demonstration") -> dict:
                               "headers": {"Authorization": "Bearer ${YOUR_ENV_VAR}"},
                               "timeout": 120},
         },
+        # Set when this run is a vendor submission to a frozen procurement. The
+        # hash is issued by `procurement init` and travels into the evidence
+        # package, so ingestion can check the run was produced under the same
+        # conditions as every other vendor's.
+        "procurement": {"conditions_hash": ""},
         "panel": {"config": "configs/judge_panel.toml"},
         "clinical_review": {"reviewers": [], "tie_reviewer": ""},
         # The pack the run actually executes. Until v0.16 project-bound runs used

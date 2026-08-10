@@ -57,8 +57,8 @@ Generated from the family declarations, selection rules, executor registry and m
 |---|---|---|---|---|---|
 | `conflicting_evidence` | yes | generic_paired_text | experimental | L2 | clinician |
 | `missing_information` | yes | generic_paired_text | experimental | L2 | clinician |
-| `patient_red_flag` | yes | patient_episode | experimental | L1 | patient |
-| `retrieval_failure` | yes | rag_trace | experimental | L1 | clinician |
+| `patient_red_flag` | yes | patient_episode | experimental | L2 | patient |
+| `retrieval_failure` | yes | rag_trace | experimental | L2 | clinician |
 | `citation_verification` | no | — | experimental | L2 | clinician |
 | `decision_certifiability` | no | — | experimental | L2 | clinician |
 
@@ -66,11 +66,6 @@ Generated from the family declarations, selection rules, executor registry and m
 
 - `citation_verification`: citation conditions are not yet distinct probes and the central `citation_does_not_support` construct requires a judge or clinician verdict that is not yet wired; `unsupported_claim_rate` is not computed. Retrieval-side citation defects (nonexistent / superseded ids) ARE detected deterministically and are reported by retrieval_failure.
 - `decision_certifiability`: evidence-grounding layer: the certificate verifier and minimum-information solver EXIST (caeval/certificates/), but rule bundles, provenance chains, action extraction and clinician-authored critical-question sets do not. Blocked until those exist AND the measurement is clinician-calibrated.
-
-### Conformance ceilings in this build
-
-- `patient_red_flag`: cannot exceed **L1** — `judge`/`report`/`adjudicate` are implemented for the generic backend only, so human adjudication (L2) is unreachable.
-- `retrieval_failure`: cannot exceed **L1** — `judge`/`report`/`adjudicate` are implemented for the generic backend only, so human adjudication (L2) is unreachable.
 
 **Every family is `experimental`.** None has been calibrated against clinician judgement, so no result from this build can support a published finding, a procurement decision, or a release gate.
 <!-- END GENERATED CAPABILITIES -->

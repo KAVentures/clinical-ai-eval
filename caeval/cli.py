@@ -186,6 +186,10 @@ def cmd_run(args):
 OVERRIDABLE_BY_PROJECT = ("family", "subject", "cases", "panel", "arm")
 
 
+def _conditions_hash(proj) -> str:
+    return str((proj.data.get("procurement", {}) or {}).get("conditions_hash", "") or "")
+
+
 def _run_project_bound(args):
     """Execute exactly the assessment the validated project describes."""
     from . import claim as claim_mod
@@ -241,10 +245,12 @@ def _run_project_bound(args):
 
         if ex.executor_id == executors.PATIENT_EPISODE:
             pkg = _run_patient_family(ws, proj, family_id, cases, pack_desc,
-                                      subject_spec, panel=panel, binding=binding)
+                                      subject_spec, panel=panel, binding=binding,
+                                      conditions_hash=_conditions_hash(proj))
         elif ex.executor_id == executors.RAG_TRACE:
             pkg = _run_rag_family(ws, proj, family_id, cases, pack_desc,
-                                  subject_spec, panel=panel, binding=binding)
+                                  subject_spec, panel=panel, binding=binding,
+                                  conditions_hash=_conditions_hash(proj))
         else:
             _generate(ws, subject_spec, family, cases, panel)
             actual = claim_mod.build_binding(proj, family_id,
@@ -262,7 +268,7 @@ def _run_project_bound(args):
 
 
 def _run_patient_family(ws, proj, family_id, cases, pack_desc, subject_spec,
-                        panel=None, binding=None):
+                        panel=None, binding=None, conditions_hash=""):
     """Multi-turn execution, then the SHARED assurance lifecycle.
 
     The subject must be CONVERSATIONAL. A one-shot adapter cannot be driven through
@@ -317,6 +323,7 @@ def _run_patient_family(ws, proj, family_id, cases, pack_desc, subject_spec,
         executor_id="patient_episode", cells=cells, summary=summary,
         pack_descriptor=pack_desc, target_descriptor=run["target_spec"],
         panel=panel, review_queue=queue, binding=binding,
+        conditions_hash=conditions_hash,
         artifacts={"episodes.jsonl": run["episodes"],
                    "paired.json": run["paired"],
                    "substitution_effects.json": run["substitution_effects"],
@@ -367,7 +374,7 @@ def _score_patient_cells(cells, panel):
 
 
 def _run_rag_family(ws, proj, family_id, cases, pack_desc, subject_spec,
-                    panel=None, binding=None):
+                    panel=None, binding=None, conditions_hash=""):
     """Corpus-bound retrieval trace, then the SHARED assurance lifecycle."""
     from . import lifecycle, pipeline
     from .rag import execute as rag_exec
@@ -399,6 +406,7 @@ def _run_rag_family(ws, proj, family_id, cases, pack_desc, subject_spec,
         executor_id="rag_trace", cells=cells, summary=run["summary"],
         pack_descriptor=pack_desc, target_descriptor=target_desc,
         panel=panel, review_queue=queue, binding=binding,
+        conditions_hash=conditions_hash,
         artifacts={"rag_traces.jsonl": run["traces"], "corpus.json": run["corpus"],
                    "skipped.json": run["skipped"]})
 
@@ -406,8 +414,76 @@ def _run_rag_family(ws, proj, family_id, cases, pack_desc, subject_spec,
 GENERIC_ONLY_COMMANDS = {
     "judge": "re-score frozen responses with a swapped panel",
     "report": "re-emit the evidence package",
-    "adjudicate": "ingest human reviews and run the L2 gate",
 }
+
+
+def _adjudicate_units(ws, meta, args):
+    """L2 adjudication for the patient and RAG backends (caeval/unit_review.py)."""
+    from . import unit_review
+
+    if args.mock:
+        files = unit_review.mock_reviews(ws.path)
+        synthetic = True
+        print(f"generated {len(files)} SYNTHETIC reviewer file(s) — these exercise the "
+              f"gate and cannot pass it")
+    else:
+        files = args.reviews
+        if not files:
+            raise SystemExit(
+                "provide filled review CSVs with --reviews a.csv b.csv (or --mock to "
+                "exercise the path with synthetic reviewers). The blinded queue is "
+                f"{ws.path / 'human_review.csv'}.")
+        synthetic = False
+    rep = unit_review.adjudicate(ws.path, files, synthetic=synthetic)
+    print(f"adjudication: L2 gate {rep['gate_outcome']}")
+    print(f"  resolutions: {rep['counts']}")
+    print(f"  inter-rater agreement: {rep['inter_rater_agreement']}")
+    for prob in rep["integrity_problems"]:
+        print(f"  [BLOCKS L2] {prob}")
+
+    # Re-emit the package so conformance and claim authority reflect the gate.
+    final = _reemit_after_adjudication(ws, meta)
+    if rep["l2_adjudication_gate_passed"] and final != "L2":
+        print(f"  NOTE: the L2 gate passed but this run is {final}. L2 also requires L1 "
+              f"(>=2 distinct REAL blinded providers); human review cannot substitute "
+              f"for a conformant judge panel.")
+    return rep
+
+
+def _reemit_after_adjudication(ws, meta):
+    """Rebuild analysis/report/manifest so the recorded conformance is the one the
+    gate actually produced — not the one recorded before reviews existed."""
+    import json as _json
+    from . import lifecycle, pipeline, project as project_mod
+
+    run = Path(ws.path)
+    cells = [_json.loads(l) for l in (run / "results.jsonl").read_text().splitlines()
+             if l.strip()]
+    analysis = _json.loads((run / "analysis.json").read_text())
+    queue = []
+    man = _json.loads((run / "review_manifest.json").read_text())
+    for u in man["expected_units"]:
+        queue.append({"unit_id": u["unit_id"], "strata": u["strata"], "content": ""})
+
+    class _P:
+        name = analysis.get("family_id", "run")
+        mode = analysis["claim_authority"]["project_mode"]
+
+    lifecycle.finalize(
+        ws, project=_P(), family_id=analysis["family_id"],
+        family=pipeline.load_family(analysis["family_id"]),
+        executor_id=analysis["executor"], cells=cells,
+        summary=analysis.get("summary", {}),
+        pack_descriptor=analysis.get("case_pack", {}),
+        target_descriptor=analysis.get("target", {}),
+        # Restore the panel that scored this run; passing an empty panel would
+        # recompute conformance as L0 and silently erase an earned L1.
+        panel={"judges": meta.get("panel_config", [])}, review_queue=queue,
+        binding=None, artifacts={},
+        conditions_hash=analysis.get("conditions_hash") or "")
+    lvl = _json.loads((run / "analysis.json").read_text())["conformance_level"]
+    print(f"  re-emitted package -> {run / 'final_report.md'} (conformance {lvl})")
+    return lvl
 
 
 def _require_generic_workspace(ws, command: str) -> dict:
@@ -461,7 +537,10 @@ def cmd_report(args):
 
 def cmd_adjudicate(args):
     ws = Workspace(args.workspace)
-    _require_generic_workspace(ws, "adjudicate")
+    meta = ws.read_run_meta()
+    executor = meta.get("executor", "generic_paired_text")
+    if executor != "generic_paired_text":
+        return _adjudicate_units(ws, meta, args)
     if args.mock:
         files = adj.mock_adjudicate(str(ws.path), n_reviewers=args.reviewers)
     else:

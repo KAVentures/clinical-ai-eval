@@ -43,6 +43,9 @@ def table() -> list:
             "selectable": bool(meta.get("implemented")),
             "executor": (executors.FAMILY_EXECUTORS.get(fid) or None),
             "maturity": ((fam or {}).get("maturity") or {}).get("level"),
+            # Derived: every executor now has an adjudication path, so nothing is
+            # ceilinged below L2. Kept as a field so a future backend without one
+            # is reported rather than assumed.
             "conformance_ceiling": (fam or {}).get("conformance_ceiling_this_build", "L2"),
             "audiences": (fam or {}).get("audiences", []),
             "profiles": (fam or {}).get("applies_to_profiles", []),

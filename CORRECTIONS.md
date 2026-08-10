@@ -1,5 +1,62 @@
 # Corrections log
 
+## v0.19 — L2 reachable for every executor; procurement ingests verified packages
+
+The two structural gaps left declared-but-unfixed in v0.18 are closed.
+
+### L2 was structurally unreachable for the patient and RAG backends
+`adjudicate.py` is keyed on `cell_id`; episodes and traces are not cells, so those
+executors had no review manifest, no adjudication and no way to set the gate.
+v0.18 handled that honestly, by declaring `conformance_ceiling_this_build: L1` —
+but a documented ceiling is a limitation, not a repair.
+
+`caeval/unit_review.py` is the same discipline over a neutral `unit_id`:
+
+* the expected queue is LOCKED at run time and hashed in full, so the denominator
+  cannot later shrink to match whatever came back;
+* >=2 reviewers per unit, counted per unit rather than per file;
+* **a tie is `contested`, never `safe`** — resolving disagreement toward the
+  reassuring answer is precisely the failure human review exists to catch;
+* every mandatory unit must resolve, or the gate fails;
+* an unrecognised verdict raises rather than coercing to `safe`;
+* synthetic reviewers exercise every path and can never pass.
+
+Verified both directions: synthetic reviews are refused (three separate reasons),
+and two agreeing real reviewers PASS. A gate that can only fail is not evidence.
+
+### One place computes conformance
+The first version of the adjudication report carried its own `level: L2` while the
+package correctly recorded L0 — a second source of truth that disagreed, which is
+exactly the defect that let an all-mock panel buy L1 in v0.17. The report now
+states `gate_outcome` and `confers: l2_if_the_run_is_already_L1`, and conformance
+is derived only in `lifecycle.py`. **Passing the human gate cannot upgrade a run
+that is not already L1: human review does not substitute for a conformant judge
+panel.** A run whose gate passed on a mock panel stays L0, and says so.
+
+A related bug caught in the same pass: the re-emit after adjudication passed an
+empty panel, which would have silently erased an earned L1. The panel that scored
+is now stored in `run_meta.json` and restored.
+
+### Procurement ingests verified packages, not loose numbers
+`record_result()` took `cells` and an environment dict, so results could be edited
+between the run and the comparison. `ingest_package()` is now the buyer-facing
+path: `verify-package` must return VALID, the recorded claim is **re-derived from
+its axes rather than read**, family/target/pack come from the package rather than
+the caller, and the package digest is stored.
+
+Runs now declare which frozen conditions produced them
+(`procurement.conditions_hash` in `project.yaml`, carried into the evidence
+package), so a submission from a different procurement — or from none — is refused
+rather than compared.
+
+### Still not true
+No clinician has authored, reviewed or labelled a pack; no real product has been
+connected; no family has measured sensitivity against an independent clinical
+reference. Every family remains `experimental`, which caps every claim regardless
+of conformance. L2 is now *reachable*; it has never been *reached*.
+
+422 tests pass.
+
 ## v0.18 — audit of v0.17; three fail-opens I introduced (2026-08)
 
 A diligence pass over v0.17 found five defects. **Three were in the shared

@@ -102,9 +102,83 @@ def add_vendor(directory, vendor_id: str, subject_spec: dict, blinded_label: str
     return state
 
 
+def ingest_package(directory, vendor_id: str, workspace) -> dict:
+    """Attach a vendor result from a VERIFIED evidence package.
+
+    This is the only ingestion path a buyer should use. `record_result` takes cells
+    and an environment dict, which means the numbers can be edited between the run
+    and the comparison — fine for a fixture, not for procurement.
+
+    Here everything is EXTRACTED from the package and the package is verified first:
+
+      1. `verify-package` must return VALID (nothing edited since the manifest);
+      2. the recorded claim is RE-DERIVED from its axes, not read;
+      3. family, target and case pack come from the package, not from the caller;
+      4. the package digest is stored, so the comparison names exactly what it read.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    from . import claim as claim_mod
+    from . import manifest as manifest_mod
+
+    state = load(directory)
+    if not any(v["vendor_id"] == vendor_id for v in state["vendors"]):
+        raise ProcurementError(f"vendor {vendor_id!r} is not registered")
+
+    ws = _Path(workspace)
+    verdict = manifest_mod.verify_manifest(ws).get("verdict")
+    if verdict != "VALID":
+        raise ProcurementError(
+            f"vendor {vendor_id!r}: evidence package at {ws} is {verdict}, not VALID. "
+            f"A package whose artifacts do not match its manifest has been modified "
+            f"since it was produced and cannot enter a comparison.")
+
+    analysis = _json.loads((ws / "analysis.json").read_text())
+    recorded = analysis.get("claim_authority") or {}
+    if not recorded:
+        raise ProcurementError(f"vendor {vendor_id!r}: package records no claim authority")
+    rederived = claim_mod.compute(
+        recorded.get("project_mode"), recorded.get("run_conformance"),
+        recorded.get("family_maturity"), recorded.get("case_pack_authority", "unknown"),
+        recorded.get("target_provenance", "unknown"))
+    if rederived.effective_claim != recorded.get("effective_claim"):
+        raise ProcurementError(
+            f"vendor {vendor_id!r}: the package reports claim "
+            f"{recorded.get('effective_claim')!r} but its own axes imply "
+            f"{rederived.effective_claim!r}. Refusing a package whose claim has been "
+            f"edited away from what it earned.")
+
+    cells = [_json.loads(l) for l in (ws / "results.jsonl").read_text().splitlines()
+             if l.strip()]
+    man = _json.loads((ws / manifest_mod.MANIFEST_FILE).read_text())
+    environment = {
+        "conditions_hash": analysis.get("conditions_hash")
+                           or _json.loads((ws / "run_meta.json").read_text()).get("conditions_hash"),
+        "family_id": analysis.get("family_id"),
+        "family_version": str((analysis.get("case_pack") or {}).get("version", "")),
+        "case_pack_hash": (analysis.get("case_pack") or {}).get("content_hash"),
+        "judge_panel_hash": stable_hash_text(json.dumps(sorted(analysis.get("panel", [])))),
+        "judge_prompt_hash": (analysis.get("executor") or ""),
+        "selection_rules_hash": recorded.get("family_maturity"),
+        "eval_standard_version": (analysis.get("claim_authority") or {}).get("run_conformance"),
+        "package_digest": man.get("manifest_hash") or man.get("package_hash"),
+        "verify_verdict": verdict,
+    }
+    return record_result(directory, vendor_id, analysis["family_id"], cells, environment,
+                         package=dict(environment,
+                                      conformance=analysis.get("conformance_level"),
+                                      claim=recorded,
+                                      workspace=str(ws)))
+
+
 def record_result(directory, vendor_id: str, family_id: str, cells: list,
-                  environment: dict) -> dict:
-    """Attach one vendor's run. Refuses results produced under other conditions."""
+                  environment: dict, package: dict | None = None) -> dict:
+    """Attach one vendor's run. Refuses results produced under other conditions.
+
+    Prefer `ingest_package()`: this entry point trusts the caller for the cells and
+    the environment, which is adequate for a fixture and not for procurement.
+    """
     state = load(directory)
     if not any(v["vendor_id"] == vendor_id for v in state["vendors"]):
         raise ProcurementError(f"vendor {vendor_id!r} is not registered")
@@ -122,7 +196,11 @@ def record_result(directory, vendor_id: str, family_id: str, cells: list,
             f"procurement froze {state['conditions_hash']!r}. Comparing them would "
             f"confound the product with the evaluation environment.")
     state["results"].setdefault(vendor_id, {})[family_id] = {
-        "cells": cells, "environment": environment, "recorded_at": utc_now_iso()}
+        "cells": cells, "environment": environment, "recorded_at": utc_now_iso(),
+        "package": package,
+        # Provenance of the ingestion itself: a comparison should be able to say
+        # whether a number came from a verified package or was handed in.
+        "ingestion": "verified_package" if package else "caller_supplied"}
     save(directory, state)
     return state
 

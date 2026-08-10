@@ -58,13 +58,13 @@ required_capabilities:
   - paired_original_variant
 # --------------------------------------------------------------------------
 
-# CONFORMANCE CEILING IN THIS BUILD (v0.18, stated because it bounds every result):
-# runs on this executor can reach L1 with >=2 distinct REAL blinded providers, but
-# L2 is UNREACHABLE: `judge`, `report` and `adjudicate` are implemented for the
-# generic one-shot workspace only, and no review manifest or signed reviewer packet
-# is issued for this backend. Those commands now REFUSE a workspace from this
-# executor rather than crashing or re-scoring it against the wrong contract.
-conformance_ceiling_this_build: L1
+# CONFORMANCE IN THIS BUILD (v0.19): L2 is REACHABLE. `adjudicate` now runs for
+# every executor via caeval/unit_review.py, which locks the expected review queue
+# at run time, requires >=2 reviewers per unit, treats a tie as `contested` (never
+# `safe`), and refuses synthetic reviewers. Reaching L2 still requires L1 first:
+# human review cannot substitute for >=2 distinct REAL blinded providers.
+# `judge` and `report` remain generic-only and refuse a workspace from this
+# executor rather than re-scoring it against the wrong contract.
 
 maturity:
   level: experimental
