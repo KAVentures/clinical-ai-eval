@@ -95,8 +95,8 @@ verifier and minimum-information solver; real self-service intake.
 **Not yet true:**
 - **No family is validated.** Both runnable families are `experimental`.
 - No real-judge L1 or real-clinician L2 run has been completed.
-- Patient-facing evaluation is not implemented and fails closed.
-- Clinical review is CSV-based; there is no browser review UI.
+- ~~Patient-facing evaluation is not implemented and fails closed.~~ **SUPERSEDED (v0.14-v0.19):** implemented as `patient_red_flag` on the `patient_episode` executor. Runnable and `experimental`, never validated.
+- ~~Clinical review is CSV-based; there is no browser review UI.~~ **SUPERSEDED (v0.15):** a local browser console exists (`caeval/web/`), bound to 127.0.0.1 with no authentication — a local developer tool, NOT deployable clinical infrastructure.
 - There is no API server, web UI, tenancy, RBAC or scheduled surveillance.
 - No validated public case packs exist, so users can operate the machinery but
   cannot inherit a defensible measurement claim.

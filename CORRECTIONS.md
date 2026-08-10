@@ -1,5 +1,83 @@
 # Corrections log
 
+## v0.20 — external review of v0.17: enforcement, not description (2026-08)
+
+An external review of `e7c4723` found ten problems plus secondary issues. I
+verified each against the then-current HEAD; **every one I checked was real**. They
+share one shape: **an integrity property that was DESCRIBED — in a comment, a
+docstring, or a manifest field — but never ENFORCED.**
+
+### Security
+* **Zip-slip.** `verify-package` extracted archives with `extractall()`, which
+  honours absolute paths, `..` traversal and symlinks. This command exists to be
+  pointed at packages from other parties, so the archive is precisely the
+  untrusted input. Now rejects traversal, absolute paths, symlinks and duplicates.
+* **Verification mutated the package.** `verify_packet()` called
+  `ensure_run_secret()`, minting a key when none existed and then failing every
+  signature against it — turning "the key is missing" into "the packets are
+  forged", while writing into the package under audit. Verification is now
+  read-only and says which of the two it actually found.
+* **Reviewer ids became filenames** without validation.
+
+### Reviewer identity was not bound
+The signature covers `reviewer_id`, so a packet cannot be EDITED — but nothing
+checked that the packet handed in with reviewer X's CSV was ISSUED to X. Two
+reviewers' packets could be swapped and both verify. `verify_packet()` now takes
+`expected_reviewer_id`. Separately, `load_reviews()` let every ROW reset the
+reviewer id, so one file could carry rows attributed to several people with the
+last row silently deciding whose submission it was; mixed files are now rejected.
+
+### The routing fail-open
+Patient and RAG review queues were built from deterministic flags only. A cell the
+PANEL called unsafe, or that split the panel, or that no quorum could score, never
+reached a human — **automated disagreement is exactly what human review exists to
+settle, and it was the case most likely to be skipped.** The queue is now the union
+of deterministic and judge-derived triggers, computed AFTER scoring, and the
+judge-derived ones are mandatory to resolve.
+
+### "Judging is separable from generation" was a comment, not a fact
+`responses.jsonl` stored concatenated system text plus a comment asserting the
+property held "for every executor". It did not: the patient contract needs the
+transcript AND the facts available before each system turn, and neither survived a
+round-trip. Frozen inputs now carry the executor's judge payload, and `judge`
+re-scores a patient run without regenerating it. `report` works per executor too;
+both previously crashed, then refused.
+
+### L2 adjudication compared against a field the patient contract never emits
+Generic adjudication keys on `unsafe_overconfident`. The patient judge emits
+`under_triage`, `missed_red_flag` and so on, so patient L2 produced **no**
+calibration at all. Endpoints are now declared per family
+(`FAMILY_JUDGE_ENDPOINT`), an undeclared family REFUSES to borrow another's field,
+an unjudged unit is never counted as automated-safe, and zero overlap is reported
+as "NO calibration" rather than as agreement.
+
+### Provenance omitted the things that decide the answer
+The manifest hashed only generic definitions, so a change to the patient judge
+prompt, the disposition taxonomy, the P1/P5/P7 transformations or the RAG probes
+could move results while the package still verified as definition-consistent. It
+also omitted the submitted reviewer files — **the human inputs that decide an L2
+verdict could be edited or deleted with the package still VALID.** Both are now
+hashed and checked, and an ADDED review file is a change too.
+
+### `n=0` reported as `0.0`
+An unrun stress condition showed a 0% failure rate, which reads as a clean pass.
+Empty slices now report NA.
+
+### Documentation drift, including in my own guard
+README carried a SECOND hand-written family table still calling `patient_red_flag`
+BLOCKED, contradicting the generated table in the same file. **The drift guard I
+built only checked the generated block, so it did not catch its own README.** The
+hand-written table is gone and a test asserts there is exactly one.
+
+### Not fixed, by design
+The web console remains unauthenticated and 127.0.0.1-only: acceptable for a local
+developer tool, and it must not be described as deployable clinical
+infrastructure. RAG still measures synthesis over harness-supplied retrieval, not
+a vendor's own retriever; that is disclosed in the family declaration and the
+scope line.
+
+451 tests pass. Every family remains `experimental`.
+
 ## v0.19 — L2 reachable for every executor; procurement ingests verified packages
 
 The two structural gaps left declared-but-unfixed in v0.18 are closed.

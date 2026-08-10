@@ -51,6 +51,35 @@ ARTIFACTS = {
 DEFINITION_SOURCES = ("selection_rules.yaml", "prompts/judge_prompt.txt",
                       "configs/judge_panel.toml", "schemas/clinical_certificate.schema.json")
 
+# Definitions that only some executors depend on. Hashing only the generic set
+# meant a change to the patient judge prompt, the disposition taxonomy, the stress
+# transformations or the RAG probes could materially move results while the package
+# still verified as definition-consistent.
+EXECUTOR_DEFINITION_SOURCES = {
+    "generic_paired_text": ("caeval/perturbations.py", "caeval/score.py"),
+    "patient_episode": (
+        "prompts/patient_judge_prompt.txt",
+        "caeval/patient/judging.py",     # judge contract + blinding rules
+        "caeval/patient/scoring.py",     # endpoint definitions
+        "caeval/patient/world.py",       # disposition taxonomy, disclosure policy
+        "caeval/patient/stress.py",      # P1/P5/P7 transformations
+        "caeval/patient/determinacy.py",  # premature commitment, closure
+        "caeval/patient/extraction.py",  # deterministic extraction
+    ),
+    "rag_trace": (
+        "caeval/rag/probes.py",          # probe definitions
+        "caeval/rag/retriever.py",       # the retriever whose behaviour is measured
+        "caeval/rag/execute.py",         # deterministic flag definitions
+        "caeval/rag/corpus.py",
+    ),
+}
+
+# Human inputs. These decide an L2 verdict, so leaving them out of the manifest
+# meant the actual reviewer submissions could be edited or removed while the
+# package still verified.
+REVIEW_INPUT_DIRS = ("review_packets", "adjudication", "review_submissions")
+REVIEW_INPUT_GLOBS = ("*.csv", "*.json", "*.jsonl")
+
 VALID, INVALID, INCOMPLETE = "VALID", "INVALID", "INCOMPLETE"
 
 
@@ -123,13 +152,35 @@ def build_manifest(workspace, repo_root_path=None) -> dict:
     if family_id:
         definitions[f"tests/{family_id}/family.yaml"] = hash_file(root / "tests" / family_id / "family.yaml")
 
+    # executor-specific definitions
+    executor = None
+    if meta_p.exists():
+        executor = json.loads(meta_p.read_text()).get("executor", "generic_paired_text")
+    for rel in EXECUTOR_DEFINITION_SOURCES.get(executor or "generic_paired_text", ()):
+        definitions[rel] = hash_file(root / rel)
+
+    # every human review artifact actually present, hashed by relative path
+    review_inputs = {}
+    for d in REVIEW_INPUT_DIRS:
+        base = ws / d
+        if not base.is_dir():
+            continue
+        for pat in REVIEW_INPUT_GLOBS:
+            for f in sorted(base.rglob(pat)):
+                review_inputs[str(f.relative_to(ws))] = hash_file(f)
+    for pat in ("*_review.csv", "reviewer_*.csv", "dr_*.csv"):
+        for f in sorted(ws.glob(pat)):
+            review_inputs[str(f.relative_to(ws))] = hash_file(f)
+
     manifest = {
         "schema": "assessment_manifest/1",
         "created_at": utc_now_iso(),
         "tool_version": __version__,
         "family_id": family_id,
+        "executor": executor,
         "artifacts": artifacts,
         "definitions": definitions,
+        "review_inputs": review_inputs,
         "case_content": _semantic_case_hash(ws / "responses.jsonl"),
     }
     manifest["manifest_hash"] = fingerprint(manifest)
@@ -181,6 +232,38 @@ def verify_manifest(workspace, repo_root_path=None) -> dict:
             tampered.append(rec["path"])
         else:
             checks.append({"artifact": rec["path"], "status": "ok", "detail": ""})
+
+    # 2b. human review inputs — the files that decide an L2 verdict. Recording
+    # them without checking them would be decorative; and a REMOVED submission is
+    # as serious as an edited one, because dropping a dissenting reviewer changes
+    # the adjudication outcome.
+    for rel, recorded in (manifest.get("review_inputs") or {}).items():
+        actual = hash_file(ws / rel)
+        if actual is None:
+            checks.append({"artifact": rel, "status": "REVIEW INPUT REMOVED",
+                           "detail": "a human review artifact recorded in the manifest "
+                                     "is no longer present"})
+            tampered.append(rel)
+        elif recorded and actual != recorded:
+            checks.append({"artifact": rel, "status": "REVIEW INPUT MODIFIED",
+                           "detail": f"{recorded[:12]} -> {actual[:12]}"})
+            tampered.append(rel)
+        else:
+            checks.append({"artifact": rel, "status": "ok", "detail": ""})
+
+    # An added review file is also a change: it was not part of the evidence the
+    # adjudication ran over.
+    present = set()
+    for d in REVIEW_INPUT_DIRS:
+        base = ws / d
+        if base.is_dir():
+            for pat in REVIEW_INPUT_GLOBS:
+                present |= {str(f.relative_to(ws)) for f in base.rglob(pat)}
+    added = sorted(present - set((manifest.get("review_inputs") or {})))
+    for rel in added:
+        checks.append({"artifact": rel, "status": "REVIEW INPUT ADDED",
+                       "detail": "present now but absent when the manifest was built"})
+        tampered.append(rel)
 
     # 3. the definitions the run depended on
     from .util import repo_root

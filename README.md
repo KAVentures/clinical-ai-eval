@@ -206,12 +206,12 @@ Families are schema-first plugins (`caeval/family_sdk.py`). Each declares its
 capabilities; the runtime **refuses to run** one this build cannot support, so
 breadth is declarable without pretending unsupported modules work.
 
-| family | maturity | status |
-|---|---|---|
-| `missing_information` | experimental | runnable |
-| `conflicting_evidence` | experimental | runnable |
-| `patient_red_flag` | experimental | **BLOCKED** — needs red-flag schema, multi-turn, escalation grading |
-| `decision_certifiability` | experimental | **BLOCKED** — verifier + solver exist (v0.6), but rule bundle, provenance and action extraction do not |
+The authoritative family list is the GENERATED table above (and
+`clinical-ai-eval capabilities`). A second hand-written table used to live here and
+drifted — it still said `patient_red_flag` was BLOCKED long after it became
+runnable, while the generated table three sections up said otherwise. The drift
+guard only covered the generated block, so it did not catch its own README. Do not
+reintroduce a hand-maintained family table.
 
 ## Evidence-grounding layer (`caeval/certificates/`, v0.6)
 The deterministic side of the deterministic-vs-judge split: emits

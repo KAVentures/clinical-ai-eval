@@ -53,11 +53,17 @@ def load_reviews(files: list[str]) -> tuple:
         path = Path(f)
         rid = path.stem
         m, seen, synthetic = {}, set(), False
+        # ONE reviewer identity per file. Letting each row reset `rid` meant a
+        # single CSV could carry rows attributed to several people, with the last
+        # row silently deciding whose submission it was — and the packet check then
+        # ran against that final identity.
+        declared_ids = set()
         with open(path) as fh:
             for row in csv.DictReader(fh):
                 cid = row.get("cell_id")
-                # explicit reviewer identity beats the filename when supplied
-                rid = (row.get("reviewer_id") or rid).strip() or rid
+                declared = (row.get("reviewer_id") or "").strip()
+                if declared:
+                    declared_ids.add(declared)
                 if str(row.get("review_provenance", "")).strip().lower() == "synthetic_mock" \
                         or str(row.get("claim_eligible", "")).strip().lower() == "false":
                     synthetic = True
@@ -71,6 +77,14 @@ def load_reviews(files: list[str]) -> tuple:
                                     f"(expected one of {list(VALID_VERDICTS[:3])})")
                     continue                       # NOT silently None
                 m[cid] = _MAP.get(raw)
+        if len(declared_ids) > 1:
+            problems.append(
+                f"{path.name}: rows declare {len(declared_ids)} different reviewer_id "
+                f"values {sorted(declared_ids)}. One file is one reviewer; a mixed file "
+                f"cannot be attributed and is not counted.")
+            continue
+        if declared_ids:
+            rid = declared_ids.pop()
         if rid in reviews:
             problems.append(f"reviewer id {rid!r} appears in more than one submission")
         reviews[rid] = m
@@ -159,7 +173,7 @@ def adjudicate(workspace_dir: str, review_files: list[str]) -> dict:
                 f"reviewer {rid!r} submitted without a platform-issued packet — provenance "
                 f"cannot be established from a CSV column the submitter controls")
             continue
-        probs = rp.verify_packet(ws.path, packet,
+        probs = rp.verify_packet(ws.path, packet, expected_reviewer_id=rid,
                                  expected_run_id=str((manifest or {}).get("run_id", "")),
                                  expected_manifest_hash=str((manifest or {}).get("manifest_hash", "")),
                                  submitted_cells=list(reviews[rid]))

@@ -115,18 +115,29 @@ def coverage(cases, stress_tests, skipped) -> dict:
 
 
 def summarize(scores) -> dict:
-    """Safety and usefulness summarized SEPARATELY. No combined score is emitted."""
-    n = len(scores) or 1
+    """Safety and usefulness summarized SEPARATELY. No combined score is emitted.
+
+    An EMPTY slice reports `None` (NA), never 0.0. A zero failure rate over zero
+    episodes is not a clean result — it is the absence of a result, and rendering
+    it as 0.0 makes a stress condition that never ran look like one the product
+    passed.
+    """
+    n = len(scores)
     safety_keys = scores[0]["safety"].keys() if scores else []
     use_keys = scores[0]["usefulness"].keys() if scores else []
+
+    def rate(f):
+        return round(sum(f(s) for s in scores) / n, 4) if n else None
+
     return {
-        "n_episodes": len(scores),
-        "safety": {k: round(sum(s["safety"][k] for s in scores) / n, 4) for k in safety_keys},
-        "usefulness": {k: round(sum(s["usefulness"][k] for s in scores) / n, 4) for k in use_keys},
-        "any_safety_failure_rate": round(sum(s["any_safety_failure"] for s in scores) / n, 4),
-        "any_usefulness_failure_rate": round(sum(s["any_usefulness_failure"] for s in scores) / n, 4),
+        "n_episodes": n,
+        "safety": {k: rate(lambda s, k=k: s["safety"][k]) for k in safety_keys},
+        "usefulness": {k: rate(lambda s, k=k: s["usefulness"][k]) for k in use_keys},
+        "any_safety_failure_rate": rate(lambda s: s["any_safety_failure"]),
+        "any_usefulness_failure_rate": rate(lambda s: s["any_usefulness_failure"]),
         "episodes_needing_human_review": sum(
             1 for s in scores if s["assertions"]["needs_human_review"]),
         "note": "Safety and usefulness are reported separately and are never combined "
-                "into a single score (EVAL_STANDARD.md §0).",
+                "into a single score (EVAL_STANDARD.md §0)."
+                + ("" if n else " NO EPISODES: every rate is NA, not 0."),
     }

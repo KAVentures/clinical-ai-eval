@@ -600,9 +600,14 @@ class TestPackageNamesOnlyJudgesThatRan(unittest.TestCase):
                           (run / "limitations.md").read_text().lower())
 
 
-class TestGenericOnlyCommandsRefuseOtherBackends(unittest.TestCase):
-    """They previously died with a bare KeyError, which reads as a bug rather than
-    as a boundary — and a user cannot tell which."""
+class TestEveryExecutorImplementsTheFullLoop(unittest.TestCase):
+    """v0.20: `judge` and `report` work for every executor.
+
+    They previously died on a bare KeyError, then (v0.18) refused explicitly. Both
+    are now implemented: `report` re-emits from what is on disk, and `judge`
+    re-scores from FROZEN judge inputs — which required responses.jsonl to carry
+    the executor's judge payload, not just concatenated response text.
+    """
 
     def _patient_run(self, tmp):
         d = _project(tmp, "patient_triage_chatbot", "builtin:public_smoke",
@@ -611,26 +616,45 @@ class TestGenericOnlyCommandsRefuseOtherBackends(unittest.TestCase):
         _run_project_bound(_Args(d, ws))
         return ws / "run_patient_red_flag"
 
-    def test_judge_and_report_refuse_a_patient_workspace(self):
-        """`adjudicate` is no longer here: v0.19 implements it for every executor
-        via caeval/unit_review.py. `judge` and `report` remain generic-only."""
-        from caeval.cli import cmd_judge, cmd_report
+    def test_report_works_on_a_patient_workspace(self):
+        from caeval.cli import cmd_report
 
         class A:
             pass
         with tempfile.TemporaryDirectory() as tmp:
             run = self._patient_run(tmp)
-            for fn, kw in ((cmd_judge, {"workspace": str(run), "panel": None}),
-                           (cmd_report, {"workspace": str(run)})):
-                a = A()
-                for k, v in kw.items():
-                    setattr(a, k, v)
-                with self.assertRaises(SystemExit) as ctx:
-                    fn(a)
-                msg = str(ctx.exception)
-                self.assertIn("generic_paired_text", msg)
-                self.assertIn("patient_episode", msg)
-                self.assertIn("verify-package", msg)
+            a = A()
+            a.workspace = str(run)
+            cmd_report(a)                      # must not raise
+            self.assertTrue((run / "final_report.md").exists())
+
+    def test_judge_rescoring_needs_no_regeneration(self):
+        from caeval.cli import cmd_judge
+
+        class A:
+            pass
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._patient_run(tmp)
+            before = (run / "episodes.jsonl").read_text()
+            a = A()
+            a.workspace, a.panel = str(run), None
+            cmd_judge(a)
+            self.assertEqual((run / "episodes.jsonl").read_text(), before,
+                             "re-judging must not regenerate the episodes")
+
+    def test_frozen_inputs_carry_the_executor_judge_payload(self):
+        """The property that makes judging separable from generation. It was
+        ASSERTED in a comment and not implemented: response_text alone cannot
+        reconstruct the per-turn facts the patient contract needs."""
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._patient_run(tmp)
+            rows = [json.loads(l) for l in
+                    (run / "responses.jsonl").read_text().splitlines() if l.strip()]
+            self.assertTrue(rows)
+            for r in rows:
+                self.assertEqual(r["judge_contract"], "patient_multiturn_v1")
+                self.assertTrue(r["judge_payload"]["transcript"])
+                self.assertTrue(r["judge_payload"]["facts_available_before_each_system_turn"])
 
     def test_generic_workspace_still_works(self):
         from caeval.cli import cmd_report
@@ -642,4 +666,4 @@ class TestGenericOnlyCommandsRefuseOtherBackends(unittest.TestCase):
 
             class A:
                 workspace = str(ws / "run_missing_information")
-            cmd_report(A())   # must not raise
+            cmd_report(A())

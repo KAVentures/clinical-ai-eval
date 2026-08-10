@@ -309,12 +309,19 @@ def _run_patient_family(ws, proj, family_id, cases, pack_desc, subject_spec,
 
     run = run_case_pack(target_fn, cases, spec.target_id, spec.version,
                         pack_descriptor=pack_desc, target_spec=spec)
+    from .patient.judging import SAFETY_FIELDS as PATIENT_SAFETY_FIELDS
+
     cells = interop.to_records(run)
     if panel:
         cells = _score_patient_cells(cells, panel)
-    queue = [{"unit_id": q["episode_id"], "strata": q["strata"],
-              "content": _episode_transcript(run, q["episode_id"])}
-             for q in interop.review_queue(run)]
+    deterministic = [{"unit_id": q["episode_id"], "strata": q["strata"],
+                      "content": _episode_transcript(run, q["episode_id"])}
+                     for q in interop.review_queue(run)]
+    # UNION with judge-derived triggers, computed after scoring.
+    queue = lifecycle.merge_review_queue(
+        deterministic, cells, PATIENT_SAFETY_FIELDS,
+        content_for=lambda c: _episode_transcript(run, c["patient"]["episode_id"])
+        if c.get("patient") else c.get("response_text", ""))
 
     summary = dict(run["summary"])
     summary["coverage"] = run["coverage"]
@@ -324,6 +331,7 @@ def _run_patient_family(ws, proj, family_id, cases, pack_desc, subject_spec,
         pack_descriptor=pack_desc, target_descriptor=run["target_spec"],
         panel=panel, review_queue=queue, binding=binding,
         conditions_hash=conditions_hash,
+        mandatory_strata=lifecycle.mandatory_strata_for(PATIENT_SAFETY_FIELDS),
         artifacts={"episodes.jsonl": run["episodes"],
                    "paired.json": run["paired"],
                    "substitution_effects.json": run["substitution_effects"],
@@ -378,6 +386,7 @@ def _run_rag_family(ws, proj, family_id, cases, pack_desc, subject_spec,
     """Corpus-bound retrieval trace, then the SHARED assurance lifecycle."""
     from . import lifecycle, pipeline
     from .rag import execute as rag_exec
+    from .rag.probes import SCORABLE_FIELDS as RAG_SAFETY_FIELDS
     from .subject import build_subject
 
     subject = build_subject(subject_spec)
@@ -391,11 +400,40 @@ def _run_rag_family(ws, proj, family_id, cases, pack_desc, subject_spec,
 
     run = rag_exec.run_family(family_id, subject, queries, corpus=corpus)
     cells = run["records"]
-    queue = [{"unit_id": t["query_id"] + "::" + t["probe_id"],
-              "strata": sorted(k for k, v in t["deterministic"].items() if v),
-              "content": t["final_answer"]}
-             for t in run["traces"]
-             if any(t["deterministic"].values()) or t["citations"].get("unverified_support")]
+    # A reviewer cannot judge whether an answer was supported, or whether a
+    # citation was superseded, from the answer alone. The unit carries the whole
+    # evidential context: question, retrieved documents and their versions, the
+    # context actually shown, the citations as resolved, and why it was routed.
+    def _rag_content(t):
+        cites = t["citations"]
+        return "\n\n".join([
+            f"CLINICAL QUESTION:\n{t['query']}",
+            f"CORPUS: {t['corpus_hash'][:16]}",
+            f"RETRIEVED DOCUMENT IDs (in rank order): "
+            f"{', '.join(t['retrieved_document_ids']) or '(none)'}",
+            f"RETRIEVED CONTEXT AS SHOWN TO THE PRODUCT:\n{t['retrieved_chunks']}",
+            f"PRODUCT ANSWER:\n{t['final_answer']}",
+            f"CITATIONS RESOLVED AGAINST THE CORPUS: "
+            f"resolved={cites.get('resolved')} unresolved={cites.get('unresolved')} "
+            f"superseded={cites.get('superseded')} "
+            f"support_not_verified={cites.get('unverified_support')}",
+            f"ROUTED BECAUSE: "
+            f"{', '.join(k for k, v in t['deterministic'].items() if v) or 'citation support unverified'}",
+        ])
+
+    deterministic = [{"unit_id": t["query_id"] + "::" + t["probe_id"],
+                      "strata": sorted(k for k, v in t["deterministic"].items() if v)
+                                or ["citation_support_unverified"],
+                      "content": _rag_content(t)}
+                     for t in run["traces"]
+                     if any(t["deterministic"].values())
+                     or t["citations"].get("unverified_support")]
+    by_unit = {t["query_id"] + "::" + t["probe_id"]: t for t in run["traces"]}
+    queue = lifecycle.merge_review_queue(
+        deterministic, cells, RAG_SAFETY_FIELDS,
+        content_for=lambda c: _rag_content(by_unit[c["item_id"] + "::" + c["test_id"]])
+        if (c.get("item_id", "") + "::" + c.get("test_id", "")) in by_unit
+        else c.get("response_text", ""))
 
     target_desc = {"target_id": subject_spec.get("name", "target"),
                    "version": str(subject_spec.get("version", "0")),
@@ -407,14 +445,83 @@ def _run_rag_family(ws, proj, family_id, cases, pack_desc, subject_spec,
         pack_descriptor=pack_desc, target_descriptor=target_desc,
         panel=panel, review_queue=queue, binding=binding,
         conditions_hash=conditions_hash,
+        mandatory_strata=lifecycle.mandatory_strata_for(RAG_SAFETY_FIELDS),
         artifacts={"rag_traces.jsonl": run["traces"], "corpus.json": run["corpus"],
                    "skipped.json": run["skipped"]})
 
 
-GENERIC_ONLY_COMMANDS = {
-    "judge": "re-score frozen responses with a swapped panel",
-    "report": "re-emit the evidence package",
-}
+GENERIC_ONLY_COMMANDS = {}
+
+
+def _rejudge_lifecycle(ws, meta, args):
+    """Re-score a patient/RAG run from FROZEN judge inputs, without regenerating.
+
+    This is the property the generic path has always had and the newer backends
+    only claimed: `responses.jsonl` now carries the executor's judge payload, so a
+    swapped panel scores exactly what the original panel saw.
+    """
+    import json as _json
+    from . import lifecycle, pipeline
+
+    run = Path(ws.path)
+    frozen = [_json.loads(l) for l in (run / "responses.jsonl").read_text().splitlines()
+              if l.strip()]
+    cells = [_json.loads(l) for l in (run / "results.jsonl").read_text().splitlines()
+             if l.strip()]
+    analysis = _json.loads((run / "analysis.json").read_text())
+    contract = frozen[0].get("judge_contract", "one_shot_v1") if frozen else "one_shot_v1"
+    if contract != "patient_multiturn_v1":
+        raise SystemExit(
+            f"re-judging is implemented for the patient contract; this run uses "
+            f"{contract!r}. The RAG backend's endpoints are deterministic and are not "
+            f"produced by a judge, so there is nothing to re-score.")
+    panel, _keys = _panel_and_keys(args.panel)
+    pipeline.assess_panel(panel)          # >=2 distinct blinded providers, up front
+
+    payloads = {f["unit_id"]: f.get("judge_payload") for f in frozen}
+    rescored = []
+    for c in cells:
+        uid = c.get("item_id") or c.get("perturbation_id")
+        payload = payloads.get(uid) or c.get("judge_payload")
+        if payload is None:
+            raise SystemExit(
+                f"unit {uid!r} has no frozen judge payload; this run predates "
+                f"executor-specific frozen inputs and cannot be re-judged without "
+                f"regenerating it.")
+        rescored.append({**c, "judge_payload": payload})
+    rescored = _score_patient_cells(rescored, panel)
+
+    from .patient.judging import SAFETY_FIELDS
+    queue = lifecycle.merge_review_queue(
+        [], rescored, SAFETY_FIELDS,
+        content_for=lambda c: (c.get("judge_payload") or {}).get("episode_ref", ""))
+
+    class _P:
+        name = analysis.get("family_id", "run")
+        mode = analysis["claim_authority"]["project_mode"]
+
+    pkg = lifecycle.finalize(
+        ws, project=_P(), family_id=analysis["family_id"],
+        family=pipeline.load_family(analysis["family_id"]),
+        executor_id=analysis["executor"], cells=rescored,
+        summary=analysis.get("summary", {}),
+        pack_descriptor=analysis.get("case_pack", {}),
+        target_descriptor=analysis.get("target", {}),
+        panel=panel, review_queue=queue, binding=None, artifacts={},
+        mandatory_strata=lifecycle.mandatory_strata_for(SAFETY_FIELDS),
+        conditions_hash=analysis.get("conditions_hash") or "")
+    print(f"re-judged {ws.path} with panel "
+          f"{[j['name'] for j in panel['judges']]} -> {pkg['conformance_level']}")
+    return pkg
+
+
+def _report_lifecycle(ws, meta):
+    """Re-emit a patient/RAG evidence package from what is already on disk."""
+    import json as _json
+    run = Path(ws.path)
+    lvl = _reemit_after_adjudication(ws, meta)
+    print(f"re-emitted evidence package -> {run / 'final_report.md'} ({lvl})")
+    return lvl
 
 
 def _adjudicate_units(ws, meta, args):
@@ -519,7 +626,9 @@ def cmd_judge(args):
     ws = Workspace(args.workspace)
     if not ws.exists():
         raise SystemExit(f"no frozen responses at {ws.path} — run `run` first.")
-    meta = _require_generic_workspace(ws, "judge")
+    meta = ws.read_run_meta()
+    if meta.get("executor", "generic_paired_text") != "generic_paired_text":
+        return _rejudge_lifecycle(ws, meta, args)
     family = pipeline.load_family(meta["family_id"])
     panel, keys = _panel_and_keys(args.panel)
     _, pkg = _score_and_report(ws, panel, keys, meta["subject_spec"], family)
@@ -528,7 +637,9 @@ def cmd_judge(args):
 
 def cmd_report(args):
     ws = Workspace(args.workspace)
-    meta = _require_generic_workspace(ws, "report")
+    meta = ws.read_run_meta()
+    if meta.get("executor", "generic_paired_text") != "generic_paired_text":
+        return _report_lifecycle(ws, meta)
     family = pipeline.load_family(meta["family_id"])
     result = json.loads((ws.path / "analysis.json").read_text())
     pkg = report.build_evidence_package(result, family, str(ws.path))
@@ -759,6 +870,40 @@ def cmd_connector_test(args):
     print("connector OK")
 
 
+def _safe_extract(zf, dest):
+    """Extract a package archive without trusting its member names.
+
+    `extractall()` honours absolute paths, `..` traversal and symlinks, so a
+    hostile archive can write anywhere the process can — and this command exists
+    to be pointed at packages from OTHER parties, which is exactly the untrusted
+    case.
+    """
+    import os
+    from pathlib import Path as _P
+    dest = _P(dest).resolve()
+    seen = set()
+    for info in zf.infolist():
+        name = info.filename
+        if name.endswith("/"):
+            continue
+        # symlinks and devices: the high bits of external_attr carry st_mode
+        mode = (info.external_attr >> 16) & 0o170000
+        if mode == 0o120000:
+            raise SystemExit(f"refusing archive: {name!r} is a symlink")
+        p = _P(name)
+        if p.is_absolute() or any(part == ".." for part in p.parts):
+            raise SystemExit(f"refusing archive: unsafe member path {name!r}")
+        target = (dest / p).resolve()
+        if not str(target).startswith(str(dest) + os.sep):
+            raise SystemExit(f"refusing archive: {name!r} escapes the extraction root")
+        if str(target) in seen:
+            raise SystemExit(f"refusing archive: duplicate member {name!r}")
+        seen.add(str(target))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with zf.open(info) as src_f, open(target, "wb") as out_f:
+            out_f.write(src_f.read())
+
+
 def cmd_verify_package(args):
     """Independently verify an evidence package — no trust in the producer.
 
@@ -775,7 +920,7 @@ def cmd_verify_package(args):
     if src.is_file() and src.suffix == ".zip":
         tmp = Path(tempfile.mkdtemp())
         with zipfile.ZipFile(src) as z:
-            z.extractall(tmp)
+            _safe_extract(z, tmp)
         inner = [d for d in tmp.rglob(man.MANIFEST_FILE)]
         if not inner:
             print(f"{man.INCOMPLETE}: archive contains no {man.MANIFEST_FILE}")

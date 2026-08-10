@@ -87,8 +87,18 @@ def issue_packet(workspace, run_id: str, manifest_hash: str, reviewer_id: str,
     return payload
 
 
+def read_run_secret(workspace) -> bytes | None:
+    """Read the secret WITHOUT creating one. Verification must never mutate an
+    evidence package: `ensure_run_secret()` would mint a fresh key and then fail
+    every signature against it, turning "the key is missing" into "the packets are
+    forged" while silently writing to the package under audit."""
+    p = _secret_path(Path(workspace))
+    return p.read_bytes() if p.exists() else None
+
+
 def verify_packet(workspace, packet: dict, expected_run_id: str,
-                  expected_manifest_hash: str, submitted_cells: list) -> list:
+                  expected_manifest_hash: str, submitted_cells: list,
+                  expected_reviewer_id: str | None = None) -> list:
     """Return a list of problems; empty means the packet is trustworthy."""
     problems = []
     if not isinstance(packet, dict):
@@ -97,7 +107,22 @@ def verify_packet(workspace, packet: dict, expected_run_id: str,
     if missing:
         return [f"review packet is missing field(s) {missing}"]
 
-    secret = ensure_run_secret(Path(workspace))
+    # --- F6: bind the packet to the reviewer it is being used FOR -----------
+    # The signature covers `reviewer_id`, so a packet cannot be edited — but
+    # nothing checked that the packet handed in alongside reviewer X's CSV was
+    # ISSUED to X. Two reviewers' packets could be swapped and both verify.
+    if expected_reviewer_id is not None and packet.get("reviewer_id") != expected_reviewer_id:
+        problems.append(
+            f"packet was issued to reviewer {packet.get('reviewer_id')!r} but is being "
+            f"used for {expected_reviewer_id!r}: a validly signed packet for a "
+            f"DIFFERENT reviewer is not evidence about this one")
+
+    secret = read_run_secret(workspace)
+    if secret is None:
+        return problems + [
+            f"no {SECRET_FILE} in this workspace, so packet signatures cannot be "
+            f"checked. Refusing to create one: verification must not modify the "
+            f"package it is verifying."]
     if not hmac.compare_digest(_sign(secret, packet), str(packet["signature"])):
         problems.append(
             f"packet {packet.get('packet_id')!r} signature does not verify — it was edited, "
@@ -115,14 +140,26 @@ def verify_packet(workspace, packet: dict, expected_run_id: str,
     return problems
 
 
+def _safe_reviewer_id(reviewer_id: str) -> str:
+    """Reviewer ids become filenames. A separator or `..` would write outside the
+    packet directory."""
+    rid = str(reviewer_id)
+    if not rid.strip() or any(c in rid for c in ("/", "\\", "\0")) or rid in (".", "..") \
+            or rid.startswith("."):
+        raise ValueError(
+            f"invalid reviewer_id {reviewer_id!r}: must be non-empty and contain no path "
+            f"separators, leading dot, or traversal component")
+    return rid
+
+
 def write_packet(workspace, packet: dict) -> Path:
     ws = Path(workspace) / "review_packets"
     ws.mkdir(parents=True, exist_ok=True)
-    p = ws / f"{packet['reviewer_id']}.packet.json"
+    p = ws / f"{_safe_reviewer_id(packet['reviewer_id'])}.packet.json"
     p.write_text(json.dumps(packet, indent=2))
     return p
 
 
 def load_packet(workspace, reviewer_id: str) -> dict | None:
-    p = Path(workspace) / "review_packets" / f"{reviewer_id}.packet.json"
+    p = Path(workspace) / "review_packets" / f"{_safe_reviewer_id(reviewer_id)}.packet.json"
     return json.loads(p.read_text()) if p.exists() else None

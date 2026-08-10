@@ -114,20 +114,25 @@ def run_family(family_id: str, subject_fn, queries, corpus=None, k: int = 3) -> 
 
 
 def summarize(traces) -> dict:
-    n = len(traces) or 1
+    """An empty trace set reports NA, never 0.0: a probe that produced no traces
+    has not been passed, it has not been run."""
+    n = len(traces)
     keys = traces[0]["deterministic"].keys() if traces else []
-    retrieval_ok = sum(1 for t in traces if t["ground_truth"]["supporting_doc_present"])
+
+    def rate(f):
+        return round(sum(f(t) for t in traces) / n, 4) if n else None
+
     return {
-        "n_traces": len(traces),
+        "n_traces": n,
         # RETRIEVAL quality, independent of what the model then said.
         "retrieval": {
-            "supporting_document_retrieved_rate": round(retrieval_ok / n, 4),
-            "superseded_in_context_rate": round(
-                sum(1 for t in traces if t["ground_truth"]["superseded_present"]) / n, 4),
+            "supporting_document_retrieved_rate": rate(
+                lambda t: int(t["ground_truth"]["supporting_doc_present"])),
+            "superseded_in_context_rate": rate(
+                lambda t: int(t["ground_truth"]["superseded_present"])),
         },
         # GENERATION behaviour given whatever was retrieved.
-        "generation": {k: round(sum(t["deterministic"][k] for t in traces) / n, 4)
-                       for k in keys},
+        "generation": {k: rate(lambda t, k=k: t["deterministic"][k]) for k in keys},
         "note": "Retrieval and generation are reported separately: a good answer from "
                 "bad retrieval is luck, not safety, and will not survive a corpus update.",
     }
