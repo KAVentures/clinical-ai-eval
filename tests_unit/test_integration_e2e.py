@@ -296,13 +296,20 @@ class TestEveryExecutorReachesTheAssuranceLifecycle(unittest.TestCase):
                     self.assertTrue((run / f).exists(), f"{run_name} missing {f}")
 
     def test_conformance_is_derived_not_hardcoded(self):
-        """A mock panel of two distinct providers earns L1. Hardcoding L0 hid both
-        the machinery working and the machinery being absent."""
+        """Derived from the panel that ran — and a MOCK panel earns L0.
+
+        This test previously asserted L1 for an all-mock panel, encoding the very
+        fail-open it was supposed to guard: v0.17's `conformance_from` counted
+        distinct providers only, so `mock_a`/`mock_b` bought an automated-screen
+        level that the generic pipeline correctly refuses for the identical panel.
+        A test that asserts the bug is worse than no test.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             ws = self._run(tmp, *self.CASES[0][:3])
             a = json.loads((ws / self.CASES[0][3] / "analysis.json").read_text())
-            self.assertEqual(a["conformance_level"], "L1")
-            self.assertEqual(a["claim_authority"]["run_conformance"], "L1")
+            self.assertEqual(a["conformance_level"], "L0")
+            self.assertEqual(a["claim_authority"]["run_conformance"], "L0")
+            self.assertTrue(a["panel_participation"]["panel_ran"])
 
     def test_claim_authority_is_recorded_over_all_five_axes(self):
         for ptype, pack, subject, run_name in self.CASES:
@@ -500,3 +507,139 @@ class TestMockArmTypoDoesNotSilentlySucceed(unittest.TestCase):
                           "modality": "conversation"})
             with self.assertRaises(SystemExit):
                 _run_project_bound(_Args(d, Path(tmp) / "ws"))
+
+
+class TestConformanceCannotBeBought(unittest.TestCase):
+    """Every one of these failed OPEN in v0.17 and was found in the v0.18 audit."""
+
+    CELLS = [{"panel_scored": True, "panel_labels": {"a": {}, "b": {}}}]
+
+    def test_all_mock_panel_is_L0(self):
+        """A synthetic judge exercises the machinery and cannot support a
+        conclusion. The generic pipeline has always said so; the lifecycle did not."""
+        from caeval import lifecycle
+        panel = {"judges": [{"name": "a", "provider": "mock_a", "mock": True},
+                            {"name": "b", "provider": "mock_b", "mock": True}]}
+        self.assertEqual(lifecycle.conformance_from(panel, self.CELLS), "L0")
+
+    def test_lifecycle_agrees_with_the_generic_pipeline_on_the_same_panel(self):
+        """The two paths must not disagree about the same panel."""
+        from caeval import lifecycle, pipeline
+        from caeval.cli import _panel_and_keys
+        panel, _keys = _panel_and_keys(None)
+        generic = pipeline.assess_panel(panel)["conformance_level"]
+        shared = lifecycle.conformance_from(panel, self.CELLS)
+        self.assertEqual(shared, generic,
+                         f"lifecycle says {shared}, generic pipeline says {generic}")
+
+    def test_rubric_aware_judges_cannot_form_the_quorum(self):
+        from caeval import lifecycle
+        panel = {"judges": [{"name": "a", "provider": "p1", "mode": "rubric_aware",
+                             "mock": False},
+                            {"name": "b", "provider": "p2", "mode": "rubric_aware",
+                             "mock": False}]}
+        self.assertEqual(lifecycle.conformance_from(panel, self.CELLS), "L0")
+
+    def test_one_provider_twice_is_not_a_panel(self):
+        from caeval import lifecycle
+        panel = {"judges": [{"name": "a", "provider": "p1", "mock": False},
+                            {"name": "b", "provider": "p1", "mock": False}]}
+        self.assertEqual(lifecycle.conformance_from(panel, self.CELLS), "L0")
+
+    def test_two_real_blinded_providers_earn_L1(self):
+        """The metric must be able to fire, or it is not evidence of anything."""
+        from caeval import lifecycle
+        panel = {"judges": [{"name": "a", "provider": "p1", "mock": False},
+                            {"name": "b", "provider": "p2", "mock": False}]}
+        self.assertEqual(lifecycle.conformance_from(panel, self.CELLS), "L1")
+
+    def test_unscored_cells_cannot_earn_L1(self):
+        from caeval import lifecycle
+        panel = {"judges": [{"name": "a", "provider": "p1", "mock": False},
+                            {"name": "b", "provider": "p2", "mock": False}]}
+        self.assertEqual(lifecycle.conformance_from(panel, [{"panel_scored": False}]), "L0")
+
+
+class TestPackageNamesOnlyJudgesThatRan(unittest.TestCase):
+    """v0.17 recorded the configured panel even when no judge scored anything, so a
+    RAG package named four judges that contributed nothing."""
+
+    def _rag_run(self, tmp):
+        d = _project(tmp, "clinician_rag", "builtin:demo_clinician",
+                     {"kind": "mock", "arm": "flawed"})
+        f = d / "project.yaml"
+        data = yaml.safe_load(f.read_text())
+        data["case_pack"] = {
+            "clinician_vignette": {"source": "builtin:demo_clinician"},
+            "rag_corpus_bound": {"source": "builtin:demo_rag_corpus"}}
+        f.write_text(yaml.safe_dump(data, sort_keys=False))
+        ws = Path(tmp) / "ws"
+        _run_project_bound(_Args(d, ws))
+        return ws / "run_retrieval_failure"
+
+    def test_rag_analysis_does_not_name_a_panel_that_never_ran(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._rag_run(tmp)
+            a = json.loads((run / "analysis.json").read_text())
+            self.assertEqual(a["panel"], [])
+            self.assertFalse(a["panel_participation"]["panel_ran"])
+            self.assertIn("contributed nothing", a["panel_participation"]["note"])
+
+    def test_rag_provenance_marks_each_judge_as_not_having_scored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._rag_run(tmp)
+            prov = json.loads((run / "provenance.json").read_text())
+            self.assertTrue(prov["panel"], "the configured panel is still recorded")
+            for j in prov["panel"]:
+                self.assertFalse(j["scored_this_run"])
+
+    def test_limitations_says_no_judge_scored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._rag_run(tmp)
+            self.assertIn("no judge scored any cell",
+                          (run / "limitations.md").read_text().lower())
+
+
+class TestGenericOnlyCommandsRefuseOtherBackends(unittest.TestCase):
+    """They previously died with a bare KeyError, which reads as a bug rather than
+    as a boundary — and a user cannot tell which."""
+
+    def _patient_run(self, tmp):
+        d = _project(tmp, "patient_triage_chatbot", "builtin:public_smoke",
+                     {"kind": "mock", "arm": "mock_defective", "modality": "conversation"})
+        ws = Path(tmp) / "ws"
+        _run_project_bound(_Args(d, ws))
+        return ws / "run_patient_red_flag"
+
+    def test_judge_report_adjudicate_refuse_a_patient_workspace(self):
+        from caeval.cli import cmd_adjudicate, cmd_judge, cmd_report
+
+        class A:
+            pass
+        with tempfile.TemporaryDirectory() as tmp:
+            run = self._patient_run(tmp)
+            for fn, kw in ((cmd_judge, {"workspace": str(run), "panel": None}),
+                           (cmd_report, {"workspace": str(run)}),
+                           (cmd_adjudicate, {"workspace": str(run), "mock": True,
+                                             "reviewers": 2, "reviews": None})):
+                a = A()
+                for k, v in kw.items():
+                    setattr(a, k, v)
+                with self.assertRaises(SystemExit) as ctx:
+                    fn(a)
+                msg = str(ctx.exception)
+                self.assertIn("generic_paired_text", msg)
+                self.assertIn("patient_episode", msg)
+                self.assertIn("verify-package", msg)
+
+    def test_generic_workspace_still_works(self):
+        from caeval.cli import cmd_report
+        with tempfile.TemporaryDirectory() as tmp:
+            d = _project(tmp, "clinician_decision_support", "builtin:demo_clinician",
+                         {"kind": "mock", "arm": "flawed"})
+            ws = Path(tmp) / "ws"
+            _run_project_bound(_Args(d, ws))
+
+            class A:
+                workspace = str(ws / "run_missing_information")
+            cmd_report(A())   # must not raise

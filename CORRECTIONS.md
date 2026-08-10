@@ -1,5 +1,66 @@
 # Corrections log
 
+## v0.18 — audit of v0.17; three fail-opens I introduced (2026-08)
+
+A diligence pass over v0.17 found five defects. **Three were in the shared
+lifecycle I had just written to fix the previous round, and all three failed
+OPEN** — the direction that makes a run look better than it was.
+
+### A mock panel was buying L1
+`lifecycle.conformance_from()` counted distinct providers only. A panel of
+`mock_a` + `mock_b` is two distinct providers, so patient runs were reported as
+**L1** — while `pipeline.assess_panel()` correctly calls the identical panel
+**L0**, because a synthetic judge structurally exercises the L1 machinery and
+cannot support a conclusion (§0). Two code paths disagreed about the same panel,
+and the newer one was wrong.
+
+**The test I wrote asserted the bug.** `test_conformance_is_derived_not_hardcoded`
+asserted `L1` for an all-mock run and passed. This is the second time in this
+repository that a guard encoded the defect it was meant to catch (the first was
+v0.10's `_derandomize()` stripping the markers the test depended on). A test that
+asserts the bug is worse than no test: it converts an open failure into a green
+build. There is now a test asserting the two paths AGREE on the same panel, which
+is the property that was actually violated.
+
+### Rubric-aware judges counted toward the headline quorum
+Same function: it counted every judge, not the blinded ones. Two cued judges could
+form a quorum — re-importing the +64pp cueing gap this repository measured and
+published a correction about. `_score_patient_cells` filtered correctly; the
+conformance derivation did not, so the two disagreed about what a panel was.
+
+### The evidence package named judges that never ran
+`analysis.json` and `provenance.json` recorded the CONFIGURED panel. The RAG
+executor never invokes a panel, so a RAG package listed four judges that
+contributed nothing to any number in it. Now `panel_participation` records what
+actually scored, provenance marks each judge `scored_this_run: true/false`, and
+`limitations.md` says plainly when no judge scored anything.
+
+### `judge`, `report` and `adjudicate` crashed on the new backends
+Bare `KeyError` on a patient or RAG workspace (`'kind'`, `'subject_spec'`,
+`'cell_id'`). Crashing is loud, but it reads as a bug rather than as a boundary and
+a user cannot tell which. They now refuse explicitly, name the executor that
+produced the workspace, and point at `verify-package`. The refusal matters more
+than the message: these commands expect one-shot records, and running them anyway
+would re-score a run against a contract that does not describe it and still emit a
+report.
+
+### L2 is UNREACHABLE for the patient and RAG backends
+Following from the above: no review manifest and no signed reviewer packets are
+issued for those executors, and `l2_gate_passed` is never wired. This is now
+declared as `conformance_ceiling_this_build: L1` in both family files and rendered
+in the generated capability table, rather than being a gap a user discovers.
+
+### What was checked and found sound
+Tamper detection on a patient package (editing `results.jsonl` and forging the
+recorded claim both yield `INVALID`); claim re-derivation across all five axes;
+pack-signature verification against current content; the corpus binding; the
+absence of any combined score; the web console binding to `127.0.0.1` with its
+lack of authentication stated rather than implied; the HMAC packets still
+described as anti-tamper rather than as identity proof.
+
+401 tests pass. No family exceeds `experimental`, and the honest ceiling for the
+two newest backends is L1.
+
 ## v0.17 — the executors reach the assurance lifecycle (2026-08)
 
 v0.16 connected the user journey to the executors. An external review found the

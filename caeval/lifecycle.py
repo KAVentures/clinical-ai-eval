@@ -34,16 +34,50 @@ from .util import utc_now_iso
 def conformance_from(panel: dict | None, cells: list, l2_gate_passed: bool = False) -> str:
     """DERIVE the conformance level; never assert it.
 
-    L0  no judge panel ran, or fewer than two distinct providers
-    L1  a conformant blinded panel scored the cells
+    L0  no panel scored, fewer than two distinct BLINDED providers, or an all-mock
+        panel — a synthetic judge structurally exercises the L1 machinery but
+        cannot support a conclusion (EVAL_STANDARD.md §0)
+    L1  >=2 distinct real blinded providers actually scored the cells
     L2  L1 plus a passed human adjudication gate
+
+    All three conditions were wrong in v0.17 and every one failed OPEN:
+    rubric-aware judges counted toward the quorum (the +64pp cueing gap this repo
+    measured, re-imported), and a mock panel of `mock_a`/`mock_b` earned L1 while
+    the generic pipeline correctly called the identical panel L0.
     """
     judges = (panel or {}).get("judges", []) or []
-    providers = {j.get("provider") or j.get("name") for j in judges}
+    # HEADLINE = BLINDED ONLY. A cued judge sees the defect specification; counting
+    # it is counting one evaluator twice, once with the answer.
+    blinded = [j for j in judges if j.get("mode", "blinded") == "blinded"]
+    providers = {j.get("provider") or j.get("name") for j in blinded}
+    all_mock = all(j.get("mock") for j in blinded) if blinded else True
     scored = [c for c in cells if c.get("panel_scored")]
-    if len(providers) < 2 or not scored:
+    if not blinded or len(providers) < 2 or not scored or all_mock:
         return "L0"
     return "L2" if l2_gate_passed else "L1"
+
+
+def panel_participation(panel: dict | None, cells: list) -> dict:
+    """Which judges ACTUALLY scored — not which were configured.
+
+    v0.17 recorded the configured panel in `analysis.json` and `provenance.json`
+    even when no judge ran (the RAG executor never invokes one), so the evidence
+    package named a panel that scored nothing.
+    """
+    judges = (panel or {}).get("judges", []) or []
+    names = set()
+    for c in cells:
+        names |= set((c.get("panel_labels") or {}).keys())
+    return {
+        "configured": [j.get("name") for j in judges],
+        "actually_scored": sorted(names),
+        "panel_ran": bool(names),
+        "n_cells_scored": sum(1 for c in cells if c.get("panel_scored")),
+        "note": ("" if names else
+                 "No judge scored any cell in this run: the configured panel is "
+                 "recorded for provenance only and contributed nothing to these "
+                 "results."),
+    }
 
 
 def finalize(ws, *, project, family_id: str, family: dict, executor_id: str,
@@ -85,6 +119,7 @@ def finalize(ws, *, project, family_id: str, family: dict, executor_id: str,
     }) for c in cells))
 
     conformance = conformance_from(panel, cells, l2_gate_passed)
+    participation = panel_participation(panel, cells)
     authority = claim_mod.compute(
         project_mode=getattr(project, "mode", "demonstration"),
         run_conformance=conformance,
@@ -101,7 +136,9 @@ def finalize(ws, *, project, family_id: str, family: dict, executor_id: str,
         "claim_authority": authority.as_dict(),
         "case_pack": pack_descriptor,
         "target": target_descriptor,
-        "panel": [j.get("name") for j in (panel or {}).get("judges", [])],
+        # Record what RAN, not what was configured.
+        "panel": participation["actually_scored"],
+        "panel_participation": participation,
         "n_cells": len(cells),
         "n_review_selected": len(review_queue),
         # The executor's own summary travels alongside, never replacing the axes.
@@ -111,7 +148,8 @@ def finalize(ws, *, project, family_id: str, family: dict, executor_id: str,
     (out / "analysis.json").write_text(json.dumps(analysis, indent=2))
 
     (out / "provenance.json").write_text(json.dumps(_provenance(
-        family_id, executor_id, pack_descriptor, target_descriptor, panel), indent=2))
+        family_id, executor_id, pack_descriptor, target_descriptor, panel,
+        participation), indent=2))
     (out / "limitations.md").write_text(_limitations(analysis, authority))
 
     report_md = out / "final_report.md"
@@ -141,7 +179,8 @@ def finalize(ws, *, project, family_id: str, family: dict, executor_id: str,
     }
 
 
-def _provenance(family_id, executor_id, pack_descriptor, target_descriptor, panel) -> dict:
+def _provenance(family_id, executor_id, pack_descriptor, target_descriptor, panel,
+                participation) -> dict:
     from .version import EVAL_STANDARD_VERSION, __version__
     import subprocess
     try:
@@ -159,8 +198,12 @@ def _provenance(family_id, executor_id, pack_descriptor, target_descriptor, pane
         "target": target_descriptor,
         "panel": [{"name": j.get("name"), "provider": j.get("provider"),
                    "model": j.get("model"), "mode": j.get("mode", "blinded"),
-                   "mock": bool(j.get("mock"))}
+                   "mock": bool(j.get("mock")),
+                   # explicit, because a configured judge that never ran must not
+                   # read as evidence that it did
+                   "scored_this_run": j.get("name") in participation["actually_scored"]}
                   for j in (panel or {}).get("judges", [])],
+        "panel_participation": participation,
         "generated_at": utc_now_iso(),
     }
 
@@ -183,7 +226,14 @@ def _limitations(analysis: dict, authority) -> str:
                  f"not clinician-authored and reviewed, so the run cannot show the "
                  f"product is safe on clinically representative cases.")
     if analysis["conformance_level"] == "L0":
-        L.append("- Conformance L0: no conformant blinded judge panel scored these cells.")
+        part = analysis.get("panel_participation", {})
+        if not part.get("panel_ran"):
+            L.append("- Conformance L0: NO judge scored any cell in this run. The results "
+                     "are deterministic measurements only.")
+        else:
+            L.append("- Conformance L0: the panel that scored these cells was synthetic "
+                     "(mock) or had fewer than two distinct blinded providers, so it "
+                     "cannot support a conclusion.")
     elif analysis["conformance_level"] == "L1":
         L.append("- Conformance L1: automated judges only. No human adjudication has "
                  "confirmed these labels.")

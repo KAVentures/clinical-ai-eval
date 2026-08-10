@@ -43,6 +43,7 @@ def table() -> list:
             "selectable": bool(meta.get("implemented")),
             "executor": (executors.FAMILY_EXECUTORS.get(fid) or None),
             "maturity": ((fam or {}).get("maturity") or {}).get("level"),
+            "conformance_ceiling": (fam or {}).get("conformance_ceiling_this_build", "L2"),
             "audiences": (fam or {}).get("audiences", []),
             "profiles": (fam or {}).get("applies_to_profiles", []),
             "blocked_reason": meta.get("blocked_reason", ""),
@@ -82,20 +83,28 @@ def render_markdown() -> str:
     L = ["## What this build can run", "",
          "Generated from the family declarations, selection rules, executor registry "
          "and maturity levels. Do not hand-edit.", "",
-         "| family | runnable | executor | maturity | audiences |",
-         "|---|---|---|---|---|"]
+         "| family | runnable | executor | maturity | max conformance | audiences |",
+         "|---|---|---|---|---|---|"]
     for r in sorted(rows, key=lambda x: (not x.get("selectable"), x["family_id"])):
         if r.get("error"):
-            L.append(f"| `{r['family_id']}` | ERROR | — | — | {r['error']} |")
+            L.append(f"| `{r['family_id']}` | ERROR | — | — | — | {r['error']} |")
             continue
         L.append(f"| `{r['family_id']}` | {'yes' if r['selectable'] else 'no'} | "
                  f"{r['executor'] or '—'} | {r['maturity'] or '—'} | "
+                 f"{r.get('conformance_ceiling') or '—'} | "
                  f"{', '.join(r['audiences']) or '—'} |")
     blocked = [r for r in rows if not r.get("selectable") and not r.get("error")]
     if blocked:
         L += ["", "### Declared but not runnable", ""]
         L += [f"- `{r['family_id']}`: {r['blocked_reason'] or 'no reason recorded'}"
               for r in blocked]
+    ceilinged = [r for r in rows if r.get("conformance_ceiling") not in (None, "L2")]
+    if ceilinged:
+        L += ["", "### Conformance ceilings in this build", ""]
+        L += [f"- `{r['family_id']}`: cannot exceed **{r['conformance_ceiling']}** — "
+              f"`judge`/`report`/`adjudicate` are implemented for the generic "
+              f"backend only, so human adjudication (L2) is unreachable."
+              for r in ceilinged]
     L += ["", "**Every family is `experimental`.** None has been calibrated against "
           "clinician judgement, so no result from this build can support a published "
           "finding, a procurement decision, or a release gate."]

@@ -403,11 +403,47 @@ def _run_rag_family(ws, proj, family_id, cases, pack_desc, subject_spec,
                    "skipped.json": run["skipped"]})
 
 
+GENERIC_ONLY_COMMANDS = {
+    "judge": "re-score frozen responses with a swapped panel",
+    "report": "re-emit the evidence package",
+    "adjudicate": "ingest human reviews and run the L2 gate",
+}
+
+
+def _require_generic_workspace(ws, command: str) -> dict:
+    """`judge`, `report` and `adjudicate` still assume the one-shot workspace.
+
+    They previously crashed with a bare KeyError on a patient or RAG workspace.
+    Crashing is at least loud, but it reads as a bug rather than as a boundary, and
+    a user cannot tell which. Refuse explicitly and say what is missing — and
+    NEVER let a command designed for one record shape run over another, which is
+    how a run gets re-scored against the wrong contract and still emits a report.
+    """
+    try:
+        meta = ws.read_run_meta()
+    except Exception as e:  # noqa: BLE001
+        raise SystemExit(f"{command}: cannot read run_meta.json in {ws.path} ({e})")
+    executor = meta.get("executor", "generic_paired_text")
+    if executor != "generic_paired_text":
+        raise SystemExit(
+            f"`{command}` ({GENERIC_ONLY_COMMANDS[command]}) is implemented for the "
+            f"generic_paired_text backend only; this workspace was produced by "
+            f"`{executor}`.\n"
+            f"Refusing to run: this command expects one-shot records "
+            f"(cell_id / subject_spec / the one-shot judge contract) and would either "
+            f"crash or re-score the run against a contract that does not describe it.\n"
+            f"The run itself is complete and verifiable — check it with "
+            f"`clinical-ai-eval verify-package --workspace {ws.path}`.\n"
+            f"Per-executor judge/report/adjudicate is not implemented in this build; "
+            f"L2 adjudication is therefore unreachable for `{executor}` runs.")
+    return meta
+
+
 def cmd_judge(args):
     ws = Workspace(args.workspace)
     if not ws.exists():
         raise SystemExit(f"no frozen responses at {ws.path} — run `run` first.")
-    meta = ws.read_run_meta()
+    meta = _require_generic_workspace(ws, "judge")
     family = pipeline.load_family(meta["family_id"])
     panel, keys = _panel_and_keys(args.panel)
     _, pkg = _score_and_report(ws, panel, keys, meta["subject_spec"], family)
@@ -416,7 +452,7 @@ def cmd_judge(args):
 
 def cmd_report(args):
     ws = Workspace(args.workspace)
-    meta = ws.read_run_meta()
+    meta = _require_generic_workspace(ws, "report")
     family = pipeline.load_family(meta["family_id"])
     result = json.loads((ws.path / "analysis.json").read_text())
     pkg = report.build_evidence_package(result, family, str(ws.path))
@@ -425,6 +461,7 @@ def cmd_report(args):
 
 def cmd_adjudicate(args):
     ws = Workspace(args.workspace)
+    _require_generic_workspace(ws, "adjudicate")
     if args.mock:
         files = adj.mock_adjudicate(str(ws.path), n_reviewers=args.reviewers)
     else:

@@ -58,6 +58,14 @@ required_capabilities:
   - paired_original_variant
 # --------------------------------------------------------------------------
 
+# CONFORMANCE CEILING IN THIS BUILD (v0.18, stated because it bounds every result):
+# runs on this executor can reach L1 with >=2 distinct REAL blinded providers, but
+# L2 is UNREACHABLE: `judge`, `report` and `adjudicate` are implemented for the
+# generic one-shot workspace only, and no review manifest or signed reviewer packet
+# is issued for this backend. Those commands now REFUSE a workspace from this
+# executor rather than crashing or re-scoring it against the wrong contract.
+conformance_ceiling_this_build: L1
+
 maturity:
   level: experimental
   rationale: >
