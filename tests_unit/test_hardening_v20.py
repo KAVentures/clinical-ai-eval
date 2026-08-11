@@ -312,3 +312,38 @@ class TestReviewedWorkspaceCannotBeSilentlyRelocked(unittest.TestCase):
             same = [{"unit_id": u["unit_id"], "strata": u["strata"]}
                     for u in mf["expected_units"]]
             lifecycle._guard_locked_review(run, same)      # must not raise
+
+
+class TestRejudgeCannotShrinkTheReviewQueue(unittest.TestCase):
+    """A v0.20 regression, found while verifying v0.20: `judge` rebuilt the queue
+    from judge-derived triggers alone and dropped 76 of 88 units — every
+    deterministic mandatory one among them. Re-scoring may ADD review units; it can
+    never remove them, because the deterministic triggers did not stop being true
+    when a different panel was asked."""
+
+    def test_rejudging_never_drops_a_routed_unit(self):
+        from caeval.cli import cmd_judge
+
+        class J:
+            pass
+        with tempfile.TemporaryDirectory() as tmp:
+            run = _patient_run(tmp)
+            before = {u["unit_id"] for u in
+                      unit_review.load_review_manifest(run)["expected_units"]}
+            j = J()
+            j.workspace, j.panel = str(run), None
+            cmd_judge(j)
+            after = {u["unit_id"] for u in
+                     unit_review.load_review_manifest(run)["expected_units"]}
+            self.assertEqual(before - after, set(), "re-judging dropped review units")
+
+    def test_prior_units_are_preserved_directly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = _patient_run(tmp)
+            merged = lifecycle._preserve_prior_units(
+                run, [{"unit_id": "brand_new", "strata": ["judge_disagreement"]}])
+            ids = {m["unit_id"] for m in merged}
+            self.assertIn("brand_new", ids)
+            prior = {u["unit_id"] for u in
+                     unit_review.load_review_manifest(run)["expected_units"]}
+            self.assertTrue(prior <= ids)

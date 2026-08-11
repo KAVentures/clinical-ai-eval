@@ -41,6 +41,25 @@ class WorkspaceLockedError(RuntimeError):
     against a manifest they never saw."""
 
 
+def _preserve_prior_units(out: Path, review_queue: list) -> list:
+    """Union the new queue with any previously locked one.
+
+    Routing fewer units to humans than a previous pass did is never a correct
+    outcome of re-scoring: the deterministic triggers did not stop being true
+    because a different panel was asked.
+    """
+    prior = unit_review.load_review_manifest(out)
+    if not prior:
+        return review_queue
+    have = {q["unit_id"] for q in review_queue}
+    merged = list(review_queue)
+    for u in prior.get("expected_units", []):
+        if u["unit_id"] not in have:
+            merged.append({"unit_id": u["unit_id"], "strata": list(u.get("strata", [])),
+                           "content": ""})
+    return merged
+
+
 def _guard_locked_review(out: Path, review_queue: list) -> None:
     """Signals that human review has begun.
 
@@ -258,6 +277,12 @@ def finalize(ws, *, project, family_id: str, family: dict, executor_id: str,
     _write_review_csv(out / "human_review.csv", review_queue)
     # LOCK the expected queue now, before any review exists, so the denominator
     # cannot later shrink to match whatever came back.
+    # A re-lock may only ADD review units, never remove them. Re-judging with a
+    # different panel legitimately finds NEW cells to route; it must not drop the
+    # deterministic ones the first pass found. (v0.20 regression: `judge` rebuilt
+    # the queue from judge-derived triggers alone and silently discarded 76 of 88
+    # units, every deterministic mandatory one among them.)
+    review_queue = _preserve_prior_units(out, review_queue)
     unit_review.build_review_manifest(
         out, review_queue,
         run_id=str((binding or {}).get("plan_hash") or family_id),

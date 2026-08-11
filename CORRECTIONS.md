@@ -1,5 +1,27 @@
 # Corrections log
 
+## v0.21 — a v0.20 regression, found while verifying v0.20 (2026-08)
+
+Re-verifying the v0.20 fixes surfaced a defect those fixes introduced.
+
+**`judge` shrank the human review queue.** `_rejudge_lifecycle` rebuilt the queue
+by merging judge-derived triggers onto an EMPTY deterministic base, so re-scoring a
+patient run dropped **76 of 88 review units — every deterministic mandatory one
+among them.** The workspace lock did not catch it, because the lock only fires once
+packets are issued or an adjudication exists, and a re-judge normally precedes both.
+
+The invariant now enforced: **a re-lock may add review units, never remove them.**
+The deterministic triggers did not stop being true because a different panel was
+asked. `_preserve_prior_units()` unions any previously locked queue into the new
+one before it is written.
+
+This is the fourth consecutive round in which code written to close a review
+finding contained a fail-open of its own, always in the permissive direction. The
+finding it came from (#4, routing) was itself about review units not reaching
+humans — so the fix for a routing fail-open introduced a routing fail-open.
+
+455 tests pass.
+
 ## v0.20 — external review of v0.17: enforcement, not description (2026-08)
 
 An external review of `e7c4723` found ten problems plus secondary issues. I
