@@ -1,0 +1,143 @@
+study_stage: confirmatory
+target_n: 120
+cases_per_domain: 10
+pilot_case_ids_forbidden: true
+instruction: >-
+  This matrix preallocates the confirmatory sample BEFORE pilot results are inspected.
+  Each domain/construct pair becomes one FULL-### case. Clinical wording and action menus
+  must be authored without looking at model-specific pilot failures, physician-validated,
+  then frozen with the lock command before any confirmatory API call.
+
+domains:
+  emergency_medicine:
+    - airway_status
+    - shock_source
+    - code_status
+    - transfusion_compatibility
+    - toxicology_exposure
+    - trauma_imaging
+    - sepsis_source
+    - medication_reconciliation
+    - vital_sign_validity
+    - point_of_care_test
+  cardiology:
+    - st_elevation
+    - rhythm_diagnosis
+    - anticoagulation_indication
+    - intracranial_bleeding_status
+    - troponin_identity
+    - echo_ejection_fraction
+    - valve_severity
+    - aortic_dissection_imaging
+    - device_status
+    - medication_allergy
+  neurology:
+    - hemorrhage_status
+    - large_vessel_occlusion
+    - seizure_status
+    - antiseizure_drug_level
+    - last_known_well
+    - anticoagulant_use
+    - thrombolysis_contraindication
+    - csf_result
+    - spinal_imaging
+    - neurologic_baseline
+  infectious_disease:
+    - susceptibility
+    - culture_identity
+    - blood_culture_significance
+    - antibiotic_allergy
+    - renal_function_for_dosing
+    - source_control_imaging
+    - viral_test
+    - isolation_status
+    - immunosuppression_status
+    - prior_resistance_history
+  renal:
+    - creatinine_egfr
+    - potassium
+    - dialysis_status
+    - volume_status
+    - urine_output
+    - drug_level
+    - contrast_exposure
+    - transplant_status
+    - acid_base_result
+    - weight_for_dosing
+  endocrinology:
+    - glucose
+    - ketone_result
+    - thyroid_result
+    - adrenal_history
+    - steroid_exposure
+    - calcium
+    - sodium
+    - pregnancy_status
+    - insulin_home_dose
+    - pituitary_imaging
+  obstetrics:
+    - pregnancy_status
+    - gestational_age
+    - fetal_status
+    - placental_location
+    - rupture_of_membranes
+    - blood_group
+    - preeclampsia_labs
+    - medication_exposure
+    - ultrasound_viability
+    - prior_uterine_surgery
+  surgery_imaging:
+    - appendicitis
+    - free_air
+    - bowel_obstruction
+    - cholecystitis
+    - vascular_occlusion
+    - postoperative_leak
+    - abscess
+    - fracture_displacement
+    - foreign_body
+    - pathology_margin
+  oncology:
+    - neutropenia
+    - pathology_identity
+    - tumor_marker
+    - staging_imaging
+    - molecular_marker
+    - renal_function
+    - cardiac_function
+    - infection_status
+    - performance_status
+    - treatment_history
+  medication_safety:
+    - allergy
+    - home_medication
+    - dose_history
+    - anticoagulant_use
+    - insulin_use
+    - opioid_tolerance
+    - qt_prolongation
+    - pregnancy_risk
+    - drug_interaction
+    - therapeutic_drug_level
+  pulmonology:
+    - pulmonary_embolism
+    - pneumothorax
+    - oxygen_requirement
+    - blood_gas
+    - spirometry
+    - home_oxygen
+    - anticoagulation_status
+    - imaging_infiltrate
+    - sleep_apnea_history
+    - ventilator_setting
+  general_internal_medicine:
+    - medication_reconciliation
+    - allergy
+    - renal_function
+    - electrolyte
+    - infection_result
+    - imaging_diagnosis
+    - goals_of_care
+    - functional_baseline
+    - anticoagulant_use
+    - recent_procedure
