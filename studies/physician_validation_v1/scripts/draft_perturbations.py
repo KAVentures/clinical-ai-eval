@@ -14,7 +14,6 @@ import argparse
 import csv
 import hashlib
 import json
-import os
 from pathlib import Path
 
 from caeval.providers import call, load_keys
@@ -40,14 +39,39 @@ def extract_json(text: str) -> dict:
 
 
 def source_case_text(record: dict) -> str:
+    """Return a stable role-labelled study rendering of the source case.
+
+    HealthBench Professional releases have represented `conversation` both as a
+    direct message list and as an object containing `messages`; support both. The
+    study does not claim this rendering reproduces the official HealthBench score.
+    """
     source = record.get("source_record") or {}
     conversation = source.get("conversation")
-    if isinstance(conversation, list):
-        # Preserve the source conversation in a simple role-labelled projection.
-        return "\n\n".join(
-            f"{str(m.get('role', '')).upper()}: {str(m.get('content', ''))}"
-            for m in conversation
-        )
+    messages = None
+    if isinstance(conversation, dict):
+        messages = conversation.get("messages")
+    elif isinstance(conversation, list):
+        messages = conversation
+
+    if isinstance(messages, list) and messages:
+        rendered = []
+        for m in messages:
+            if not isinstance(m, dict):
+                raise ValueError(f"non-object conversation message for {record.get('source_id')}")
+            role = str(m.get("role", "")).strip().upper() or "MESSAGE"
+            content = m.get("content", "")
+            # Be robust to APIs/datasets that store multimodal-style content lists.
+            if isinstance(content, list):
+                pieces = []
+                for item in content:
+                    if isinstance(item, dict):
+                        pieces.append(str(item.get("text", item.get("content", ""))))
+                    else:
+                        pieces.append(str(item))
+                content = "\n".join(p for p in pieces if p)
+            rendered.append(f"{role}: {str(content)}")
+        return "\n\n".join(rendered)
+
     if record.get("question_text"):
         return str(record["question_text"])
     raise ValueError(f"cannot find source case text for {record.get('source_id')}")
@@ -145,7 +169,7 @@ def main() -> None:
             payload = extract_json(text)
             variants = validate_payload(payload, source_id)
 
-            for ordinal, v in enumerate(variants, start=1):
+            for v in variants:
                 family = v["family"]
                 applicable = bool(v.get("applicable"))
                 modified = str(v.get("modified_case", ""))
@@ -192,7 +216,6 @@ def main() -> None:
         "applicable_draft", "original_case_sha256", "modified_case_sha256",
         "changed_evidence_sha256", "author_provider", "author_model", "status",
     ]
-    # De-duplicate on resume, preserving the newest row per perturbation id.
     dedup = {str(r["perturbation_id"]): r for r in public_rows}
     with args.public_manifest.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=fields)
