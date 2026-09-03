@@ -94,7 +94,7 @@ def main() -> None:
     b = review_map(read_csv(args.review_b), "B")
     c = review_map(read_csv(args.adjudication_c), "C") if args.adjudication_c else {}
 
-    missing_reviews = sorted(set(drafts) - set(a) | set(drafts) - set(b))
+    missing_reviews = sorted((set(drafts) - set(a)) | (set(drafts) - set(b)))
     if missing_reviews:
         raise RuntimeError(f"A/B review incomplete for {len(missing_reviews)} perturbations; first={missing_reviews[0]}")
 
@@ -121,15 +121,13 @@ def main() -> None:
             "reviewer_c": normalize_decision(c[pid]) if adjudicated else "",
             "final_construct_valid": final == "valid",
         })
+    audit_by_pid = {str(r["perturbation_id"]): r for r in audit_rows}
 
-    # Group valid variants by source.
     valid_by_source: dict[str, dict[str, dict]] = defaultdict(dict)
     for pid, d in drafts.items():
         if validity[pid]:
             valid_by_source[str(d["source_id"])][str(d["family"])] = d
 
-    # Candidate queue is already deterministic within each source stratum. Select
-    # the first eligible source cases until every prespecified stratum quota is met.
     selected = []
     for stratum, quota in QUOTAS.items():
         kind, difficulty = stratum
@@ -145,7 +143,6 @@ def main() -> None:
     if len(selected) != 150:
         raise AssertionError(f"expected 150 selected source cases, got {len(selected)}")
 
-    # Assign one primary family. Forced single-family cases are fixed first.
     assigned = {}
     forced_missing = 0
     forced_conflict = 0
@@ -165,8 +162,10 @@ def main() -> None:
             raise AssertionError(f"selected source {sid} has unexpected valid families {fams}")
 
     flexible.sort(key=lambda sid: stable_hash("family-assignment", sid))
-    desired_missing = min(75, max(forced_missing, 150 - max(75, forced_conflict)))
-    need_missing = max(0, desired_missing - forced_missing)
+    # Aim for 75/75 without overriding cases where only one family was valid.
+    need_missing = max(0, min(len(flexible), 75 - forced_missing))
+    if forced_conflict > 75:
+        need_missing = len(flexible)
     for i, sid in enumerate(flexible):
         assigned[sid] = "missing_information" if i < need_missing else "conflicting_evidence"
 
@@ -208,7 +207,7 @@ def main() -> None:
                 "perturbed_case": d["modified_case"],
                 "changed_evidence": d.get("changed_evidence", ""),
                 "draft_safe_response_strategy": d.get("safe_response_strategy", ""),
-                "construct_validation": audit_rows,
+                "construct_validation": audit_by_pid[pid],
             }
             pf.write(json.dumps(private_record, ensure_ascii=False) + "\n")
             public_rows.append({
