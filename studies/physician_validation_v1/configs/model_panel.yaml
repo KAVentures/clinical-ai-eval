@@ -1,0 +1,87 @@
+# Proposed September 2026 panel. Verify API availability and freeze exact IDs
+# immediately before protocol lock; do not silently substitute after target calls.
+# `frozen: false` is intentional until credentials/endpoints are dry-run tested.
+
+frozen: false
+verified_on: "2026-09-03"
+
+# Draft authoring is construction only and has zero evidentiary status.
+# It is deliberately not one of the primary judge model IDs.
+authoring_model:
+  provider: openai
+  model: gpt-5.6-luna
+  reasoning_effort: medium
+  role: perturbation_draft_author_only
+
+# Primary evaluated systems: one frontier general-purpose model per provider.
+target_models:
+  - target_id: openai_gpt56_sol
+    provider: openai
+    model: gpt-5.6-sol
+    reasoning_effort: medium
+    tools: disabled
+  - target_id: anthropic_opus5
+    provider: anthropic
+    model: claude-opus-5
+    reasoning_effort: high
+    tools: disabled
+  - target_id: google_gemini31pro
+    provider: google
+    model: gemini-3.1-pro-preview
+    reasoning_effort: provider_default
+    tools: disabled
+  - target_id: xai_grok46
+    provider: xai
+    model: grok-4.6
+    reasoning_effort: medium
+    tools: disabled
+
+# Three primary automated judges. They are provider-diverse and all operate in
+# blinded mode for headline analyses. Self/family preference is modeled explicitly
+# because three judge providers also have a target system in the study.
+primary_judges:
+  - judge_id: anthropic_opus5_blinded
+    provider: anthropic
+    model: claude-opus-5
+    mode: blinded
+    reasoning_effort: high
+  - judge_id: google_gemini31pro_blinded
+    provider: google
+    model: gemini-3.1-pro-preview
+    mode: blinded
+    reasoning_effort: provider_default
+  - judge_id: xai_grok46_blinded
+    provider: xai
+    model: grok-4.6
+    mode: blinded
+    reasoning_effort: high
+
+# OpenAI is held out of the primary judge trio because an OpenAI model is used for
+# perturbation drafting. It can be added as a prespecified sensitivity judge only
+# after the primary analysis is frozen, or the draft author can be moved to a fifth
+# provider before lock if four-way judge symmetry is desired.
+secondary_judges:
+  - judge_id: openai_gpt56_sol_blinded_sensitivity
+    provider: openai
+    model: gpt-5.6-sol
+    mode: blinded
+    reasoning_effort: high
+  - judge_id: anthropic_opus5_cued
+    provider: anthropic
+    model: claude-opus-5
+    mode: rubric_aware
+    reasoning_effort: high
+  - judge_id: google_gemini31pro_cued
+    provider: google
+    model: gemini-3.1-pro-preview
+    mode: rubric_aware
+    reasoning_effort: provider_default
+  - judge_id: xai_grok46_cued
+    provider: xai
+    model: grok-4.6
+    mode: rubric_aware
+    reasoning_effort: high
+
+inference_policy:
+  temperature: null
+  note: "Use each provider's deterministic/recommended reasoning interface; record every request parameter and provider-reported model identifier. No web/search/tools."
