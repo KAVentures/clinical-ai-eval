@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Select the random-equivalent physician calibration sample before judge scoring.
+"""Select the physician calibration sample before automated judge scoring.
 
 For each of four target models, choose 60/150 source cases by deterministic hash
 and include both original and perturbed responses. Selection depends only on IDs,
-never on model response content or automated judge labels.
+never on response content or judge labels. Reviewer-facing unit IDs are opaque and
+do not encode target identity, source ID, or presentation.
 """
 from __future__ import annotations
 
@@ -17,8 +18,16 @@ SEED = "clinical-ai-eval-physician-validation-v1|physician-calibration"
 N_CASES_PER_TARGET = 60
 
 
+def digest(*parts: str) -> str:
+    return hashlib.sha256((SEED + "|" + "|".join(parts)).encode()).hexdigest()
+
+
 def rank(target_id: str, case_id: str) -> str:
-    return hashlib.sha256(f"{SEED}|{target_id}|{case_id}".encode()).hexdigest()
+    return digest("sample-rank", target_id, case_id)
+
+
+def opaque_review_id(response_id: str) -> str:
+    return "cal-" + digest("review-unit", response_id)[:20]
 
 
 def read_jsonl(path: Path) -> list[dict]:
@@ -51,6 +60,7 @@ def main() -> None:
 
     selected_private = []
     public = []
+    seen_opaque = set()
     for target_id in targets:
         cases = sorted(
             {str(r["case_id"]) for r in rows if str(r["target_id"]) == target_id},
@@ -65,16 +75,20 @@ def main() -> None:
                 if key not in by_target_case:
                     raise RuntimeError(f"missing response {key}")
                 r = by_target_case[key]
-                review_unit_id = f"cal::{r['response_id']}"
+                review_unit_id = opaque_review_id(str(r["response_id"]))
+                if review_unit_id in seen_opaque:
+                    raise RuntimeError("opaque review-unit collision")
+                seen_opaque.add(review_unit_id)
                 selected_private.append({
                     "review_unit_id": review_unit_id,
-                    "source_id": r["source_id"],
-                    "case_id": cid,
-                    "primary_family": r["primary_family"],
-                    "presentation": presentation,
-                    "target_id_blinded": "",
                     "case_text": r["input_text"],
                     "response_text": r["response_text"],
+                    # Internal mapping below is never copied into physician packets.
+                    "source_id_internal": r["source_id"],
+                    "case_id_internal": cid,
+                    "primary_family_internal": r["primary_family"],
+                    "presentation_internal": presentation,
+                    "target_id_internal": target_id,
                     "response_id_internal": r["response_id"],
                 })
                 public.append({
@@ -108,8 +122,8 @@ def main() -> None:
         w.writeheader()
         w.writerows(sorted(public, key=lambda r: r["review_unit_id"]))
 
-    print(f"Selected {len(selected_private)} blinded physician-calibration units")
-    print(f"Private units: {private_path}")
+    print(f"Selected {len(selected_private)} physician-calibration units with opaque IDs")
+    print(f"Private units + internal map: {private_path}")
     print(f"Public selection manifest: {args.public_manifest}")
 
 
