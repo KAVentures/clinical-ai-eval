@@ -1,0 +1,13 @@
+# Raw/derived clinical text and reviewer packets must never be committed.
+*.private.*
+private/
+vault/
+review/construct_review_A.csv
+review/construct_review_B.csv
+review/construct_review_C.csv
+review/response_review_A.csv
+review/response_review_B.csv
+review/response_adjudication_C.csv
+
+# Generated public manifests/results are intentionally reviewable before commit.
+# Do not blanket-ignore data/ or results/.
