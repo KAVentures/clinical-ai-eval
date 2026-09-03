@@ -1,6 +1,6 @@
 # Protocol — Human-Anchored Validation of Perturbation-Based Clinical AI Evaluation
 
-Version: draft v0.1, 2026-09-03
+Version: draft v0.2, 2026-09-03
 
 ## 1. Objectives
 
@@ -23,9 +23,11 @@ Prospective, preregistered, paired perturbation study with human-anchored evalua
 
 For each accepted source case:
 
-- `O`: original source presentation;
+- `O`: the study's stable clinician-facing rendering of the original source presentation;
 - `P`: one physician-validated primary perturbation, either `missing_information` or `conflicting_evidence`;
 - optional second perturbation may be retained for exploratory sensitivity analyses but is excluded from the primary model comparison.
+
+HealthBench Professional is used as **source material**, not as a claim that this study reproduces the official HealthBench Professional score. Multi-turn source conversations are rendered into a stable role-labelled study presentation before controlled modification; original and perturbed conditions use the same rendering convention.
 
 Each target model receives only the presentation shown to it. Model identity is hidden from judges and physicians.
 
@@ -68,7 +70,7 @@ Source: Real-POCQi (`jjfenglab/Real-POCQi`).
 
 A prespecified lexical filter creates a patient-specific, decision-relevant candidate reservoir. Physicians then apply the same construct-validity criteria. The first 50 eligible cases in deterministic priority order form the external cohort.
 
-No Real-POCQi result changes the HealthBench Professional primary endpoint.
+No Real-POCQi result changes the HealthBench Professional-derived primary endpoint.
 
 ## 5. Perturbation families
 
@@ -116,7 +118,7 @@ A perturbation is eligible only if all six conditions are YES after adjudication
 
 ## 8. Target systems
 
-Four provider-diverse frontier general-purpose models are evaluated. Exact API model identifiers and inference parameters are frozen immediately before study lock in `configs/frozen_models.yaml`.
+Four provider-diverse frontier general-purpose models are evaluated. Exact API model identifiers and inference parameters are frozen immediately before study lock in `configs/model_panel.yaml`.
 
 Rules:
 
@@ -129,7 +131,7 @@ Rules:
 
 ## 9. Automated judges
 
-At least two, preferably three, different-provider judges score frozen responses.
+Three different-provider judges form the primary automated panel. A fourth provider may be prespecified as a sensitivity judge.
 
 Primary judge mode: **blinded** — case-as-shown + target response only.
 
@@ -139,18 +141,24 @@ No LLM judge is treated as ground truth.
 
 ## 10. Physician response-reference sample
 
-To estimate automated-judge validity without judge-driven spectrum enrichment, a calibration sample is selected **before automated scores are inspected**.
+To estimate automated-judge validity without judge-driven spectrum enrichment, the calibration cohort is selected **before automated scores are inspected**.
 
-For each of the four target models:
+A single shared set of **60 of the 150 source cases** is chosen deterministically from the locked casepack:
 
-- deterministically sample 60 of the 150 source cases;
-- include both the original and primary-perturbation response for each sampled case.
+- 30 whose primary perturbation is `missing_information`;
+- 30 whose primary perturbation is `conflicting_evidence`.
 
-This yields 120 cells/model and 480 response cells total.
+For every selected source case, physicians review both the original and perturbation responses from **all four target models**.
 
-Reviewers A and B independently score every cell. Reviewer C adjudicates disagreements on primary binary endpoints.
+This yields:
 
-Additional high-severity, judge-disagreement, and automated-positive cases may be routed to clinicians by `clinical-ai-eval`; these constitute a separate safety-review stratum and are not silently pooled into the random calibration sample for unweighted operating-characteristic estimates.
+`60 source cases × 2 presentations × 4 target models = 480 response cells`.
+
+The same 60 cases across all four targets make physician-based model comparisons paired by source case rather than comparing four different case samples.
+
+Reviewers A and B independently score every cell. Reviewer C adjudicates disagreements on the primary binary endpoint.
+
+Additional high-severity, judge-disagreement, and automated-positive cases may be routed to clinicians by `clinical-ai-eval`; these constitute a separate safety-review stratum and are not silently pooled into the prespecified calibration sample for unweighted operating-characteristic estimates.
 
 ## 11. Human response-review endpoints
 
@@ -161,7 +169,7 @@ Primary binary endpoint:
 Secondary binary endpoints:
 
 - `potentially_harmful_treatment`;
-- `asks_for_missing_info` / recognizes conflict as applicable;
+- `recognizes_information_problem` (missing information or conflict as applicable);
 - `guideline_concordant_next_step`;
 - `excessive_abstention`;
 - `clinically_helpful`.
@@ -192,6 +200,8 @@ For each target model:
 - excessive-abstention rate;
 - response invalid/malformed rate.
 
+The shared 60-case physician cohort supports a fully human-rated paired model analysis. Automated-judge estimates over all 150 cases are reported only with their measured judge error profile and remain distinguishable from physician-rated estimates.
+
 Report risk differences with case-clustered confidence intervals. Paired binary comparisons may use McNemar tests and/or preregistered GEE. No single collapsed safety score is permitted.
 
 ## 14. Bias and robustness analyses
@@ -205,7 +215,7 @@ Prespecified analyses include:
 - specialty-stratified descriptive estimates (not powered as independent confirmatory claims);
 - good-faith vs red-team source strata;
 - difficult vs typical source strata;
-- HealthBench Professional vs Real-POCQi external replication.
+- HealthBench Professional-derived vs Real-POCQi external replication.
 
 ## 15. Blinding
 
@@ -215,17 +225,20 @@ Physicians rating target responses are blinded to:
 - automated judge labels;
 - other physician labels;
 - source stratum when not required for clinical interpretation;
-- perturbation family label when feasible (they see only the case as shown and response for response-level review).
+- perturbation family label (they see only the case as shown and response for response-level review).
+
+Reviewer-facing unit IDs are opaque hashes and do not encode target identity, source ID, or presentation.
 
 Construct-validation reviewers necessarily see original and proposed perturbation together; this is a separate task and dataset from response-level blinded review.
 
 ## 16. Data integrity and contamination controls
 
 - Raw HealthBench Professional text is private/gitignored and never committed.
-- Source repository revision/file digest is recorded.
+- Source repository revision/file digest is recorded and checked before parsing.
 - Public manifests contain source IDs, metadata, and hashes only.
 - Every accepted perturbation has a content hash and physician-validation record.
 - The `clinical-ai-eval` engine commit, prompts, model IDs, and analysis code are locked before target execution.
+- The physician calibration cohort is selected before automated judge scores are inspected.
 - Target responses are frozen before judging.
 - Re-judging never regenerates target responses.
 
