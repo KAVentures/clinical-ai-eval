@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Finalize the physician-valid primary casepack deterministically.
 
-Requires completed independent A/B construct reviews. Discordant perturbations
-require a C adjudication row. Output raw case text stays private; the public case
-manifest contains IDs, hashes, provenance, and review decisions only.
+A/B may review a prespecified subset of all drafted perturbations (the default
+first wave is one perturbation per source). Only jointly reviewed perturbations can
+become valid. Discordant reviewed perturbations require C adjudication. If the
+reviewed valid reservoir cannot fill a locked source-stratum quota, this script
+fails closed so a prespecified fallback review wave can be run before model calls.
 """
 from __future__ import annotations
 
@@ -78,12 +80,10 @@ def review_map(rows: list[dict], expected_reviewer: str) -> dict[str, dict]:
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--drafts", required=True, type=Path)
-    p.add_argument("--candidate-queue", required=True, type=Path,
-                   help="Public HBP candidate queue from select_cases.py")
+    p.add_argument("--candidate-queue", required=True, type=Path)
     p.add_argument("--review-a", required=True, type=Path)
     p.add_argument("--review-b", required=True, type=Path)
-    p.add_argument("--adjudication-c", type=Path,
-                   help="CSV with reviewer_id C for A/B-discordant perturbations")
+    p.add_argument("--adjudication-c", type=Path)
     p.add_argument("--vault", required=True, type=Path)
     p.add_argument("--public-out", required=True, type=Path)
     args = p.parse_args()
@@ -94,13 +94,21 @@ def main() -> None:
     b = review_map(read_csv(args.review_b), "B")
     c = review_map(read_csv(args.adjudication_c), "C") if args.adjudication_c else {}
 
-    missing_reviews = sorted((set(drafts) - set(a)) | (set(drafts) - set(b)))
-    if missing_reviews:
-        raise RuntimeError(f"A/B review incomplete for {len(missing_reviews)} perturbations; first={missing_reviews[0]}")
+    if set(a) != set(b):
+        only_a = sorted(set(a) - set(b))
+        only_b = sorted(set(b) - set(a))
+        raise RuntimeError(f"A/B must review the same locked perturbation set; only_a={only_a[:3]}, only_b={only_b[:3]}")
+    reviewed = set(a)
+    unknown = sorted(reviewed - set(drafts))
+    if unknown:
+        raise RuntimeError(f"review packet references unknown perturbation {unknown[0]}")
+    if not reviewed:
+        raise RuntimeError("no perturbations were reviewed")
 
     validity = {}
     audit_rows = []
-    for pid, d in drafts.items():
+    for pid in sorted(reviewed):
+        d = drafts[pid]
         da, db = normalize_decision(a[pid]), normalize_decision(b[pid])
         if da == db:
             final = da
@@ -124,7 +132,8 @@ def main() -> None:
     audit_by_pid = {str(r["perturbation_id"]): r for r in audit_rows}
 
     valid_by_source: dict[str, dict[str, dict]] = defaultdict(dict)
-    for pid, d in drafts.items():
+    for pid in reviewed:
+        d = drafts[pid]
         if validity[pid]:
             valid_by_source[str(d["source_id"])][str(d["family"])] = d
 
@@ -135,8 +144,10 @@ def main() -> None:
         pool.sort(key=lambda r: int(r["stratum_priority"]))
         accepted = [r for r in pool if str(r["source_id"]) in valid_by_source]
         if len(accepted) < quota:
+            deficit = quota - len(accepted)
             raise RuntimeError(
-                f"stratum {stratum} has only {len(accepted)} physician-eligible sources; needs {quota}"
+                f"NEEDS_FALLBACK_REVIEW: stratum {stratum} has {len(accepted)} physician-valid reviewed sources; "
+                f"needs {quota} (deficit {deficit}). Review prespecified alternate/unreviewed candidates before any target call."
             )
         selected.extend(accepted[:quota])
 
@@ -162,7 +173,6 @@ def main() -> None:
             raise AssertionError(f"selected source {sid} has unexpected valid families {fams}")
 
     flexible.sort(key=lambda sid: stable_hash("family-assignment", sid))
-    # Aim for 75/75 without overriding cases where only one family was valid.
     need_missing = max(0, min(len(flexible), 75 - forced_missing))
     if forced_conflict > 75:
         need_missing = len(flexible)
@@ -171,6 +181,10 @@ def main() -> None:
 
     final_missing = sum(v == "missing_information" for v in assigned.values())
     final_conflict = sum(v == "conflicting_evidence" for v in assigned.values())
+    if min(final_missing, final_conflict) < 30:
+        raise RuntimeError(
+            f"primary family distribution {final_missing}/{final_conflict} cannot support the prespecified 30/30 physician calibration cohort"
+        )
 
     private_out = args.vault / "casepack" / "primary_hbp_150.private.jsonl"
     private_out.parent.mkdir(parents=True, exist_ok=True)
@@ -180,8 +194,7 @@ def main() -> None:
         "case_id", "source_dataset", "source_id", "type", "difficulty", "specialty",
         "source_content_sha256", "primary_family", "primary_perturbation_id",
         "original_case_sha256", "perturbed_case_sha256", "construct_review_a",
-        "construct_review_b", "construct_adjudicated", "construct_review_c",
-        "casepack_status",
+        "construct_review_b", "construct_adjudicated", "construct_review_c", "casepack_status",
     ]
     public_rows = []
     with private_out.open("w", encoding="utf-8") as pf:
@@ -198,9 +211,7 @@ def main() -> None:
                 "case_id": case_id,
                 "source_dataset": r["source_dataset"],
                 "source_id": sid,
-                "source_metadata": {
-                    "type": r.get("type"), "difficulty": r.get("difficulty"), "specialty": r.get("specialty")
-                },
+                "source_metadata": {"type": r.get("type"), "difficulty": r.get("difficulty"), "specialty": r.get("specialty")},
                 "primary_family": family,
                 "primary_perturbation_id": pid,
                 "original_case": d["original_case"],
