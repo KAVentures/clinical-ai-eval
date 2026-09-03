@@ -1,20 +1,22 @@
 # Statistical analysis plan
 
-Version: draft v0.1, 2026-09-03
+Version: draft v0.2, 2026-09-03
 
 ## Analysis populations
 
 ### Primary construct-valid cohort
 
-The 150 HealthBench Professional source cases satisfying the prespecified source-stratum quotas after physician construct validation, with exactly one locked primary perturbation per case.
+The 150 HealthBench Professional-derived source cases satisfying the prespecified source-stratum quotas after physician construct validation, with exactly one locked primary perturbation per case.
 
 ### Physician calibration population
 
-For each primary target model, 60 source cases are selected by deterministic hash before any automated judge score is inspected. Both original and primary-perturbation responses are reviewed, yielding 120 response cells/model and 480 cells for four target models.
+A single shared set of 60 source cases is selected by deterministic hash before any automated judge score is inspected: 30 `missing_information` and 30 `conflicting_evidence`. For every selected case, both original and perturbation responses from all four targets are reviewed, yielding 60 × 2 × 4 = **480 response cells**.
+
+Because all target models are reviewed on the same 60 cases, physician-rated target-model comparisons are paired by source case.
 
 ### Routed safety-review population
 
-Additional cases sent for physician review because of severity, judge disagreement, or automated positivity. This population is reported separately and cannot be naively pooled with the random calibration population for prevalence-dependent performance estimates.
+Additional cases sent for physician review because of severity, judge disagreement, or automated positivity. This population is reported separately and cannot be naively pooled with the calibration population for prevalence-dependent performance estimates.
 
 ### External replication population
 
@@ -51,7 +53,7 @@ No panel endpoint is called simply "the judge".
 
 ## Confidence intervals
 
-The unit of dependence is the **source case**, because original/perturbed responses and several target models originate from the same case.
+The unit of dependence is the **source case**, because original/perturbed responses and all target models originate from the same case.
 
 Primary 95% confidence intervals use a nonparametric cluster bootstrap resampling source IDs with replacement. Default 10,000 replicates; seed is frozen in the study manifest.
 
@@ -59,23 +61,17 @@ For metrics undefined in a bootstrap draw because one reference class is absent,
 
 ## Human-human agreement
 
-Report:
-
-- percent agreement A vs B;
-- Cohen kappa for binary endpoints;
-- disagreement rate by presentation (original vs perturbed), source stratum, specialty, and target model descriptively.
-
-Adjudication is not used to conceal human disagreement.
+Report percent agreement, Cohen kappa for binary endpoints, and disagreement rates by presentation, perturbation family, source stratum, specialty, and target model descriptively. Adjudication is not used to conceal human disagreement.
 
 ## Primary target-model robustness analysis
 
-For each target model and each source case define paired original (`O`) and primary perturbation (`P`) outcomes.
+On the shared 60-case physician-rated cohort, for each target model define paired original (`O`) and primary perturbation (`P`) outcomes.
 
 Primary robustness estimand:
 
 `RD_unsafe = Pr(unsafe_overconfident_P) - Pr(unsafe_overconfident_O)`.
 
-Report the paired risk difference with case-cluster bootstrap CI.
+Report the paired risk difference with source-case bootstrap CI.
 
 Secondary paired outcomes:
 
@@ -86,36 +82,33 @@ Secondary paired outcomes:
 - clinically helpful;
 - malformed/empty output.
 
-For paired binary endpoints, report the 2x2 transition table and McNemar exact/asymptotic test where appropriate. Effect sizes and confidence intervals are primary; p-values are secondary.
+For paired binary endpoints, report the 2×2 transition table and McNemar test where appropriate. Effect sizes and confidence intervals are primary; p-values are secondary.
+
+Automated-judge model estimates over all 150 cases are reported separately, alongside the measured judge error profile; they are not mislabeled as physician-rated estimates.
 
 ## Comparison among target models
 
-The main model-comparison analysis uses a binomial GEE/logistic mixed framework with source case as the clustering unit and fixed effects for:
+The shared 60-case human-rated cohort supports directly paired comparisons among all four target models. A binomial GEE/logistic mixed framework may include:
 
 - target model;
 - presentation (original vs perturbation);
 - target model × presentation interaction;
 - perturbation family;
-- source stratum.
+- source case as clustering unit.
 
-If the preregistered GEE implementation cannot converge, report the paired nonparametric model-specific estimates and cluster-bootstrap pairwise contrasts instead; do not change endpoint definitions.
+If the preregistered GEE implementation cannot converge, report model-specific paired estimates and cluster-bootstrap pairwise contrasts instead; endpoint definitions do not change.
 
-Multiple pairwise model contrasts are adjusted using Holm's method within each endpoint family.
+Multiple pairwise target-model contrasts are adjusted using Holm's method within each endpoint family.
 
 ## Missing-information vs conflicting-evidence
 
-Report family-specific estimates and a target-model × perturbation-family interaction. These are prespecified secondary analyses unless the final accepted case counts support adequate precision in both families.
+The physician calibration cohort is balanced 30/30 by primary perturbation family. Report family-specific estimates and target-model × perturbation-family interaction as prespecified secondary analyses.
 
 ## Judge-family/self-preference analysis
 
 For every judge-target pair, estimate error relative to physician reference. Define `same_provider_family = 1` where judge and target share provider.
 
-Analyze:
-
-- false-positive-rate difference for same vs different provider;
-- false-negative-rate difference;
-- agreement difference;
-- target-provider × judge-provider matrix.
+Analyze false-positive-rate difference, false-negative-rate difference, agreement difference, and the target-provider × judge-provider matrix.
 
 Because the primary judge panel omits OpenAI while OpenAI is used for draft authoring, the symmetric four-provider analysis using the secondary OpenAI judge is labeled sensitivity analysis.
 
@@ -129,19 +122,13 @@ and the change in sensitivity/specificity relative to physician reference. Cued 
 
 ## Selective automation analysis
 
-Using only the physician calibration population, derive judge confidence/disagreement features without fitting on the test labels used to report final performance. If a calibration/defer rule is fitted, use nested or held-out evaluation.
+Using only the physician calibration population, derive judge confidence/disagreement features without fitting on the same labels used to report final performance. If a calibration/defer rule is fitted, use nested or held-out evaluation.
 
-Report coverage-vs-error curves:
-
-- proportion of cells automatically judged;
-- error among automatically judged cells;
-- proportion deferred to humans.
-
-Any threshold chosen after viewing the same physician labels is exploratory.
+Report coverage-vs-error curves: proportion automatically judged, error among automatically judged cells, and proportion deferred to humans. Any threshold chosen after viewing the same physician labels is exploratory.
 
 ## External replication
 
-Repeat the principal model robustness and judge-vs-physician estimates on the 50 Real-POCQi cases. Do not pool cohorts for the primary result. A meta-analytic or pooled descriptive estimate may be exploratory with source cohort explicitly modeled.
+Repeat the principal model robustness and judge-vs-physician estimates on the 50 Real-POCQi cases. Do not pool cohorts for the primary result. A pooled descriptive estimate may be exploratory with source cohort explicitly modeled.
 
 ## Specialty analyses
 
@@ -149,16 +136,7 @@ Specialty estimates are descriptive unless a specialty has a prespecified adequa
 
 ## Exclusions and missingness
 
-Every exclusion is carried in a manifest with a reason and stage:
-
-- source ineligible;
-- no construct-preserving perturbation;
-- physician construct rejection;
-- unresolved construct disagreement;
-- target API failure;
-- malformed target output;
-- judge API failure;
-- unresolved physician response label.
+Every exclusion is carried in a manifest with a reason and stage: source ineligible; no construct-preserving perturbation; physician construct rejection; unresolved construct disagreement; target API failure; malformed target output; judge API failure; unresolved physician response label.
 
 Target API/malformed failures are not silently deleted from product-level denominators. Judge API failures are not converted into negative labels.
 
