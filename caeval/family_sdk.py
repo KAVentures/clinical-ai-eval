@@ -29,7 +29,7 @@ from .perturbations import apply_transform, manifest_row
 from .preconstructed import build_manifest_row as build_preconstructed_manifest_row
 from .score import BINARY_FIELDS, family_audience_support
 from .util import repo_root
-from .validity import audit_variant
+from .validity import audit_variant, confirm_variant_human
 
 # Capabilities THIS BUILD provides. A family requiring anything else fails closed.
 PROVIDED_CAPABILITIES = {
@@ -110,6 +110,7 @@ class EvaluationFamily:
     def validate_case(self, case: dict) -> None: raise NotImplementedError
     def generate_variants(self, case: dict, seed: int = 0) -> list[dict]: raise NotImplementedError
     def ingest_preconstructed_variant(self, case: dict, variant: dict, require_reviewed: bool = False) -> dict: raise NotImplementedError
+    def confirm_preconstructed_variant(self, row: dict, original_text: str, review: dict): raise NotImplementedError
     def run_deterministic_checks(self, case: dict, response: str) -> dict: raise NotImplementedError
     def build_judge_input(self, record: dict, mode: str) -> str: raise NotImplementedError
     def calculate_metrics(self, results: dict) -> dict: raise NotImplementedError
@@ -216,6 +217,21 @@ class YamlFamily(EvaluationFamily):
             default_severity=str(cfg.get("severity") or "high"),
             require_reviewed=require_reviewed,
         )
+
+    def confirm_preconstructed_variant(
+        self, row: dict, original_text: str, review: dict
+    ):
+        """Apply the family/framework human validity contract to an imported row."""
+        if row.get("variant_source") != "preconstructed":
+            raise FamilyDefinitionError(
+                f"{self.family_id}: human preconstructed confirmation requires "
+                "variant_source='preconstructed'"
+            )
+        if row.get("family_id") != self.family_id:
+            raise FamilyDefinitionError(
+                f"{self.family_id}: imported row belongs to {row.get('family_id')!r}"
+            )
+        return confirm_variant_human(row, original_text, self.d, review)
 
     def _precondition_met(self, precondition: str, case: dict) -> bool:
         text = (case["input_text"] + " " + str(case.get("ground_truth_label", ""))).lower()
