@@ -27,8 +27,7 @@ def _filled(mode="demonstration", subject_kind="mock", reviewers=None):
         d["subject"]["model"] = "some-model"
     if reviewers:
         d["clinical_review"]["reviewers"] = reviewers
-        # v0.17: two reviewers need a tie adjudicator who is not one of them.
-        d["clinical_review"]["tie_reviewer"] = "drTie"
+        d["clinical_review"]["resolution_mode"] = "consensus"
     return d
 
 
@@ -102,9 +101,17 @@ class TestModeGuards(unittest.TestCase):
                     reviewers=["drA", "drA"])
         self.assertTrue(any("duplicates" in x for x in _write(d).validate()))
 
-    def test_tie_adjudicator_is_required_and_must_be_independent(self):
+    def test_consensus_resolution_does_not_require_third_physician(self):
         d = _filled(mode="calibrated_assessment", subject_kind="http",
                     reviewers=["drA", "drB"])
+        d["clinical_review"]["resolution_mode"] = "consensus"
+        d["clinical_review"]["tie_reviewer"] = ""
+        self.assertEqual(_write(d).validate(), [])
+
+    def test_third_reviewer_mode_requires_independent_tie_reviewer(self):
+        d = _filled(mode="calibrated_assessment", subject_kind="http",
+                    reviewers=["drA", "drB"])
+        d["clinical_review"]["resolution_mode"] = "third_reviewer"
         d["clinical_review"]["tie_reviewer"] = ""
         self.assertTrue(any("tie_reviewer" in x for x in _write(d).validate()))
         d["clinical_review"]["tie_reviewer"] = "drA"
