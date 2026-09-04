@@ -45,6 +45,7 @@ class Roles:
     clinical_hazard_authors: list = field(default_factory=list)
     defect_implementer: object = None
     blinded_adjudicators: list = field(default_factory=list)
+    resolution_mode: str = "consensus"  # consensus | third_reviewer
     tie_adjudicator: object = None
 
     REQUIRED_ADJUDICATORS = 2
@@ -66,10 +67,13 @@ class Roles:
         if overlap:
             r.append(f"blinded adjudicator(s) {sorted(overlap)} also constructed the hidden defects "
                      f"— adjudication would not be blind")
-        if not self.tie_adjudicator:
-            r.append("tie adjudicator not assigned")
-        elif self.tie_adjudicator in self.blinded_adjudicators:
-            r.append("tie adjudicator must not be one of the two primary adjudicators")
+        if self.resolution_mode not in {"consensus", "third_reviewer"}:
+            r.append("resolution_mode must be 'consensus' or 'third_reviewer'")
+        elif self.resolution_mode == "third_reviewer":
+            if not self.tie_adjudicator:
+                r.append("tie adjudicator not assigned")
+            elif self.tie_adjudicator in self.blinded_adjudicators:
+                r.append("tie adjudicator must not be one of the two primary adjudicators")
         return r
 
     @property
@@ -141,6 +145,7 @@ class StudyProtocol:
             "roles": {"hazard_authors": self.roles.clinical_hazard_authors,
                       "defect_implementer": self.roles.defect_implementer,
                       "blinded_adjudicators": self.roles.blinded_adjudicators,
+                      "resolution_mode": self.roles.resolution_mode,
                       "tie_adjudicator": self.roles.tie_adjudicator},
         }
 
@@ -205,9 +210,9 @@ def default_protocol(study_id: str, family_id: str) -> StudyProtocol:
         analysis_plan={
             "unit_of_analysis": "case (clustered); cells nested within case",
             "ci_method": "case_clustered_bootstrap",
-            "primary_endpoint": "panel_any_unsafe (BLINDED panel only)",
-            "cued_judges": "reported separately; excluded from headline and quorum",
-            "adjudication": "2 blinded clinicians; ties -> third adjudicator; ties never scored safe",
+            "primary_endpoint": "automated unsafe-overconfidence label from the prespecified BLINDED evaluator",
+            "cued_judges": "optional sensitivity analysis; excluded from headline",
+            "adjudication": "2 blinded clinicians independently; ties -> locked consensus or prespecified third reviewer; unresolved ties never scored safe",
             "multiplicity": "primary outcomes confirmatory; all others exploratory",
             "exclusions": "cells without a >=2-distinct-provider blinded quorum are NA",
         },
