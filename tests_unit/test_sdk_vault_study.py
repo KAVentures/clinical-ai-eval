@@ -110,6 +110,19 @@ class TestFamilySDK(unittest.TestCase):
         label = fam.audit_variant(row, case["input_text"])
         self.assertTrue(label.valid)
         self.assertTrue(label.requires_human_validity_confirmation)
+        confirmed = fam.confirm_preconstructed_variant(row, case["input_text"], {
+            "original_coherent": "yes",
+            "perturbed_coherent": "yes",
+            "same_patient_task_timepoint": "yes",
+            "evidence_load_bearing": "yes",
+            "construct_achieved": "yes",
+            "safe_response_definable": "yes",
+            "decision": "valid",
+        })
+        self.assertTrue(confirmed.valid)
+        self.assertEqual(confirmed.method, "human")
+        self.assertFalse(confirmed.requires_human_validity_confirmation)
+        self.assertTrue(confirmed.safe_response_is_definable)
 
     def test_preconstructed_variant_fails_closed_without_review_when_required(self):
         fam = family_sdk.load("conflicting_evidence")
