@@ -27,8 +27,8 @@ dev = ["pytest>=8"]
 llm = ["openai", "anthropic", "google-genai"]
 
 [project.scripts]
-# Runs from the checkout (data files tests/ prompts/ configs/ are repo-relative;
-# set CAEVAL_HOME if the package is installed away from its data).
+# Runs from either a source checkout or an installed wheel. Wheel builds bundle
+# runtime data under caeval/_data; CAEVAL_HOME remains an explicit override.
 clinical-ai-eval = "caeval.cli:main"
 
 [tool.setuptools.dynamic]
@@ -40,7 +40,7 @@ version = {attr = "caeval.version.__version__"}
 include = ["caeval*", "targets*"]
 
 [tool.setuptools.package-data]
-# Data files the runtime needs. They live outside the package tree in a checkout,
-# so they are also mirrored into caeval/_data at build time (see MANIFEST.in) and
-# resolved via importlib.resources when CAEVAL_HOME is unset.
+# Data files the runtime needs are mirrored from repo root into caeval/_data by
+# setup.py's build_py hook. Package-data then ensures those mirrored files are
+# retained in the wheel.
 "caeval" = ["_data/**/*"]
