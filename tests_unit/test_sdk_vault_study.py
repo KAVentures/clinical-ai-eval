@@ -177,6 +177,24 @@ class TestStudyScaffold(unittest.TestCase):
         p.roles.blinded_adjudicators = ["drA"]
         self.assertTrue(any("2 blinded clinicians required" in r for r in p.status()["blocked_reasons"]))
 
+    def test_cross_fitted_roles_allow_case_level_rotation(self):
+        p = self._staffed()
+        assignments = [
+            {"source_id": "s1", "construct_reviewer": "drA", "response_reviewers": ["drB", "drC"]},
+            {"source_id": "s2", "construct_reviewer": "drB", "response_reviewers": ["drA", "drC"]},
+            {"source_id": "s3", "construct_reviewer": "drC", "response_reviewers": ["drA", "drB"]},
+        ]
+        p.roles.role_separation_mode = "cross_fitted"
+        p.roles.crossfit_assignments_hash = study.validate_crossfit_assignments(assignments)
+        p.roles.blinded_adjudicators = ["drA", "drB", "drC"]
+        self.assertFalse(any("would not be blind" in r for r in p.status()["blocked_reasons"]))
+
+    def test_crossfit_rejects_constructor_as_response_reviewer(self):
+        with self.assertRaises(study.StudyBlocked):
+            study.validate_crossfit_assignments([
+                {"source_id": "s1", "construct_reviewer": "drA", "response_reviewers": ["drA", "drB"]}
+            ])
+
     def test_lock_then_tamper_is_detected(self):
         p = self._staffed()
         p.lock()
