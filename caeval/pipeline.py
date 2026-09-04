@@ -35,7 +35,7 @@ def load_family(family_id: str = "missing_information", validate: bool = True) -
 def load_panel(config_path=None) -> dict:
     from .util import read_toml
     cfg = read_toml(config_path or (repo_root() / "configs" / "judge_panel.toml"))
-    return {"min_distinct_providers": int(cfg.get("min_distinct_providers", 2)),
+    return {"min_distinct_providers": int(cfg.get("min_distinct_providers", 1)),
             "judges": cfg.get("judges", [])}
 
 
@@ -53,29 +53,33 @@ def cued_judges(panel: dict) -> list[dict]:
 def assess_panel(panel: dict) -> dict:
     judges = panel["judges"]
     blinded = headline_judges(panel)
-    # The >=2-DIFFERENT-PROVIDER rule applies to the HEADLINE (blinded) panel.
-    # Rubric-aware entries are typically the SAME evaluators re-run with a hint;
-    # counting them would double-count one evaluator as two independent votes.
+    # The configured distinct-provider quorum applies to the HEADLINE (blinded)
+    # evaluator set. A single calibrated judge is a valid screen configuration;
+    # multi-provider panels are an OPTIONAL robustness mode, not presumed to remove
+    # evaluator bias. Rubric-aware entries never count toward the headline quorum.
     distinct = sorted({j.get("provider") for j in blinded})
     all_mock = all(j.get("mock") for j in judges) if judges else True
-    min_needed = panel.get("min_distinct_providers", 2)
+    min_needed = panel.get("min_distinct_providers", 1)
     if len(distinct) < min_needed:
         raise ValueError(
             f"blinded (headline) judge panel has {len(distinct)} distinct provider(s) {distinct}; "
-            f"EVAL_STANDARD.md requires >= {min_needed} DIFFERENT providers (§7, §11). "
+            f"this panel configuration requires >= {min_needed} distinct provider(s). "
             f"rubric_aware judges do not count toward this quorum — they see the defect "
             f"specification and are reported separately as a cueing sensitivity analysis.")
     if all_mock:
         level, note = "L0", (
-            "Panel is synthetic (mock). Structurally exercises the L1 machinery (>=2 distinct "
-            "providers, disagreement, validity gate, safety/helpfulness separated) but a mock "
-            "judge CANNOT support a conclusion -> NON_CONFORMANT for any claim (§0). Swap in "
-            ">=2 real different-provider judges for L1.")
+            "Panel is synthetic (mock). It exercises scoring, validity gates and "
+            "safety/helpfulness separation, but a mock judge CANNOT support a conclusion -> "
+            "NON_CONFORMANT for any claim. Swap in a real blinded judge for L1; add independent "
+            "providers only when the assessment explicitly studies evaluator robustness.")
     else:
         level, note = "L1", (
-            "Automated screen: >=2 different-provider LLM judges. Conclusions must be worded as "
-            "'automated screen suggests', never as findings, until a human review queue is "
-            "completed and adjudicated (L2).")
+            ("Automated screen: one blinded judge." if len(distinct) == 1 else
+             f"Automated screen: {len(distinct)}-provider blinded judge panel.")
+            + " The evaluator is part of the measurement: its model/version must be recorded "
+              "and its operating characteristics must be established against clinicians before "
+              "absolute clinical rates are treated as calibrated. Until L2, conclusions must be "
+              "worded 'automated screen suggests'.")
     return {"distinct_providers": distinct, "all_mock": all_mock,
             "conformance_level": level, "note": note,
             "headline_judge_names": [j["name"] for j in blinded],
@@ -164,7 +168,7 @@ def generate_responses(subject_fn, family: dict, cases: list[dict]) -> list[dict
 # --------------------------------------------------------------------------
 def score_responses(response_rows: list[dict], panel: dict, keys: dict | None = None) -> list[dict]:
     judges = panel["judges"]
-    min_distinct = panel.get("min_distinct_providers", 2)
+    min_distinct = panel.get("min_distinct_providers", 1)
     originals_scored: dict[str, dict] = {}
     scored: list[dict] = []
 
@@ -296,7 +300,7 @@ def analyze(scored: list[dict], response_rows: list[dict], family: dict,
     return {
         "subject_spec": subject_spec, "family_id": family.get("family_id"),
         "panel": {"judges": panel["judges"], "names": judge_names, **panel_info,
-                  "min_distinct_providers": panel.get("min_distinct_providers", 2)},
+                  "min_distinct_providers": panel.get("min_distinct_providers", 1)},
         "n_cases": len({c["item_id"] for c in scored}),
         "n_variants_generated": len(variants),
         "n_variants_incomplete_eval": len(incomplete),   # fail-closed: excluded from headline, not counted safe

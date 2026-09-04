@@ -148,6 +148,87 @@ def audit_variant(row: dict, original_text: str, family: dict) -> ValidityLabel:
     )
 
 
+def confirm_variant_human(
+    row: dict, original_text: str, family: dict, review: dict
+) -> ValidityLabel:
+    """Bind a clinician construct review to a structurally audited variant.
+
+    This is deliberately separate from audit_variant(): software can establish a
+    structural pre-filter, while a clinician confirms load-bearingness,
+    coherence, task/timepoint preservation, construct achievement and existence
+    of a safe response strategy.
+
+    Expected review fields:
+      original_coherent, perturbed_coherent, same_patient_task_timepoint,
+      evidence_load_bearing, construct_achieved, safe_response_definable, decision
+
+    The result remains fail-closed: a human cannot override a failed structural
+    gate, and a structurally valid row cannot become human-confirmed unless every
+    required clinical criterion is positive.
+    """
+    structural = audit_variant(row, original_text, family)
+
+    yes_values = {"yes", "y", "1", "true"}
+    valid_decisions = {"valid", "accept", "accepted"}
+
+    def yes(name: str) -> bool:
+        value = review.get(name, False)
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in yes_values
+
+    original_coherent = yes("original_coherent")
+    perturbed_coherent = yes("perturbed_coherent")
+    same_task = yes("same_patient_task_timepoint")
+    load_bearing = yes("evidence_load_bearing")
+    construct_achieved = yes("construct_achieved")
+    safe_response = yes("safe_response_definable")
+    decision_valid = str(review.get("decision", "")).strip().lower() in valid_decisions
+
+    human_ok = all([
+        original_coherent,
+        perturbed_coherent,
+        same_task,
+        load_bearing,
+        construct_achieved,
+        safe_response,
+        decision_valid,
+    ])
+    valid = bool(structural.valid and human_ok)
+
+    reasons = []
+    if not structural.valid:
+        reasons.append("structural gate failed: " + (structural.reasons or "unspecified"))
+    for name, ok in [
+        ("original_coherent", original_coherent),
+        ("perturbed_coherent", perturbed_coherent),
+        ("same_patient_task_timepoint", same_task),
+        ("evidence_load_bearing", load_bearing),
+        ("construct_achieved", construct_achieved),
+        ("safe_response_definable", safe_response),
+        ("decision_valid", decision_valid),
+    ]:
+        if not ok:
+            reasons.append(f"human criterion failed: {name}")
+
+    return ValidityLabel(
+        perturbation_id=row["perturbation_id"],
+        perturbation_type=row["perturbation_type"],
+        trunc_form=structural.trunc_form,
+        determinacy="underdetermined" if (load_bearing and construct_achieved) else "answerable",
+        task_type=structural.task_type,
+        removed_evidence_is_load_bearing=load_bearing,
+        result_is_coherent=perturbed_coherent,
+        result_is_underdetermined=construct_achieved,
+        safe_response_is_definable=safe_response,
+        valid=valid,
+        ambiguous=False,
+        reasons="; ".join(reasons),
+        method="human",
+        requires_human_validity_confirmation=False,
+    )
+
+
 def audit_manifest(manifest: list[dict], originals: dict[str, str], family: dict) -> dict[str, ValidityLabel]:
     """Audit every non-`original` row. Returns {perturbation_id: ValidityLabel}.
     `originals` maps item_id -> unperturbed text."""

@@ -187,16 +187,21 @@ class Project:
                 problems.append(
                     "clinical_review.reviewers contains duplicates: the same person "
                     "listed twice is one reviewer, not two")
-            tie = str(d.get("clinical_review", {}).get("tie_reviewer", "")).strip()
-            if not tie:
+            review_cfg = d.get("clinical_review", {}) or {}
+            resolution_mode = str(review_cfg.get("resolution_mode", "consensus")).strip().lower()
+            if resolution_mode not in {"consensus", "third_reviewer"}:
                 problems.append(
-                    f"mode {self.mode!r} requires clinical_review.tie_reviewer: with two "
-                    f"reviewers a disagreement has no resolution path, and an unresolved "
-                    f"high-severity cell must not be silently dropped")
-            elif tie in reviewers:
-                problems.append(
-                    "clinical_review.tie_reviewer is also a primary reviewer; someone "
-                    "cannot adjudicate a tie they are party to")
+                    "clinical_review.resolution_mode must be 'consensus' or 'third_reviewer'")
+            tie = str(review_cfg.get("tie_reviewer", "")).strip()
+            if resolution_mode == "third_reviewer":
+                if not tie:
+                    problems.append(
+                        f"mode {self.mode!r} with resolution_mode='third_reviewer' requires "
+                        "clinical_review.tie_reviewer")
+                elif tie in reviewers:
+                    problems.append(
+                        "clinical_review.tie_reviewer is also a primary reviewer; someone "
+                        "cannot independently adjudicate a tie they are party to")
 
         # --- product identity: evidence must bind to a specific tested product ---
         target = d.get("target", {}) or {}
@@ -275,7 +280,11 @@ def template(name: str = "my-clinical-ai", mode: str = "demonstration") -> dict:
         # conditions as every other vendor's.
         "procurement": {"conditions_hash": ""},
         "panel": {"config": "configs/judge_panel.toml"},
-        "clinical_review": {"reviewers": [], "tie_reviewer": ""},
+        "clinical_review": {
+            "reviewers": [],
+            "resolution_mode": "consensus",
+            "tie_reviewer": "",
+        },
         # The pack the run actually executes. Until v0.16 project-bound runs used
         # built-in demo vignettes regardless of what the project said, so an
         # evidence package described an assessment of fixtures rather than of the

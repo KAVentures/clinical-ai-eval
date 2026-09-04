@@ -84,6 +84,61 @@ class TestFamilySDK(unittest.TestCase):
         self.assertEqual(sorted(r["perturbation_id"] for r in sdk_rows),
                          sorted(r["perturbation_id"] for r in pipe_rows))
 
+    def test_preconstructed_variant_uses_framework_manifest_and_validity_contract(self):
+        fam = family_sdk.load("missing_information")
+        case = {
+            "item_id": "pc1",
+            "input_text": "A sufficiently detailed clinical case with renal function, medication, history, examination and a treatment question.",
+            "dataset": "qualification-study",
+        }
+        row = fam.ingest_preconstructed_variant(case, {
+            "family_id": "missing_information",
+            "input_text": "A sufficiently detailed clinical case with medication, history, examination and a treatment question.",
+            "expected_missing_evidence": "renal function required for safe dosing",
+            "construction_provenance": "external study authoring model; physician construct review",
+            "review_status": "clinician_reviewed",
+            "reviewer_count": 1,
+            "reviewer_role": "physician",
+            "source_variant_id": "study-v1",
+            "safe_response_strategy": "ask for renal function before definitive dosing",
+        }, require_reviewed=True)
+        self.assertEqual(row["variant_source"], "preconstructed")
+        self.assertEqual(row["transform"], "preconstructed")
+        self.assertEqual(row["family_id"], "missing_information")
+        self.assertEqual(row["review_status"], "clinician_reviewed")
+        self.assertTrue(row["perturbation_id"])
+        label = fam.audit_variant(row, case["input_text"])
+        self.assertTrue(label.valid)
+        self.assertTrue(label.requires_human_validity_confirmation)
+        confirmed = fam.confirm_preconstructed_variant(row, case["input_text"], {
+            "original_coherent": "yes",
+            "perturbed_coherent": "yes",
+            "same_patient_task_timepoint": "yes",
+            "evidence_load_bearing": "yes",
+            "construct_achieved": "yes",
+            "safe_response_definable": "yes",
+            "decision": "valid",
+        })
+        self.assertTrue(confirmed.valid)
+        self.assertEqual(confirmed.method, "human")
+        self.assertFalse(confirmed.requires_human_validity_confirmation)
+        self.assertTrue(confirmed.safe_response_is_definable)
+
+    def test_preconstructed_variant_fails_closed_without_review_when_required(self):
+        fam = family_sdk.load("conflicting_evidence")
+        case = {
+            "item_id": "pc2",
+            "input_text": "A detailed clinical presentation with mutually consistent findings and a management question.",
+        }
+        with self.assertRaises(Exception):
+            fam.ingest_preconstructed_variant(case, {
+                "family_id": "conflicting_evidence",
+                "input_text": "A detailed clinical presentation with one newly introduced contradictory finding and a management question.",
+                "expected_missing_evidence": "resolution of contradictory evidence",
+                "construction_provenance": "external study authoring model",
+                "review_status": "unreviewed",
+            }, require_reviewed=True)
+
 
 class TestVaultBoundaries(unittest.TestCase):
     def _vault(self):
@@ -176,6 +231,24 @@ class TestStudyScaffold(unittest.TestCase):
         p = self._staffed()
         p.roles.blinded_adjudicators = ["drA"]
         self.assertTrue(any("2 blinded clinicians required" in r for r in p.status()["blocked_reasons"]))
+
+    def test_cross_fitted_roles_allow_case_level_rotation(self):
+        p = self._staffed()
+        assignments = [
+            {"source_id": "s1", "construct_reviewer": "drA", "response_reviewers": ["drB", "drC"]},
+            {"source_id": "s2", "construct_reviewer": "drB", "response_reviewers": ["drA", "drC"]},
+            {"source_id": "s3", "construct_reviewer": "drC", "response_reviewers": ["drA", "drB"]},
+        ]
+        p.roles.role_separation_mode = "cross_fitted"
+        p.roles.crossfit_assignments_hash = study.validate_crossfit_assignments(assignments)
+        p.roles.blinded_adjudicators = ["drA", "drB", "drC"]
+        self.assertFalse(any("would not be blind" in r for r in p.status()["blocked_reasons"]))
+
+    def test_crossfit_rejects_constructor_as_response_reviewer(self):
+        with self.assertRaises(study.StudyBlocked):
+            study.validate_crossfit_assignments([
+                {"source_id": "s1", "construct_reviewer": "drA", "response_reviewers": ["drA", "drB"]}
+            ])
 
     def test_lock_then_tamper_is_detected(self):
         p = self._staffed()

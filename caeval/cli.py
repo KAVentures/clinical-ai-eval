@@ -658,7 +658,7 @@ def cmd_adjudicate(args):
         files = args.reviews
         if not files:
             raise SystemExit("provide filled review CSVs with --reviews a.csv b.csv (or --mock for demo).")
-    rep = adj.adjudicate(str(ws.path), files)
+    rep = adj.adjudicate(str(ws.path), files, consensus_file=getattr(args, "consensus", None))
     # re-emit report so it folds in the L2 section
     result = json.loads((ws.path / "analysis.json").read_text())
     family = pipeline.load_family(ws.read_run_meta()["family_id"])
@@ -1180,7 +1180,9 @@ def main(argv=None):
     pj.set_defaults(func=cmd_judge)
     prp = sub.add_parser("report"); prp.add_argument("--workspace", required=True); prp.set_defaults(func=cmd_report)
     pa = sub.add_parser("adjudicate"); pa.add_argument("--workspace", required=True)
-    pa.add_argument("--reviews", nargs="*"); pa.add_argument("--mock", action="store_true")
+    pa.add_argument("--reviews", nargs="*")
+    pa.add_argument("--consensus", help="post-independent consensus CSV for tied cells")
+    pa.add_argument("--mock", action="store_true")
     pa.add_argument("--reviewers", type=int, default=2); pa.set_defaults(func=cmd_adjudicate)
     sub.add_parser("demo").set_defaults(func=cmd_demo)
     sub.add_parser("arms").set_defaults(func=cmd_arms)

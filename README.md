@@ -6,8 +6,8 @@ clinician-facing** clinical decision-support systems. Two probe families are
 implemented — **missing-information** and **conflicting-evidence**. It turns the
 upstream research repos' published methods into a reproducible process: intake →
 suite selection → controlled perturbations → **structural validity pre-filter** →
-**paired** scoring → **fail-closed multi-judge** panel → disagreement → **blinded
-human-review + validity queues** → evidence package → L2 adjudication.
+**paired** scoring → **version-pinned automated evaluation** (one calibrated judge or an optional
+multi-provider robustness panel) → **blinded human-review + validity queues** → evidence package → L2 adjudication.
 
 The primary output is a **screen plus an evidence package, never a
 deployment-readiness verdict** (§0). Every report says so in its first paragraph and
@@ -21,6 +21,12 @@ harness. Current scientific validity is low and deliberately disclosed:
   harness detects clinical safety (the self-validation is circular by construction).
 - The automated validity audit is a **structural pre-filter**, not clinical
   validation; clinical load-bearingness/determinacy are confirmed only by clinicians.
+- **Qualification studies may use preconstructed variants.** The built-in
+  deterministic transforms remain useful development fixtures, but
+  `YamlFamily.ingest_preconstructed_variant()` is the first-class path for
+  case-specific externally authored manifestations. It normalizes them into the
+  same content-addressed manifest and validity/scoring contracts while preserving
+  author/review provenance. Importing a variant does not certify it clinically.
 - **Patient-facing evaluation is now implemented but is not validated** (v0.14).
   Previously it was absent and failed closed; the multi-turn substrate in
   `caeval/patient/` now provides the four capabilities that were missing
@@ -74,9 +80,11 @@ Generated from the family declarations, selection rules, executor registry and m
 1. **Safety and helpfulness are scored separately and never collapsed.** The report
    never emits one "safety score"; it reports safety, helpfulness, and the
    `excessive_abstention` guard as separate axes, per judge.
-2. **The evaluator is part of the measurement.** ≥2 *different-provider* judges,
-   per-item disagreement reported, and a human-review queue for any headline. The
-   `≥2 distinct providers` rule is enforced at runtime from `configs/judge_panel.toml`.
+2. **The evaluator is part of the measurement.** Every automated judge is version-pinned
+   and its operating characteristics must be calibrated against clinicians for the
+   intended endpoint/scope before absolute clinical rates are treated as calibrated.
+   One prespecified calibrated judge is allowed. Multi-provider panels remain an
+   optional evaluator-robustness analysis; they are not assumed to remove bias.
 
 ## The weekly loop: did this release get safer or worse?
 ```bash
@@ -129,14 +137,16 @@ The intake is **fail-closed**: every mandatory question blocks planning while bl
 because "we didn't ask" and "the answer is no" are different. The run **mode**
 gates what the output may claim — a `mock` subject can only support
 `demonstration`, and `calibrated_assessment` / `procurement_comparison` require ≥2
-named clinical reviewers. See [`PRODUCT_V1.md`](PRODUCT_V1.md) for claim boundaries.
+named clinical reviewers for independent human anchoring. Routine demonstration and
+internal-regression screens do not require two clinicians. Ties may be resolved by
+locked consensus after the two independent submissions or by a prespecified third reviewer. See [`PRODUCT_V1.md`](PRODUCT_V1.md) for claim boundaries.
 
 ## Quick start (offline, no keys, no downloads)
 ```bash
 cd clinical_ai_eval
 python3 -m caeval.cli demo      # intake + paired multi-judge run + mock L2 adjudication
 python3 -m caeval.cli arms      # harness self-validation across three subject arms (§12)
-python3 -m caeval.cli inspect   # profile, suite selection, and judge-panel status
+python3 -m caeval.cli inspect   # profile, suite selection, and judge/evaluator status
 python3 -m unittest discover -s tests_unit -t . -p 'test_*.py'   # full self-test suite
 ```
 `demo`/`arms` use a **synthetic (mock) judge panel** and a **deliberately-defective
@@ -152,8 +162,8 @@ python3 -m caeval.cli judge --workspace out/ws --panel configs/judge_panel.toml 
 python3 -m caeval.cli adjudicate --workspace out/ws --mock    # L2: agreement + judge-vs-human sens/spec
 python3 -m caeval.cli report --workspace out/ws              # re-emit the evidence package
 ```
-`judge` re-scores the **frozen** subject responses with a different panel without
-regenerating them — the cost-saving path (§7). `adjudicate` ingests filled
+`judge` re-scores the **frozen** subject responses with a different evaluator
+configuration without regenerating them — the cost-saving path (§7). `adjudicate` ingests filled
 `human_review.csv` files, computes inter-rater agreement and judge-vs-human
 sensitivity/specificity/PPV, and upgrades the run to **L2** within audited scope.
 
@@ -189,9 +199,11 @@ exactly why safety and helpfulness must not be collapsed.
 ## Going to L1 (real automated screen) and L2 (findings)
 1. Put a git-ignored keys file next to the package (`API_KEYS.local.md`) with lines
    like `OPENAI_API_KEY = ...`, or set `MEDROBUST_KEYS_PATH`.
-2. Edit `configs/judge_panel.toml` to a real panel with **≥2 different providers**
-   (the primary pair must not be two models from one provider — §7). The
-   `≥2-distinct-provider` rule is enforced at runtime *before* keys are even loaded.
+2. Edit `configs/judge_panel.toml` to the prespecified real evaluator configuration.
+   A single calibrated blinded judge is permitted with `min_distinct_providers = 1`.
+   If the purpose is evaluator-robustness testing, configure multiple providers and
+   raise the quorum accordingly. Same-provider target/judge effects should be audited
+   when relevant rather than assumed away.
 3. Point the subject at your product with a `--subject` JSON spec (adapters:
    `mock` / `openai` / `anthropic` / `xai` / `google` / `http` / `manual`), e.g.
    `{"kind":"http","url":"https://.../answer","prompt_field":"q","answer_path":"data.text"}`.
@@ -276,7 +288,7 @@ Each module names the ONE upstream implementation it canonicalizes:
 clinical_ai_eval/
   EVAL_STANDARD.md            # the protocol (INTENT; where it disagrees with code, code wins — §14)
   selection_rules.yaml        # §4 rule-based suite selection (inspectable, with blocked_reason)
-  configs/judge_panel.toml    # §7/§11 panel; ≥2-distinct-provider rule read from here
+  configs/judge_panel.toml    # §7/§11 evaluator config; quorum is explicit and may be 1
   prompts/judge_prompt.txt    # §6 judge rubric (+ excessive_abstention guard)
   tests/<family>/family.yaml  # §3 test families (missing_information, conflicting_evidence)
   pyproject.toml, requirements.txt   # packaging; console script `clinical-ai-eval`

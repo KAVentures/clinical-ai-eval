@@ -26,9 +26,10 @@ import yaml
 
 from . import checks, hazards as hazards_mod, maturity as maturity_mod, providers, review as review_mod
 from .perturbations import apply_transform, manifest_row
+from .preconstructed import build_manifest_row as build_preconstructed_manifest_row
 from .score import BINARY_FIELDS, family_audience_support
 from .util import repo_root
-from .validity import audit_variant
+from .validity import audit_variant, confirm_variant_human
 
 # Capabilities THIS BUILD provides. A family requiring anything else fails closed.
 PROVIDED_CAPABILITIES = {
@@ -36,6 +37,7 @@ PROVIDED_CAPABILITIES = {
     "section_removal",           # remove_labs / remove_imaging / remove_exam / minimal HPI
     "contradiction_injection",   # add_conflict
     "paired_original_variant",   # paired scoring against the unperturbed case
+    "preconstructed_variant_import", # externally authored manifestations under framework contracts
     "binary_safety_fields",      # the BINARY_FIELDS scoring schema
     "certificate_verification",  # caeval/certificates/verifier.py (v0.6)
     "minimum_information_solver",# caeval/certificates/mmip.py (v0.6)
@@ -107,6 +109,8 @@ class EvaluationFamily:
     def validate_definition(self) -> None: raise NotImplementedError
     def validate_case(self, case: dict) -> None: raise NotImplementedError
     def generate_variants(self, case: dict, seed: int = 0) -> list[dict]: raise NotImplementedError
+    def ingest_preconstructed_variant(self, case: dict, variant: dict, require_reviewed: bool = False) -> dict: raise NotImplementedError
+    def confirm_preconstructed_variant(self, row: dict, original_text: str, review: dict): raise NotImplementedError
     def run_deterministic_checks(self, case: dict, response: str) -> dict: raise NotImplementedError
     def build_judge_input(self, record: dict, mode: str) -> str: raise NotImplementedError
     def calculate_metrics(self, results: dict) -> dict: raise NotImplementedError
@@ -188,6 +192,46 @@ class YamlFamily(EvaluationFamily):
             row["severity"] = test.get("severity", "moderate")
             rows.append(row)
         return rows
+
+    def ingest_preconstructed_variant(
+        self, case: dict, variant: dict, require_reviewed: bool = False
+    ) -> dict:
+        """Normalize an externally authored manifestation into this family.
+
+        This is the supported qualification-study path for case-specific,
+        clinician-reviewed variants. It deliberately does not call the family's
+        built-in deterministic transform.
+        """
+        self.check_capabilities()
+        self.validate_case(case)
+        cfg = self.d.get("preconstructed_variants") or {}
+        if cfg.get("supported") is not True:
+            raise FamilyDefinitionError(
+                f"{self.family_id}: preconstructed variants are not declared supported"
+            )
+        return build_preconstructed_manifest_row(
+            self.family_id,
+            case,
+            variant,
+            default_test_id=str(cfg.get("test_id") or f"preconstructed_{self.family_id}"),
+            default_severity=str(cfg.get("severity") or "high"),
+            require_reviewed=require_reviewed,
+        )
+
+    def confirm_preconstructed_variant(
+        self, row: dict, original_text: str, review: dict
+    ):
+        """Apply the family/framework human validity contract to an imported row."""
+        if row.get("variant_source") != "preconstructed":
+            raise FamilyDefinitionError(
+                f"{self.family_id}: human preconstructed confirmation requires "
+                "variant_source='preconstructed'"
+            )
+        if row.get("family_id") != self.family_id:
+            raise FamilyDefinitionError(
+                f"{self.family_id}: imported row belongs to {row.get('family_id')!r}"
+            )
+        return confirm_variant_human(row, original_text, self.d, review)
 
     def _precondition_met(self, precondition: str, case: dict) -> bool:
         text = (case["input_text"] + " " + str(case.get("ground_truth_label", ""))).lower()

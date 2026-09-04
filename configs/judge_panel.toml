@@ -1,9 +1,10 @@
 # configs/judge_panel.toml  (EVAL_STANDARD.md §7, §11)
 #
 # The judge panel is READ FROM CONFIG, never hardcoded (§11 "Known reconciliation
-# needed before build"). The runtime enforces the ">=2 DIFFERENT-provider" rule
-# from this file: a panel whose distinct `provider` count is < min_distinct_providers
-# is rejected before any scoring runs.
+# needed before build"). The runtime enforces the configured distinct-provider quorum before any scoring runs.
+A single blinded judge is allowed when it is the prespecified calibrated evaluator
+for the endpoint/scope. Multi-provider panels remain available as an optional
+evaluator-robustness analysis; they are not assumed to eliminate bias.
 #
 # The two upstream repos hardcoded different panels:
 #   evidence-sufficiency: openai / anthropic / xai / google (incl. Grok)
@@ -15,13 +16,12 @@
 # because a synthetic judge cannot support a conclusion. Real judges resolve via
 # caeval/providers.py (keys loaded at runtime from a git-ignored file; never here).
 
-min_distinct_providers = 2
+min_distinct_providers = 1
 
-# Deterministic offline panel used by the demo / smoke run. Two DISTINCT mock
-# "providers" with different permissiveness, so judge disagreement is real and
-# measurable. NOTE: no directional claim is implied — the "high-sensitivity /
-# low-specificity screen" wording was RETRACTED in v0.3 (see CORRECTIONS.md);
-# operating points are measured against clinician labels at L2, not assumed.
+# Deterministic offline panel used by the demo / smoke run. It intentionally keeps
+# TWO mock judges so the software fixture continues to exercise disagreement logic,
+# even though production assessments may use one calibrated judge.
+#
 # `mode` controls how much the judge is TOLD (see caeval/providers.py):
 #   blinded      = sees only the case-as-shown + the answer (DEFAULT; headline rates).
 #   rubric_aware = additionally sees the perturbation + expected missing evidence
@@ -61,9 +61,10 @@ mock = true
 
 # ---------------------------------------------------------------------------
 # Real panel (commented out). Uncomment and set MEDROBUST_KEYS_PATH to a
-# git-ignored keys file to run L1. Must keep >=2 DISTINCT providers, and the
-# primary pair must NOT be two models from the same provider (same-provider
-# preference is a known confound, §7).
+# git-ignored keys file to run L1. A single blinded judge is permitted. If a
+# multi-provider panel is used, increase min_distinct_providers accordingly.
+# Same-provider target/judge effects should be reported when relevant; a panel
+# does not make that confound disappear.
 # ---------------------------------------------------------------------------
 # [[judges]]
 # name = "gpt-5.5"

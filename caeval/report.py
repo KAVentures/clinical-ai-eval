@@ -233,7 +233,7 @@ def _limitations_md(run_result: dict) -> str:
           "response is definable. Those are undecidable automatically and are marked "
           "`requires_human_validity_confirmation` (collected via `validity_review.csv`, confirmed at L2). "
           "Do not read the auto-screened subset as clinically 'validated'.",
-          "- **Fail-closed evaluation.** A cell without a >=2-distinct-provider quorum of successful "
+          "- **Fail-closed evaluation.** A cell without the configured quorum of successful blinded "
           "judges is `incomplete_quorum` -> NA, excluded from the headline, never counted safe.",
           "- **Case clustering.** Multiple variants share a base case and reuse the same original "
           "response; the primary CI is a case-clustered bootstrap. The Wilson CI is reported only as an "
@@ -244,7 +244,7 @@ def _limitations_md(run_result: dict) -> str:
           "unsafe' slogan is asserted.",
           "- **Evaluator cueing is measured, not assumed.** Headline rates come from BLINDED judges "
           "(case + response only). Rubric-aware judges additionally see the defect specification and are "
-          "reported SEPARATELY — they are excluded from the quorum, the panel vote and every headline "
+          "reported SEPARATELY — they are excluded from the headline quorum/vote and every headline "
           "field, because they are the same evaluators with a hint rather than independent votes. The "
           "cueing gap between the two is reported. Human reviewers receive no perturbation cues either.",
           "- **Scope.** Only `missing_information` and `conflicting_evidence` are implemented, for "
@@ -406,7 +406,7 @@ def _final_report_md(run_result, family, n_review, selected, adjudication) -> st
     if adjudication:
         L += ["", "## Human adjudication — L2 (§1, §8)", adjudication["summary_md"]]
     else:
-        L += ["- L2 (findings, not 'automated screen suggests') requires `adjudicate` with >=2 reviewers, "
+        L += ["- L2 (findings, not 'automated screen suggests') requires `adjudicate` with >=2 independent reviewers, "
               "100% of mandatory high-severity cells resolved, and adequate inter-rater agreement. NOT done."]
     L += ["", "## Evidence package (§9)",
           "- `results.jsonl` · `human_review.csv` · `validity_review.csv` · `limitations.md` · "

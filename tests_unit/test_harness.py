@@ -126,12 +126,19 @@ class TestMockJudges(unittest.TestCase):
 
 
 class TestPanelEnforcement(unittest.TestCase):
-    def test_requires_two_distinct_providers(self):
+    def test_configured_multi_provider_quorum_is_enforced(self):
         bad = {"min_distinct_providers": 2, "judges": [
             {"name": "a", "provider": "same", "mock": True},
             {"name": "b", "provider": "same", "mock": True}]}
         with self.assertRaises(ValueError):
             assess_panel(bad)
+
+    def test_single_judge_is_allowed_when_quorum_is_one(self):
+        panel = {"min_distinct_providers": 1, "judges": [
+            {"name": "a", "provider": "xai", "mock": False}]}
+        info = assess_panel(panel)
+        self.assertEqual(info["conformance_level"], "L1")
+        self.assertEqual(info["distinct_providers"], ["xai"])
 
     def test_mock_panel_is_L0(self):
         ok = {"min_distinct_providers": 2, "judges": [

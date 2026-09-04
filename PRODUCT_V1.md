@@ -46,7 +46,7 @@ may never present product evidence as though the platform evidence existed.**
 
 The mode is declared in `project.yaml` and enforced (`caeval/project.py`). A mock
 subject can only support `demonstration`; `calibrated_assessment` and
-`procurement_comparison` require ≥2 named clinical reviewers.
+`procurement_comparison` require ≥2 named clinical reviewers for independent human anchoring. Routine demonstration/internal-regression runs do not.
 
 | mode | label emitted |
 |---|---|
@@ -124,8 +124,8 @@ Never:
 ## The onboarding acceptance test (the real 0.7 definition of done)
 
 A team unfamiliar with this repository must be able to: clone → one command →
-create a project → connect an endpoint → choose a case pack → run → assign two
-reviewers → adjudicate → export → **independently verify the package** — without
+create a project → connect an endpoint → choose a case pack → run → complete the
+human-review policy required by the chosen claim level → adjudicate → export → **independently verify the package** — without
 contacting the author and without editing Python.
 
 Until that passes end to end, this is a developer framework, not a product.
