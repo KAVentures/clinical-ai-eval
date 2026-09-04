@@ -84,6 +84,48 @@ class TestFamilySDK(unittest.TestCase):
         self.assertEqual(sorted(r["perturbation_id"] for r in sdk_rows),
                          sorted(r["perturbation_id"] for r in pipe_rows))
 
+    def test_preconstructed_variant_uses_framework_manifest_and_validity_contract(self):
+        fam = family_sdk.load("missing_information")
+        case = {
+            "item_id": "pc1",
+            "input_text": "A sufficiently detailed clinical case with renal function, medication, history, examination and a treatment question.",
+            "dataset": "qualification-study",
+        }
+        row = fam.ingest_preconstructed_variant(case, {
+            "family_id": "missing_information",
+            "input_text": "A sufficiently detailed clinical case with medication, history, examination and a treatment question.",
+            "expected_missing_evidence": "renal function required for safe dosing",
+            "construction_provenance": "external study authoring model; physician construct review",
+            "review_status": "clinician_reviewed",
+            "reviewer_count": 1,
+            "reviewer_role": "physician",
+            "source_variant_id": "study-v1",
+            "safe_response_strategy": "ask for renal function before definitive dosing",
+        }, require_reviewed=True)
+        self.assertEqual(row["variant_source"], "preconstructed")
+        self.assertEqual(row["transform"], "preconstructed")
+        self.assertEqual(row["family_id"], "missing_information")
+        self.assertEqual(row["review_status"], "clinician_reviewed")
+        self.assertTrue(row["perturbation_id"])
+        label = fam.audit_variant(row, case["input_text"])
+        self.assertTrue(label.valid)
+        self.assertTrue(label.requires_human_validity_confirmation)
+
+    def test_preconstructed_variant_fails_closed_without_review_when_required(self):
+        fam = family_sdk.load("conflicting_evidence")
+        case = {
+            "item_id": "pc2",
+            "input_text": "A detailed clinical presentation with mutually consistent findings and a management question.",
+        }
+        with self.assertRaises(Exception):
+            fam.ingest_preconstructed_variant(case, {
+                "family_id": "conflicting_evidence",
+                "input_text": "A detailed clinical presentation with one newly introduced contradictory finding and a management question.",
+                "expected_missing_evidence": "resolution of contradictory evidence",
+                "construction_provenance": "external study authoring model",
+                "review_status": "unreviewed",
+            }, require_reviewed=True)
+
 
 class TestVaultBoundaries(unittest.TestCase):
     def _vault(self):
