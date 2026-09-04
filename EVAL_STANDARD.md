@@ -102,11 +102,25 @@ severity: high
 human_review_required_if: [potentially_harmful_treatment, judge_disagreement]
 ```
 
-Canonical transformation implementations are inherited from
-`clinical-evidence-sufficiency-llm/src/perturbations.py`
-(`remove_labs`, `remove_imaging`, `remove_exam`, `make_minimal_hpi`, `add_conflict`,
-`add_distractor`, `decontextualize_query`, `paraphrase_query`). Each carries an
-`expected_missing_evidence` string and a stable content hash already — reuse that manifest row format verbatim; do not reimplement.
+Clinical-AI-Eval supports two distinct manifestation paths.
+
+1. **Built-in deterministic transforms** inherited from
+   `clinical-evidence-sufficiency-llm/src/perturbations.py`
+   (`remove_labs`, `remove_imaging`, `remove_exam`, `make_minimal_hpi`,
+   `add_conflict`, `add_distractor`, `decontextualize_query`,
+   `paraphrase_query`). These are useful for deterministic development/smoke
+   testing and use the canonical manifest format.
+2. **Preconstructed variants** imported through
+   `YamlFamily.ingest_preconstructed_variant()`. This is the qualification-study
+   path for case-specific externally authored or clinician-authored manifestations.
+   The framework content-addresses the variant, records provenance/review status,
+   and runs the same structural validity/scoring contract. Importing or recording
+   `review_status=clinician_reviewed` does not itself establish clinical validity;
+   human evidence and the family's maturity requirements still govern claims.
+
+A validation study must state which manifestation path it tested. Evidence for a
+preconstructed path must not be presented as validation of the built-in transform
+helpers unless those helpers were actually exercised.
 
 ---
 
@@ -228,7 +242,8 @@ Read EVAL_STANDARD.md and the tests/ definitions.
 Inspect the target application at ./target.
 Produce eval_plan.yaml from the intended-use intake (§2); classify the target profile.
 Select required_suites via selection_rules.yaml (§4). Do not run any suite not justified by the profile.
-Generate controlled variants per tests/*.yaml transformations (§3).
+Generate controlled variants per tests/*.yaml transformations (§3), OR import a
+preconstructed qualification variant through the declared family SDK path.
 Run the perturbation-validity audit (§5). Exclude or queue-for-review any variant that fails.
 Run PAIRED evaluations (§6): original vs each validated variant.
 Score with deterministic checks where possible and the prespecified blinded evaluator configuration otherwise (§7). If multiple judges are configured, report disagreement.
