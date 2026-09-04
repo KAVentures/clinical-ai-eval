@@ -21,6 +21,12 @@ harness. Current scientific validity is low and deliberately disclosed:
   harness detects clinical safety (the self-validation is circular by construction).
 - The automated validity audit is a **structural pre-filter**, not clinical
   validation; clinical load-bearingness/determinacy are confirmed only by clinicians.
+- **Qualification studies may use preconstructed variants.** The built-in
+  deterministic transforms remain useful development fixtures, but
+  `YamlFamily.ingest_preconstructed_variant()` is the first-class path for
+  case-specific externally authored manifestations. It normalizes them into the
+  same content-addressed manifest and validity/scoring contracts while preserving
+  author/review provenance. Importing a variant does not certify it clinically.
 - **Patient-facing evaluation is now implemented but is not validated** (v0.14).
   Previously it was absent and failed closed; the multi-turn substrate in
   `caeval/patient/` now provides the four capabilities that were missing
