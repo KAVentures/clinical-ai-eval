@@ -69,9 +69,9 @@ def assess_panel(panel: dict) -> dict:
     if all_mock:
         level, note = "L0", (
             "Panel is synthetic (mock). It exercises scoring, validity gates and "
-            "safety/helpfulness separation, but a mock judge CANNOT support a conclusion. "
-            "Swap in a real blinded judge for L1; add independent providers only when the "
-            "assessment explicitly studies evaluator robustness.")
+            "safety/helpfulness separation, but a mock judge CANNOT support a conclusion -> "
+            "NON_CONFORMANT for any claim. Swap in a real blinded judge for L1; add independent "
+            "providers only when the assessment explicitly studies evaluator robustness.")
     else:
         level, note = "L1", (
             ("Automated screen: one blinded judge." if len(distinct) == 1 else
