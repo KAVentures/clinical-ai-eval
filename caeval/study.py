@@ -45,6 +45,8 @@ class Roles:
     clinical_hazard_authors: list = field(default_factory=list)
     defect_implementer: object = None
     blinded_adjudicators: list = field(default_factory=list)
+    role_separation_mode: str = "global"  # global | cross_fitted
+    crossfit_assignments_hash: str | None = None
     resolution_mode: str = "consensus"  # consensus | third_reviewer
     tie_adjudicator: object = None
 
@@ -62,11 +64,20 @@ class Roles:
         n = len(self.blinded_adjudicators)
         if n < self.REQUIRED_ADJUDICATORS:
             r.append(f"{self.REQUIRED_ADJUDICATORS} blinded clinicians required, {n} assigned")
-        overlap = set(self.blinded_adjudicators) & (
-            set(self.clinical_hazard_authors) | ({self.defect_implementer} if self.defect_implementer else set()))
-        if overlap:
-            r.append(f"blinded adjudicator(s) {sorted(overlap)} also constructed the hidden defects "
-                     f"— adjudication would not be blind")
+        if self.role_separation_mode not in {"global", "cross_fitted"}:
+            r.append("role_separation_mode must be 'global' or 'cross_fitted'")
+        elif self.role_separation_mode == "global":
+            overlap = set(self.blinded_adjudicators) & (
+                set(self.clinical_hazard_authors)
+                | ({self.defect_implementer} if self.defect_implementer else set()))
+            if overlap:
+                r.append(
+                    f"blinded adjudicator(s) {sorted(overlap)} also constructed the hidden defects "
+                    f"— adjudication would not be blind")
+        elif not self.crossfit_assignments_hash:
+            r.append(
+                "cross_fitted role separation requires crossfit_assignments_hash from a "
+                "validated per-case assignment manifest")
         if self.resolution_mode not in {"consensus", "third_reviewer"}:
             r.append("resolution_mode must be 'consensus' or 'third_reviewer'")
         elif self.resolution_mode == "third_reviewer":
@@ -145,6 +156,8 @@ class StudyProtocol:
             "roles": {"hazard_authors": self.roles.clinical_hazard_authors,
                       "defect_implementer": self.roles.defect_implementer,
                       "blinded_adjudicators": self.roles.blinded_adjudicators,
+                      "role_separation_mode": self.roles.role_separation_mode,
+                      "crossfit_assignments_hash": self.roles.crossfit_assignments_hash,
                       "resolution_mode": self.roles.resolution_mode,
                       "tie_adjudicator": self.roles.tie_adjudicator},
         }
@@ -175,6 +188,39 @@ class StudyProtocol:
 
 
 # --------------------------------------------------------------------------
+def validate_crossfit_assignments(assignments: list[dict]) -> str:
+    """Validate and hash per-case construct/response role assignments.
+
+    Each row must contain:
+      source_id, construct_reviewer, response_reviewers (exactly two distinct IDs).
+
+    A clinician may construct some cases and response-review other cases; blindness
+    is enforced at the SOURCE level rather than by globally separating people.
+    The returned hash can be stored in Roles.crossfit_assignments_hash before lock.
+    """
+    if not assignments:
+        raise StudyBlocked("cross-fitted role assignment manifest is empty")
+    canonical = []
+    seen = set()
+    for row in assignments:
+        sid = str(row.get("source_id", "")).strip()
+        constructor = str(row.get("construct_reviewer", "")).strip()
+        responders = [str(x).strip() for x in (row.get("response_reviewers") or []) if str(x).strip()]
+        if not sid or sid in seen:
+            raise StudyBlocked(f"cross-fit assignment has missing/duplicate source_id {sid!r}")
+        seen.add(sid)
+        if not constructor or len(responders) != 2 or len(set(responders)) != 2:
+            raise StudyBlocked(f"{sid}: requires one construct reviewer and exactly two distinct response reviewers")
+        if constructor in responders:
+            raise StudyBlocked(f"{sid}: construct reviewer also appears in response reviewers")
+        canonical.append({
+            "source_id": sid,
+            "construct_reviewer": constructor,
+            "response_reviewers": sorted(responders),
+        })
+    return stable_hash_text(json.dumps(sorted(canonical, key=lambda x: x["source_id"]), sort_keys=True))
+
+
 def hash_case_set(cases: list[dict]) -> str:
     """Content hash over the locked case set, so post-hoc edits are detectable."""
     payload = sorted(f"{c['item_id']}:{stable_hash_text(c['input_text'])}" for c in cases)
