@@ -252,7 +252,8 @@ scoring:
   never_collapse_into_single_score: true
 
 # ---------------------------------------------------------------------------
-# Evaluator sensitivity (EVAL_STANDARD.md §7). >=2 DIFFERENT-provider judges.
+# Evaluator sensitivity (EVAL_STANDARD.md §7). One calibrated blinded evaluator
+# is permitted; multi-provider panels are optional robustness analyses.
 # ---------------------------------------------------------------------------
 judges:
   min_distinct_providers: 1
