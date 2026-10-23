@@ -5,7 +5,7 @@
 
 ## Decision
 
-Submit a *software/methods* paper on the **existing \`clinical-ai-eval\` research framework**, with zero-cost, explicitly retrospective illustrations from prior published studies. The original prospective [physician-validation study](https://github.com/KAVentures/clinical-ai-eval-physician-validation) remains a distinct, uncompleted protocol. Do not merge its original 3-physician prospective requirements into this paper.
+Submit a *software/methods* paper on the **existing `clinical-ai-eval` research framework**, with zero-cost, explicitly retrospective illustrations from prior published studies. The original prospective [physician-validation study](https://github.com/KAVentures/clinical-ai-eval-physician-validation) remains a distinct, uncompleted protocol. Do not merge its original 3-physician prospective requirements into this paper.
 
 ### Facts verified as of October 23, 2026
 
@@ -32,29 +32,29 @@ Submit a *software/methods* paper on the **existing \`clinical-ai-eval\` researc
 
 1. **Offline audit prior evidence** (script provided in this PR). Clone the two *already-public* preprint repositories as adjacent directories, then run:
 
-   \`\`\`bash
+   ```bash
    python tools/audit_prior_evidence.py \
      --readiness-root ../health-ai-readiness-robustness \
      --sufficiency-root ../clinical-evidence-sufficiency-llm \
      --out paper/prior_evidence_audit.json
-   \`\`\`
+   ```
 
    It validates binary clinician-label provenance, identifier consistency, judge-vote coverage and published aggregate arithmetic; emits SHA-256 content hashes. It calls **no providers**, downloads **no clinical records**, and does **not** reproduce unpublished/raw responses. The audit intentionally cannot prove full raw-trial reproducibility.
 
 2. **Exercise the actual framework from a clean installation** and save version-pinned outputs:
 
-   \`\`\`bash
+   ```bash
    python -m pip install -e ".[dev]"
    python -m pytest tests_unit -q
    python -m caeval.cli capabilities --check
    python -m caeval.cli fixtures --check
    python -m caeval.cli demo
    python -m caeval.cli arms
-   \`\`\`
+   ```
 
    Use CI logs plus the generated capability table to distinguish supported, merely declared and blocked families. Never interpret synthetic fixture rates as clinical findings.
 
-3. **Create final research-software manuscript** from \`paper/PAPER_DRAFT.md\`, audit outputs and current capability declarations. Generate architecture figure automatically from code paths, and package example output and its evidence-verification result. Include a provenance/limitations table stating which demonstrations are synthetic vs previously published vs independent.
+3. **Create final research-software manuscript** from `paper/PAPER_DRAFT.md`, audit outputs and current capability declarations. Generate architecture figure automatically from code paths, and package example output and its evidence-verification result. Include a provenance/limitations table stating which demonstrations are synthetic vs previously published vs independent.
 4. **Finish packaging/documentation checks:** installable wheel, offline demo, command reference, example verify-package, meaningful warnings, OS support, versions, citations, code license and data-redistribution restrictions.
 5. **Human signoff limited to:** check author identity and conflict/AI disclosures, verify the scientific conclusions and literature, confirm licensing/governance, and approve submission. Recheck every asserted metric against generated output.
 
