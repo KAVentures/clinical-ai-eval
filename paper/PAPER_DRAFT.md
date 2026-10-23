@@ -50,7 +50,7 @@ The software includes a Python distribution, automated unit and integration test
 
 Two previously released investigator preprints demonstrate why the evaluation's distinct axes and judge provenance matter [1,2]. The earlier evidence-sufficiency study compared 1,200 paired model-item units across standard and evidence-sufficiency instructions and reported a judge-dependent apparent change in unsafe overconfidence. The earlier readiness study contains a blinded 50-item annotation set graded by the author and two independent clinicians, with saved provider-specific judge votes. These are **previously published datasets**, not a prospective Clinical-AI-Eval test cohort and not newly acquired independent clinical validation.
 
-An offline read-only audit (\`tools/audit_prior_evidence.py\`) verifies label identifiers, three-rater binary annotations, judge-vote coverage, published summary arithmetic and artifact hashes from local checkouts of those studies. It neither reconstructs all unreleased original response texts nor demonstrates that the new framework would have produced identical judgments from those texts. The retrospective audit is therefore a reproducibility/provenance demonstration, not a substitute for running and calibrating the actual framework.
+An offline read-only audit (`tools/audit_prior_evidence.py`) verifies label identifiers, three-rater binary annotations, judge-vote coverage, published summary arithmetic and artifact hashes from local checkouts of those studies. It neither reconstructs all unreleased original response texts nor demonstrates that the new framework would have produced identical judgments from those texts. The retrospective audit is therefore a reproducibility/provenance demonstration, not a substitute for running and calibrating the actual framework.
 
 The software demonstration should additionally show the packaged, deterministic mock subject/test-family runs and both ordinary and over-abstaining failure modes. Because the source responses and grader behavior were constructed for the test, any numerical rates are synthetic and are intentionally excluded from clinical comparative conclusions.
 
@@ -66,23 +66,23 @@ Source code: [KAVentures/clinical-ai-eval](https://github.com/KAVentures/clinica
 
 Example independent software checks after installation:
 
-\`\`\`bash
+```bash
 python -m pip install -e ".[dev]"
 python -m pytest tests_unit -q
 python -m caeval.cli capabilities --check
 python -m caeval.cli fixtures --check
 python -m caeval.cli demo
 python -m caeval.cli arms
-\`\`\`
+```
 
 Retrospective published-result provenance (local checkouts of two separate public repositories):
 
-\`\`\`bash
+```bash
 python tools/audit_prior_evidence.py \
   --readiness-root ../health-ai-readiness-robustness \
   --sufficiency-root ../clinical-evidence-sufficiency-llm \
   --out paper/prior_evidence_audit.json
-\`\`\`
+```
 
 **Release verification to complete before submission:** run all commands on a clean setup, capture their exit codes and outputs, freeze a release SHA, validate that any stated numbers match generated artifacts, and link the exact release in the manuscript. Avoid committing HealthBench Professional case text, reviewer packets, keys or other private data.
 
