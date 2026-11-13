@@ -73,7 +73,7 @@ def parse_patient_judge_json(text: str) -> dict:
     """Extract one complete episode rubric; refuse malformed or generic scores."""
     if not isinstance(text, str):
         raise ValueError("Patient judge output must be JSON text")
-    match = re.search(r"\\{.*\\}", text, flags=re.DOTALL)
+    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
     if not match:
         raise ValueError("Patient judge output did not contain JSON")
     return validate_patient_judge_labels(json.loads(match.group(0)))
