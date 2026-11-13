@@ -179,7 +179,17 @@ def conformance_from(panel: dict | None, cells: list, l2_gate_passed: bool = Fal
     # judges are excluded from the headline and cannot supply a quorum.
     mock_in_headline = any(j.get("mock") for j in blinded)
     needed = max(1, int((panel or {}).get("min_distinct_providers", 1)))
-    scored = [c for c in cells if c.get("panel_scored")]
+    # A boolean panel_scored is insufficient evidence on its own. Require
+    # actual usable labels from the named blinded judges, counted by provider.
+    scored = []
+    for c in cells:
+        if not c.get("panel_scored"):
+            continue
+        labels = c.get("panel_labels") or {}
+        participants = {j.get("provider") or j.get("name") for j in blinded
+                        if isinstance(labels.get(j.get("name")), dict)}
+        if len(participants) >= needed:
+            scored.append(c)
     if not blinded or len(providers) < needed or not scored or mock_in_headline:
         return "L0"
     return "L2" if l2_gate_passed else "L1"
