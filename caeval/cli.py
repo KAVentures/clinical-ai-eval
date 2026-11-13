@@ -1135,6 +1135,34 @@ def cmd_procurement(args):
         print("Contains no combined score, no ranking and no buy/no-buy recommendation.")
 
 
+def cmd_reference_actions(args):
+    """Prepare/score a clinician-specified action counterfactual pack, offline."""
+    from . import reference_actions as ra
+    pack = ra.load_json(args.cases)
+    if args.action == "prepare":
+        rows = ra.make_requests(pack, repeats=args.repeats)
+        ra.write_jsonl(args.out, rows)
+        print(f"Prepared {len(rows)} blinded action requests -> {args.out}; "
+              "reference sets are NOT included in model-facing requests.")
+        return
+    if not args.responses:
+        raise SystemExit("reference-actions score requires --responses JSONL")
+    rows = ra.read_jsonl(args.responses)
+    report = ra.score_pack(pack, rows, repeats=args.repeats)
+    pathlib_Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    pathlib_Path(args.out).write_text(json.dumps(report, indent=2, sort_keys=True))
+    print(json.dumps({"coverage": report["coverage"],
+                      "safety": report["safety"],
+                      "usefulness": report["usefulness"],
+                      "counterfactual": {k: v for k, v in report["counterfactual"].items()
+                                         if k != "rows"},
+                      "repeatability": report["repeatability"],
+                      "claim": report["conformance"]}, indent=2))
+    if report["coverage"]["n_invalid"] or report["coverage"]["n_missing"]:
+        raise SystemExit("Incomplete or invalid model responses: no pass claim; "
+                         f"inspect {args.out}")
+
+
 def cmd_capabilities(args):
     """Print what this build can actually run, derived from the registries."""
     import json as _json
@@ -1239,6 +1267,16 @@ def main(argv=None):
     pproc.add_argument("--family", default="patient_red_flag")
     pproc.add_argument("--out", default=None)
     pproc.set_defaults(func=cmd_procurement)
+
+    pra = sub.add_parser(
+        "reference-actions",
+        help="offline clinical reference actions, paired fact changes and repeatability")
+    pra.add_argument("action", choices=["prepare", "score"])
+    pra.add_argument("--cases", required=True, help="clinician-defined reference-action JSON pack")
+    pra.add_argument("--responses", help="structured model responses JSONL (score mode)")
+    pra.add_argument("--out", required=True, help="requests JSONL or report JSON")
+    pra.add_argument("--repeats", type=int, default=1)
+    pra.set_defaults(func=cmd_reference_actions)
 
     pcap = sub.add_parser("capabilities", help="what this build can actually run")
     pcap.add_argument("--json", action="store_true")
