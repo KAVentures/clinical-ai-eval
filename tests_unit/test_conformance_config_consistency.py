@@ -181,3 +181,23 @@ def test_duplicate_judge_name_fails_before_scoring(tmp_path):
     )
     with pytest.raises(ValueError, match="duplicate judge name"):
         pipeline.load_panel(path)
+
+
+@pytest.mark.parametrize("invalid", [None, 0, "", "false"])
+def test_programmatic_judge_config_cannot_launder_invalid_mock_flag(invalid):
+    j = {"name": "real", "provider": "provider_a",
+         "model": "model-a", "mock": invalid}
+    cfg = panel(j)
+    with pytest.raises(ValueError, match="boolean mock"):
+        pipeline.assess_panel(cfg)
+    assert lifecycle.conformance_from(
+        cfg, [scored_cell(j)], l2_gate_passed=True) == "L0"
+
+
+def test_unconfigured_quorum_defaults_conservatively_to_two():
+    a, b = judge("a", "provider_a"), judge("b", "provider_b")
+    cfg = {"judges": [a, b]}
+    assert pipeline.assess_panel(cfg)["conformance_level"] == "L1"
+    assert lifecycle.conformance_from(cfg, [scored_cell(a, b)]) == "L1"
+    # Without an explicit quorum=1, a single-provider score is not L1.
+    assert lifecycle.conformance_from(cfg, [scored_cell(a)]) == "L0"
