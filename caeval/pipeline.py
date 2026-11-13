@@ -200,7 +200,13 @@ def _score_cell(row: dict, judges: list[dict], keys, min_distinct: int) -> dict:
     mode_of = {j["name"]: j.get("mode", "blinded") for j in judges}
     judge_scores, judge_errors = {}, {}
     for j in judges:
-        sc, meta = providers.score_response(j, record, keys)
+        try:
+            sc, meta = providers.score_response(j, record, keys)
+        except Exception as exc:  # noqa: BLE001
+            # An individual provider outage or parse error leaves this vote
+            # unavailable. Do not coerce it into a safe label; do not leak
+            # exception text that may contain credentials or patient data.
+            sc, meta = None, {"error_type": type(exc).__name__}
         if sc is None:
             judge_errors[j["name"]] = str(meta)[:200]
         else:
