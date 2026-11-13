@@ -86,8 +86,11 @@ def test_generic_clinician_schema_cannot_be_substituted():
 def test_real_patient_judge_response_follows_its_own_schema(monkeypatch):
     labels = good_labels()
     calls = []
+    monkeypatch.setattr(providers, "load_keys",
+                        lambda: {"OPENAI_API_KEY": "dummy-offline-key"})
 
     def fake_provider_call(provider, model, prompt, user_content, keys):
+        assert keys == {"OPENAI_API_KEY": "dummy-offline-key"}
         calls.append((provider, model, prompt, user_content))
         return json.dumps(labels), {"request_id": "local-test"}
 
@@ -106,6 +109,8 @@ def test_malformed_real_patient_reply_does_not_count_as_negative(monkeypatch):
         return json.dumps(bad), {"request_id": "invalid-local-test"}
 
     monkeypatch.setattr(providers, "call", fake_provider_call)
+    monkeypatch.setattr(providers, "load_keys",
+                        lambda: {"OPENAI_API_KEY": "dummy-offline-key"})
     actual, meta = judging.score_episode(REAL, PAYLOAD)
     assert actual is None
     assert "parse_error" in meta and "under_triage" in meta["parse_error"]
@@ -116,3 +121,27 @@ def test_offline_mock_patient_judges_obey_same_schema():
     labels, meta = judging.score_episode(mock, PAYLOAD)
     assert labels == judging.validate_patient_judge_labels(labels)
     assert meta["status"] == "mock"
+
+
+def test_explicit_credentials_bypass_default_keyfile(monkeypatch):
+    def no_keyfile():
+        raise AssertionError("explicit keys must not read the default key file")
+
+    def fake_provider_call(_provider, _model, _prompt, _user, keys):
+        assert keys == {"OPENAI_API_KEY": "explicit-offline-key"}
+        return json.dumps(good_labels()), {"status": 200}
+
+    monkeypatch.setattr(providers, "load_keys", no_keyfile)
+    monkeypatch.setattr(providers, "call", fake_provider_call)
+    labels, _meta = judging.score_episode(
+        REAL, PAYLOAD, keys={"OPENAI_API_KEY": "explicit-offline-key"})
+    assert labels == good_labels()
+
+
+def test_mock_patient_judge_never_reads_real_credentials(monkeypatch):
+    monkeypatch.setattr(providers, "load_keys",
+                        lambda: (_ for _ in ()).throw(
+                            AssertionError("mock may not require keys")))
+    mock = {**REAL, "provider": "mock_a", "mock": True}
+    labels, _meta = judging.score_episode(mock, PAYLOAD)
+    assert labels["under_triage"] in (0, 1)
