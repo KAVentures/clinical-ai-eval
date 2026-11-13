@@ -124,4 +124,5 @@ jobs:
           cd /tmp
           /tmp/clean/bin/clinical-ai-eval inspect
           /tmp/clean/bin/clinical-ai-eval families
+          /tmp/clean/bin/clinical-citation-audit --help
           /tmp/clean/bin/python -c "import caeval.certificates as cc; print('subpackage OK', cc.CERTIFIED)"
