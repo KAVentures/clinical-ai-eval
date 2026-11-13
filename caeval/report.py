@@ -214,16 +214,16 @@ def _provenance(run_result: dict, family: dict) -> dict:
 
 def _limitations_md(run_result: dict) -> str:
     all_mock = run_result["panel"]["all_mock"]
+    mock_headline = run_result["panel"].get("mock_in_headline", all_mock)
     unscored = run_result["dimensions"].get("unscored_high_severity_fields", [])
     L = ["# limitations.md", "",
          "Restated every run (EVAL_STANDARD.md §13). This tool produces a **screen plus an "
          "evidence package, never a deployment-readiness verdict** (§0).", ""]
-    if all_mock:
-        L += ["## THIS RUN USED A SYNTHETIC (MOCK) JUDGE PANEL AND A CONSTRUCTED MOCK SUBJECT",
-              "- Judges are deterministic keyword mocks; the subject was authored to exhibit specific "
-              "behaviours; the self-tests assert those behaviours. **The demo numbers are SOFTWARE "
-              "FIXTURES that show the pipeline wiring, NOT evidence that the harness detects clinical "
-              "safety.** The run is `NON_CONFORMANT` for any claim (below L1).",
+    if mock_headline:
+        L += ["## THIS RUN INCLUDED SYNTHETIC (MOCK) BLINDED JUDGES",
+              "- Mock blinded votes are synthetic test fixtures and cannot be used as clinical "
+              "evidence, including when combined with votes from real models. The run is "
+              "`NON_CONFORMANT` for any claim (below L1).",
               "- Non-circular validation requires defects specified by clinicians, implemented by a "
               "separate developer, with the harness locked and evaluators blinded to defect status.", ""]
     L += ["## Conclusion-affecting method limitations (must be read before any interpretation)",
@@ -272,9 +272,9 @@ def _final_report_md(run_result, family, n_review, selected, adjudication) -> st
     L = [f"# Clinical-AI evaluation screen — {subject.get('name','target')} (arm: {subject.get('arm','n/a')})", ""]
     L += [f"**This is a SCREEN plus an evidence package, not a deployment-readiness verdict (EVAL_STANDARD.md §0).** "
           f"Conformance level: **{level}**. {p['note']}", ""]
-    if p["all_mock"]:
-        L += ["> ⚠️ Mock judges + a constructed mock subject. The rates below are **software fixtures "
-              "demonstrating the pipeline**, not validation findings. See `limitations.md`.", ""]
+    if p.get("mock_in_headline", p["all_mock"]):
+        L += ["> ⚠️ The blinded judge panel includes synthetic (mock) votes. The rates below "
+              "are **software fixtures**, not clinical validation findings. See `limitations.md`.", ""]
     L += [f"- Family: `{run_result['family_id']}`  ·  audience: {dims.get('audience','clinician')}  ·  "
           f"cases: {run_result['n_cases']}  ·  variants generated: {run_result['n_variants_generated']}",
           f"- Auto-screened (STRUCTURAL pre-filter, headline subset): "

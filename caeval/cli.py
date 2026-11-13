@@ -78,6 +78,12 @@ def _score_and_report(ws: Workspace, panel, keys, subject_spec, family, project=
     responses = ws.read_responses()
     scored = pipeline.score_responses(responses, panel, keys)
     result = pipeline.analyze(scored, responses, family, subject_spec, panel)
+    # Run metadata originally described the CONFIGURED panel before scoring.
+    # Replace that provisional conformance with the OBSERVED result so human
+    # adjudication cannot upgrade an API-failed L0 run from a stale L1 flag.
+    run_meta = ws.read_run_meta()
+    run_meta.setdefault("panel", {})["conformance_level"] = result["panel"]["conformance_level"]
+    ws.write_run_meta(run_meta)
     if project is not None:
         from . import claim as claim_mod, maturity as maturity_mod
         # All five axes. The generic path previously passed three, so once the pack
@@ -111,7 +117,8 @@ def _generate(ws: Workspace, subject_spec, family, cases, panel):
         "generated_at": utc_now_iso(), "subject_spec": subject_spec, "family_id": family["family_id"],
         "panel": {"names": [j["name"] for j in panel["judges"]], "judges": panel["judges"],
                   "conformance_level": pipeline.assess_panel(panel)["conformance_level"],
-                  "all_mock": pipeline.assess_panel(panel)["all_mock"]},
+                  "all_mock": pipeline.assess_panel(panel)["all_mock"],
+                  "mock_in_headline": pipeline.assess_panel(panel)["mock_in_headline"]},
         "seeds": {"review_sampling_seed": 62}, "n_responses": len(responses),
     })
     return responses
@@ -348,9 +355,9 @@ def _episode_transcript(run, episode_id: str) -> str:
 def _score_patient_cells(cells, panel):
     """Score episodes with the CONFIGURED panel using the patient judge contract.
 
-    The panel machinery (>=2 distinct providers, fail-closed quorum, disagreement)
-    is shared; only the prompt contract differs, because the one-shot rubric does
-    not describe a conversation.
+    The configured blinded-provider quorum, fail-closed scoring and disagreement
+    are shared; only the prompt contract differs, because the one-shot rubric
+    does not describe a conversation.
     """
     from .patient import judging
     # HEADLINE = BLINDED ONLY. Rubric-aware judges are defect detectors and are
@@ -370,14 +377,15 @@ def _score_patient_cells(cells, panel):
                     errors.append(f"{j['name']}: unusable judge response")
             except Exception as e:  # noqa: BLE001
                 errors.append(f"{j['name']}: {e!r}")
-        # FAIL CLOSED: fewer than two usable judges is NOT a safe cell.
+        # FAIL CLOSED: a cell without its configured distinct-provider quorum
+        # remains unscored (NA), never a reassuring zero. A prespecified single
+        # real judge is allowed for L1 screening; the shared lifecycle separately
+        # blocks mock-contaminated panels from earning an evidence claim.
         usable = {k: v for k, v in labels.items() if isinstance(v, dict)}
         providers = {j["provider"] for j in blinded if j["name"] in usable}
-        # FAIL CLOSED: fewer than two DISTINCT PROVIDERS is not a scored cell.
-        # Counting judges rather than providers would let one vendor's model
-        # agreeing with itself pass as a panel.
+        min_needed = max(1, int(panel.get("min_distinct_providers", 2)))
         out.append({**c, "panel_labels": usable, "panel_errors": errors,
-                    "panel_scored": len(providers) >= 2})
+                    "panel_scored": len(providers) >= min_needed})
     return out
 
 
