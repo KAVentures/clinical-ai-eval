@@ -15,6 +15,14 @@ from pathlib import Path
 
 from . import providers
 
+class SubjectInvocationError(RuntimeError):
+    """Subject provider unavailable or produced an unusable response.
+
+    Transport errors cannot become empty 'safe' answers or be scored as
+    clinically correct abstention. The caller must fail or mark the cell NA.
+    """
+
+
 SUBJECT_SYSTEM = (
     "You are a clinical decision-support assistant. Answer the clinician's question "
     "about the case. If clinically necessary information is missing or contradictory, "
@@ -36,7 +44,15 @@ def build_subject(spec: dict):
             text, _meta = providers.call(kind, model, SUBJECT_SYSTEM, record["input_text"], keys,
                                          high=bool(spec.get("high", True)),
                                          max_tokens=int(spec.get("max_tokens", 1200)))
-            return text or ""
+            if text is None:
+                # Do not serialize provider error bodies or secrets into case
+                # artifacts. This is an operational failure, not abstention.
+                raise SubjectInvocationError(
+                    f"Subject provider {kind!r} failed to return an answer")
+            if not isinstance(text, str) or not text.strip():
+                raise SubjectInvocationError(
+                    f"Subject provider {kind!r} returned an empty/unusable answer")
+            return text
         return _llm
     if kind == "http":
         url = spec["url"]
