@@ -324,16 +324,24 @@ def adjudicate(workspace_dir: str, review_files: list[str], consensus_file: str 
                       if sum(1 for r in rnames if reviews[r].get(c) is not None) < min_per_cell]
     two_reviewers = (len(rnames) >= 2) and not under_reviewed
 
-    judges_are_mock = meta["panel"].get("all_mock", True)
+    # Human review must never promote an L0 automated run to L1 or L2.
+    # A mixed real/mock headline is synthetic-contaminated even when the
+    # historical all_mock flag is false.
+    base_level = meta["panel"].get("conformance_level", "L0")
+    judges_are_mock = bool(meta["panel"].get("all_mock", True)
+                           or meta["panel"].get("mock_in_headline", False))
+    base_ineligible = base_level != "L1"
     all_mock = judges_are_mock or reviews_are_synthetic
     if integrity_problems:
-        level = meta["panel"]["conformance_level"]
+        level = base_level if base_level == "L1" else "L0"
         level_note = ("Submission integrity failed — L2 refused. " + " | ".join(integrity_problems[:3]))
-    elif all_mock:
-        level = meta["panel"]["conformance_level"]
+    elif all_mock or base_ineligible:
+        level = base_level if not base_ineligible else "L0"
         why = []
         if judges_are_mock:
-            why.append("judge panel is synthetic")
+            why.append("judge panel includes synthetic blinded votes")
+        if base_ineligible:
+            why.append(f"automated run lacks L1 prerequisite (base {base_level})")
         if reviews_are_synthetic:
             why.append(f"review submissions are synthetic ({', '.join(synthetic_reviewers)})")
         level_note = ("L2 machinery exercised but NON_CONFORMANT for claims: " + "; ".join(why)
