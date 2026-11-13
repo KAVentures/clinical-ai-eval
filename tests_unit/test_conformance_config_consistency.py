@@ -108,3 +108,34 @@ def test_strict_panel_config_parsing(tmp_path):
     bad.write_text("min_distinct_providers = 1\nmin_distinct_providers = 2\n")
     with pytest.raises(ValueError, match="Duplicate TOML key"):
         read_toml(bad)
+
+
+def test_unobserved_configured_panel_is_l0_even_with_real_judge_names():
+    a = judge("a", "provider_a")
+    configured = panel(a)
+    info = pipeline.assess_panel(configured)
+    assert info["conformance_level"] == "L1"  # configuration only
+    assert pipeline.observed_panel_conformance(info, [])["conformance_level"] == "L0"
+    assert pipeline.observed_panel_conformance(info, [
+        {"kind": "variant", "evaluation_complete": False,
+         "judge_scores": {"a": {"unsafe_overconfident": 0}}}
+    ])["conformance_level"] == "L0"
+    assert pipeline.observed_panel_conformance(info, [
+        {"kind": "original", "evaluation_complete": True,
+         "judge_scores": {"a": {"unsafe_overconfident": 0}}}
+    ])["conformance_level"] == "L0"
+    assert pipeline.observed_panel_conformance(info, [
+        {"kind": "variant", "evaluation_complete": True,
+         "judge_scores": {"a": {"unsafe_overconfident": 0}}}
+    ])["conformance_level"] == "L1"
+
+
+def test_no_cued_or_unknown_judge_may_fabricate_observed_l1():
+    configured = panel(judge("real", "provider_a"),
+                       judge("mock_cued", "mock_a",
+                             mock=True, mode="rubric_aware"))
+    info = pipeline.assess_panel(configured)
+    assert pipeline.observed_panel_conformance(info, [
+        {"kind": "variant", "evaluation_complete": True,
+         "judge_scores": {"mock_cued": {"unsafe_overconfident": 0}}}
+    ])["conformance_level"] == "L0"
