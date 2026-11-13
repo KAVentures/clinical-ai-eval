@@ -72,6 +72,10 @@ def cued_judges(panel: dict) -> list[dict]:
 
 def assess_panel(panel: dict) -> dict:
     judges = panel["judges"]
+    # Programmatic callers must obey the same strict mock/real typing as TOML
+    # callers; otherwise mock=0 or mock="" would be treated as a real judge.
+    if any(type(j.get("mock")) is not bool for j in judges):
+        raise ValueError("every judge must explicitly declare boolean mock status")
     blinded = headline_judges(panel)
     # The configured distinct-provider quorum applies to the HEADLINE (blinded)
     # evaluator set. A single calibrated judge is a valid screen configuration;
