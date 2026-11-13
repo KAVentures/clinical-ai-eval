@@ -20,9 +20,7 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
-
-from ..util import stable_hash_text
+from ..util import repo_root, stable_hash_text
 
 BLINDED, RUBRIC_AWARE = "blinded", "rubric_aware"
 
@@ -80,7 +78,7 @@ def parse_patient_judge_json(text: str) -> dict:
 
 
 def load_prompt() -> str:
-    p = Path(__file__).resolve().parents[2] / "prompts" / "patient_judge_prompt.txt"
+    p = repo_root() / "prompts" / "patient_judge_prompt.txt"
     if not p.exists():
         raise FileNotFoundError(f"patient judge prompt missing at {p}")
     return p.read_text()
