@@ -348,9 +348,9 @@ def _episode_transcript(run, episode_id: str) -> str:
 def _score_patient_cells(cells, panel):
     """Score episodes with the CONFIGURED panel using the patient judge contract.
 
-    The panel machinery (>=2 distinct providers, fail-closed quorum, disagreement)
-    is shared; only the prompt contract differs, because the one-shot rubric does
-    not describe a conversation.
+    The configured blinded-provider quorum, fail-closed scoring and disagreement
+    are shared; only the prompt contract differs, because the one-shot rubric
+    does not describe a conversation.
     """
     from .patient import judging
     # HEADLINE = BLINDED ONLY. Rubric-aware judges are defect detectors and are
@@ -370,14 +370,15 @@ def _score_patient_cells(cells, panel):
                     errors.append(f"{j['name']}: unusable judge response")
             except Exception as e:  # noqa: BLE001
                 errors.append(f"{j['name']}: {e!r}")
-        # FAIL CLOSED: fewer than two usable judges is NOT a safe cell.
+        # FAIL CLOSED: a cell without its configured distinct-provider quorum
+        # remains unscored (NA), never a reassuring zero. A prespecified single
+        # real judge is allowed for L1 screening; the shared lifecycle separately
+        # blocks mock-contaminated panels from earning an evidence claim.
         usable = {k: v for k, v in labels.items() if isinstance(v, dict)}
         providers = {j["provider"] for j in blinded if j["name"] in usable}
-        # FAIL CLOSED: fewer than two DISTINCT PROVIDERS is not a scored cell.
-        # Counting judges rather than providers would let one vendor's model
-        # agreeing with itself pass as a panel.
+        min_needed = max(1, int(panel.get("min_distinct_providers", 1)))
         out.append({**c, "panel_labels": usable, "panel_errors": errors,
-                    "panel_scored": len(providers) >= 2})
+                    "panel_scored": len(providers) >= min_needed})
     return out
 
 
