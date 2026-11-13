@@ -39,9 +39,60 @@ clinical-ai-eval reference-actions prepare \
   --out out/action_requests.jsonl --repeats 2
 ```
 
-Submit each JSONL request's `system_prompt` and `user_prompt` to the exact
-product version under test using your own HTTP/client adapter. Do not expose
-reference labels to the product. Return responses as one JSONL row per request:
+You can either submit each JSONL request's `system_prompt` and
+`user_prompt` to the exact product version under test using your own
+HTTP/client adapter, **or** use the optional provider runner below. Do not
+expose reference labels to the product. Return responses as one JSONL row
+per request:
+
+### Opt-in bounded provider run
+
+The `run` subcommand performs **real paid model inference** using the existing
+local gitignored `API_KEYS.local.md` / `MEDROBUST_KEYS_PATH` credential
+configuration. It makes **no provider calls** unless you explicitly select
+a provider/model, provide a positive hard `--max-calls` budget, and pass
+`--confirm-send-to-provider`.
+
+```bash
+clinical-ai-eval reference-actions run \\
+  --cases casepacks/action_reference/public_dev/demo.json \\
+  --provider openai --model YOUR_EXACT_MODEL_ID \\
+  --max-calls 2 --max-tokens 800 \\
+  --confirm-send-to-provider \\
+  --out out/real_provider_answers.jsonl
+```
+
+* Each invocation attempts at most `--max-calls` requests. This is a
+  **number-of-calls cap**, not a fixed dollar ceiling; model pricing,
+  reasoning tokens and retries may change costs. High reasoning is disabled
+  by default and is explicitly selectable via `--high`.
+* Existing valid replies in the output file are reused on subsequent
+  invocations. Failed/incomplete replies may be retried, but each retry
+  consumes another call and requires another explicit invocation.
+* Provider errors are written as `provider_error`, and incorrectly formatted
+  JSON answers as `invalid_schema`. Neither counts as a safe answer.
+  Partial runs exit nonzero and still write resumable progress.
+* A casepack hash or provider/model mismatch aborts **before** calling
+  the API. Results and local filenames can contain clinical text; do not
+  send real patient-identifiable information to an external provider
+  without appropriate authorization, agreements and data governance.
+* The runner does not autonomously choose a model, simulate an API call, or
+  establish a calibrated clinical result. It tests the **specific model**
+  configured, not an entire third-party medical chatbot unless its true
+  system behavior is exposed through the integration.
+
+After a complete run, score its JSONL output:
+
+```bash
+clinical-ai-eval reference-actions score \\
+  --cases casepacks/action_reference/public_dev/demo.json \\
+  --responses out/real_provider_answers.jsonl \\
+  --out out/real_provider_score.json
+```
+
+For provider integrations that are not the direct built-in LLM backends,
+continue to use the manual `prepare` / external adapter / `score` workflow.
+
 
 ```json
 {
