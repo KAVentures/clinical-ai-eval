@@ -103,5 +103,8 @@ def read_toml(path: str | os.PathLike) -> dict:
         # strip trailing inline comment (only outside quotes; our values are simple)
         val = val.split("#", 1)[0] if not (val.strip().startswith(('"', "'"))) else val
         target = current_table if current_table is not None else result
-        target[key.strip()] = _coerce(val)
+        key = key.strip()
+        if key in target:
+            raise ValueError(f"Duplicate TOML key {key!r} in {path} at line {line_number}")
+        target[key] = _coerce(val)
     return result
