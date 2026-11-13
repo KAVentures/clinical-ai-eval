@@ -227,4 +227,27 @@ def hazard_markdown(report: dict) -> list[str]:
         L.append(f"| `{r['hazard_id']}` {r['description']} | {r['severity']} | "
                  f"`{r.get('metric','')}` | {obs} | {crit} | {mark} |")
     L.append("")
+    L += ["### Independent-case statistical assurance", "",
+          "A per-cell PASS is an exploratory screen, **not** evidence that a "
+          "risk bound is met. Each case counts once even when it has many "
+          "correlated variants or judge votes. A qualification-grade result "
+          "requires a prespecified maximum 95% case-event upper bound and "
+          "at least 30 independent cases (or a stricter declared minimum).",
+          "",
+          "| hazard | independent cases | case-event 95% CI | assurance |",
+          "|---|---:|---|---|"]
+    for r in report["results"]:
+        a = r.get("case_assurance")
+        if not a:
+            continue
+        interval = a["case_event_ci95"]
+        ci = ("n/a" if interval[0] is None else
+              f"{interval[0]:.1%}–{interval[1]:.1%}")
+        L.append(f"| {r['hazard_id']} | {a['n_independent_cases']} | "
+                 f"{ci} | {a['status']} |")
+    L.append("")
+    L.append(f"**Criteria decision-ready:** {report.get('criteria_decision_ready', False)} "
+             "(requires both qualified family maturity and all prespecified "
+             "case-level uncertainty criteria; does not certify clinical validity).")
+    L.append("")
     return L
