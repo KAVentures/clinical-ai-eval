@@ -35,8 +35,28 @@ def load_family(family_id: str = "missing_information", validate: bool = True) -
 def load_panel(config_path=None) -> dict:
     from .util import read_toml
     cfg = read_toml(config_path or (repo_root() / "configs" / "judge_panel.toml"))
-    return {"min_distinct_providers": int(cfg.get("min_distinct_providers", 1)),
-            "judges": cfg.get("judges", [])}
+    min_needed = cfg.get("min_distinct_providers", 1)
+    if type(min_needed) is not int or min_needed < 1:
+        raise ValueError("min_distinct_providers must be an integer >= 1")
+    judges = cfg.get("judges")
+    if not isinstance(judges, list) or not judges:
+        raise ValueError("judge panel must contain at least one [[judges]] entry")
+    seen_names = set()
+    for i, j in enumerate(judges, 1):
+        if not isinstance(j, dict):
+            raise ValueError(f"judge {i} must be a TOML table")
+        for field in ("name", "provider", "model"):
+            if not isinstance(j.get(field), str) or not j[field].strip():
+                raise ValueError(f"judge {i} requires a nonempty {field}")
+        if j["name"] in seen_names:
+            raise ValueError(f"duplicate judge name {j['name']!r}")
+        seen_names.add(j["name"])
+        # Never interpret 0, an empty string, or a typo as 'real judge'.
+        if type(j.get("mock")) is not bool:
+            raise ValueError(f"judge {i} must explicitly set mock = true or false")
+        if j.get("mode", "blinded") not in ("blinded", "rubric_aware"):
+            raise ValueError(f"judge {i} has invalid mode {j.get('mode')!r}")
+    return {"min_distinct_providers": min_needed, "judges": judges}
 
 
 def headline_judges(panel: dict) -> list[dict]:
