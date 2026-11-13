@@ -8,8 +8,6 @@ qualified procurement or deployment gate.
 from __future__ import annotations
 
 import json
-from collections import defaultdict
-
 from . import reference_actions as actions, stats
 
 
@@ -173,11 +171,15 @@ def compare(pack: dict, baseline: list, candidate: list, repeats: int = 1) -> di
     ]
     status = ("COMPLETE_EXPLORATORY_COMPARISON" if not incomplete else
               "INCOMPLETE_NO_RELIABLE_OVERALL_COMPARISON")
-    safety_ci = _case_ci(paired_cases, cases_with_new_unsafe)
-    counts["total_new_hazard_or_usefulness_regressions"] = (
-        counts["newly_prohibited_autonomous_actions"] +
-        counts["newly_missed_required_actions"] +
-        counts["retraction_regressions"])
+    # A partially observed case must not lower the case-level risk bound by
+    # contributing only easy conditions while its difficult conditions are NA.
+    fully_paired_cases = {
+        c["case_id"] for c in pack["cases"]
+        if all((c["case_id"], condition["condition_id"], rep) in left["parsed"]
+               and (c["case_id"], condition["condition_id"], rep) in right["parsed"]
+               for condition in c["conditions"] for rep in range(1, repeats + 1))
+    }
+    safety_ci = _case_ci(fully_paired_cases, cases_with_new_unsafe)
     return {
         "schema": "reference_action_regression_v1",
         "status": status,
