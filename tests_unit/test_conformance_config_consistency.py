@@ -157,3 +157,27 @@ def test_l2_requires_prior_real_l1_even_with_human_review():
         {"conformance_level": "L1"},
     ):
         assert not panel_can_anchor_l2(source), source
+
+
+@pytest.mark.parametrize("mock_value", ["", "0", '"false"', "yes"])
+def test_malformed_mock_value_does_not_become_a_real_judge(tmp_path, mock_value):
+    path = tmp_path / "bad_panel.toml"
+    path.write_text(
+        "min_distinct_providers = 1\n"
+        "[[judges]]\n"
+        'name = "a"\nprovider = "provider_a"\nmodel = "model-a"\n'
+        f"mock = {mock_value}\n"
+    )
+    with pytest.raises(ValueError, match="explicitly set mock"):
+        pipeline.load_panel(path)
+
+
+def test_duplicate_judge_name_fails_before_scoring(tmp_path):
+    path = tmp_path / "bad_names.toml"
+    path.write_text(
+        'min_distinct_providers = 1\n'
+        '[[judges]]\nname = "same"\nprovider = "a"\nmodel = "m"\nmock = false\n'
+        '[[judges]]\nname = "same"\nprovider = "b"\nmodel = "m"\nmock = false\n'
+    )
+    with pytest.raises(ValueError, match="duplicate judge name"):
+        pipeline.load_panel(path)
