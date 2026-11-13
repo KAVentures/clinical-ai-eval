@@ -178,6 +178,7 @@ def conformance_from(panel: dict | None, cells: list, l2_gate_passed: bool = Fal
     # Do not let a real judge launder mock votes into an L1 claim. Cued
     # judges are excluded from the headline and cannot supply a quorum.
     mock_in_headline = any(j.get("mock") for j in blinded)
+    invalid_mock_flag = any(type(j.get("mock")) is not bool for j in blinded)
     # Legacy in-memory panels without a prespecified quorum require two
     # providers. Single-judge screening must opt in explicitly with quorum=1.
     needed = max(1, int((panel or {}).get("min_distinct_providers", 2)))
