@@ -159,10 +159,10 @@ def mandatory_strata_for(safety_fields: list) -> list:
 def conformance_from(panel: dict | None, cells: list, l2_gate_passed: bool = False) -> str:
     """DERIVE the conformance level; never assert it.
 
-    L0  no panel scored, fewer than two distinct BLINDED providers, or an all-mock
-        panel — a synthetic judge structurally exercises the L1 machinery but
-        cannot support a conclusion (EVAL_STANDARD.md §0)
-    L1  >=2 distinct real blinded providers actually scored the cells
+    L0  no panel scored, fewer than the configured number of distinct BLINDED
+        providers, or any synthetic blinded judge was included in the panel.
+    L1  the configured real blinded-provider quorum actually scored the cells
+        (one prespecified judge is permitted for an automated screen)
     L2  L1 plus a passed human adjudication gate
 
     All three conditions were wrong in v0.17 and every one failed OPEN:
@@ -175,9 +175,12 @@ def conformance_from(panel: dict | None, cells: list, l2_gate_passed: bool = Fal
     # it is counting one evaluator twice, once with the answer.
     blinded = [j for j in judges if j.get("mode", "blinded") == "blinded"]
     providers = {j.get("provider") or j.get("name") for j in blinded}
-    all_mock = all(j.get("mock") for j in blinded) if blinded else True
+    # Do not let a real judge launder mock votes into an L1 claim. Cued
+    # judges are excluded from the headline and cannot supply a quorum.
+    mock_in_headline = any(j.get("mock") for j in blinded)
+    needed = max(1, int((panel or {}).get("min_distinct_providers", 1)))
     scored = [c for c in cells if c.get("panel_scored")]
-    if not blinded or len(providers) < 2 or not scored or all_mock:
+    if not blinded or len(providers) < needed or not scored or mock_in_headline:
         return "L0"
     return "L2" if l2_gate_passed else "L1"
 
@@ -399,7 +402,7 @@ def _limitations(analysis: dict, authority) -> str:
                      "are deterministic measurements only.")
         else:
             L.append("- Conformance L0: the panel that scored these cells was synthetic "
-                     "(mock) or had fewer than two distinct blinded providers, so it "
+                     "(mock) or did not meet the configured real blinded-provider quorum, so it "
                      "cannot support a conclusion.")
     elif analysis["conformance_level"] == "L1":
         adj = analysis.get("adjudication")
