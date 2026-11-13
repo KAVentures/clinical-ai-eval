@@ -1,0 +1,33 @@
+{
+  "schema": "atomic_citation_support_v1",
+  "sources": [
+    {
+      "source_id": "SYN-001",
+      "version": "1",
+      "status": "current",
+      "text": "SYNTHETIC SOFTWARE FIXTURE: fictional action ALPHA is prohibited when fictional condition Z is present."
+    },
+    {
+      "source_id": "SYN-000",
+      "version": "0",
+      "status": "superseded",
+      "text": "SYNTHETIC WITHDRAWN FIXTURE: action ALPHA was historically permitted in condition Z."
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "claim-a",
+      "text": "In the fictional protocol, action ALPHA is prohibited in condition Z.",
+      "cited_source_ids": [
+        "SYN-001"
+      ]
+    },
+    {
+      "claim_id": "claim-b",
+      "text": "Action ALPHA is always allowed under condition Z.",
+      "cited_source_ids": [
+        "SYN-000"
+      ]
+    }
+  ]
+}
