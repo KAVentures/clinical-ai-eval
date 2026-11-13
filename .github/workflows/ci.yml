@@ -8,9 +8,15 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Only the newest run for each PR/branch should consume hosted runners.
+# Older queued matrix runs for the same PR are superseded, never other PRs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -33,7 +39,7 @@ jobs:
     # Fails if the registries disagree or the README table has drifted. A family
     # that is implemented but unreachable, or documented differently from how it
     # runs, is a defect — a user cannot otherwise tell what is supported.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -48,7 +54,7 @@ jobs:
   fixtures:
     # Fails if any number quoted in the README has drifted from a fresh
     # deterministic run. README rates are GENERATED, never hand-typed.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -62,7 +68,7 @@ jobs:
 
   smoke:
     # The documented entry points must actually run.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -96,7 +102,7 @@ jobs:
     # Proves the package is installable, not merely checkout-runnable: builds a
     # wheel, installs it into a CLEAN venv, and runs the DOCUMENTED CLI from a
     # directory that contains no source. Catches missing subpackages and data files.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
