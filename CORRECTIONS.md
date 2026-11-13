@@ -1,5 +1,30 @@
 # Corrections log
 
+## v0.21.1 — the structural gate rejected real clinician queries on the preconstructed path (2026-11)
+
+Found by running the physician-validation study's source selection against the real
+pinned datasets instead of fixtures.
+
+**`audit_variant` judged a preconstructed variant by surface traits of its source.**
+`trunc_form` flags text ending unpunctuated on a short word; `task_type` flags
+substrings such as `translate`, `summarize`, `icd-10`. Both were written for the
+built-in transforms, whose originals are structured fixtures. Real clinician queries
+end "...what should I do" and mention translation or coding inside genuine consults.
+On the 236 HealthBench Professional consult sources the two heuristics rejected
+**24 (10%)** — 12 each — before any clinician saw them, and a human confirmation
+cannot override a failed structural gate.
+
+For rows with `variant_source == "preconstructed"` each heuristic now fires only
+when the variant has the trait and the original does not, i.e. when the edit
+introduced it. A truncation or an admin rewrite introduced by the edit is still
+rejected. Built-in transforms are unchanged, and the README fixture block did not
+move.
+
+This is a change to the measurement instrument. A study pinned to an earlier commit
+must re-pin deliberately, before lock, not inherit it.
+
+466 tests pass.
+
 ## v0.21 — a v0.20 regression, found while verifying v0.20 (2026-08)
 
 Re-verifying the v0.20 fixes surfaced a defect those fixes introduced.
