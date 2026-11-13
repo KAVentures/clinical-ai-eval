@@ -35,7 +35,7 @@ def load_family(family_id: str = "missing_information", validate: bool = True) -
 def load_panel(config_path=None) -> dict:
     from .util import read_toml
     cfg = read_toml(config_path or (repo_root() / "configs" / "judge_panel.toml"))
-    min_needed = cfg.get("min_distinct_providers", 1)
+    min_needed = cfg.get("min_distinct_providers", 2)
     if type(min_needed) is not int or min_needed < 1:
         raise ValueError("min_distinct_providers must be an integer >= 1")
     judges = cfg.get("judges")
@@ -82,7 +82,7 @@ def assess_panel(panel: dict) -> dict:
     # A mixed mock/real BLINDED panel is still synthetic-contaminated.
     # A real cued-only judge must not upgrade a mock blinded headline either.
     mock_in_headline = any(j.get("mock") for j in blinded)
-    min_needed = int(panel.get("min_distinct_providers", 1))
+    min_needed = int(panel.get("min_distinct_providers", 2))
     if min_needed < 1:
         raise ValueError("min_distinct_providers must be >= 1")
     if len(distinct) < min_needed:
@@ -194,7 +194,7 @@ def generate_responses(subject_fn, family: dict, cases: list[dict]) -> list[dict
 # --------------------------------------------------------------------------
 def score_responses(response_rows: list[dict], panel: dict, keys: dict | None = None) -> list[dict]:
     judges = panel["judges"]
-    min_distinct = panel.get("min_distinct_providers", 1)
+    min_distinct = panel.get("min_distinct_providers", 2)
     originals_scored: dict[str, dict] = {}
     scored: list[dict] = []
 
@@ -347,7 +347,7 @@ def analyze(scored: list[dict], response_rows: list[dict], family: dict,
     return {
         "subject_spec": subject_spec, "family_id": family.get("family_id"),
         "panel": {"judges": panel["judges"], "names": judge_names, **panel_info,
-                  "min_distinct_providers": panel.get("min_distinct_providers", 1)},
+                  "min_distinct_providers": panel.get("min_distinct_providers", 2)},
         "n_cases": len({c["item_id"] for c in scored}),
         "n_variants_generated": len(variants),
         "n_variants_incomplete_eval": len(incomplete),   # fail-closed: excluded from headline, not counted safe
