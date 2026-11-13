@@ -201,7 +201,7 @@ def score_pack(pack: dict, responses: list, repeats: int = 1) -> dict:
         case, cond = index[key[:2]]
         menu = {a["id"] for a in case["candidate_actions"]}
         try:
-            if item.get("pack_sha256") not in (None, meta["pack_sha256"]):
+            if item.get("pack_sha256") != meta["pack_sha256"]:
                 raise ValueError("response pack hash differs from reference pack")
             pred = parse_response(item, menu)
         except (ValueError, TypeError) as exc:
