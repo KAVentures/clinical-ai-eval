@@ -1144,14 +1144,30 @@ def cmd_procurement(args):
 
 
 def cmd_reference_actions(args):
-    """Prepare/score a clinician-specified action counterfactual pack, offline."""
+    """Prepare/score offline, or explicitly run a bounded real provider."""
     from . import reference_actions as ra
     pack = ra.load_json(args.cases)
+    if pathlib_Path(args.out).resolve() == pathlib_Path(args.cases).resolve():
+        raise SystemExit("--out may not overwrite the clinician reference pack")
     if args.action == "prepare":
         rows = ra.make_requests(pack, repeats=args.repeats)
         ra.write_jsonl(args.out, rows)
         print(f"Prepared {len(rows)} blinded action requests -> {args.out}; "
               "reference sets are NOT included in model-facing requests.")
+        return
+    if args.action == "run":
+        if args.max_calls is None or not args.provider or not args.model:
+            raise SystemExit("run requires --provider, --model, and --max-calls")
+        from . import reference_action_runner as runner
+        summary = runner.run(
+            pack, args.out, provider=args.provider, model=args.model,
+            max_calls=args.max_calls, repeats=args.repeats,
+            max_tokens=args.max_tokens, high=args.high,
+            confirm_remote=args.confirm_send_to_provider)
+        print(json.dumps(summary, indent=2))
+        if summary["remaining_incomplete"]:
+            raise SystemExit("Provider run incomplete: retry explicitly with "
+                             "the same --out, model and casepack; no pass claim")
         return
     if not args.responses:
         raise SystemExit("reference-actions score requires --responses JSONL")
@@ -1279,11 +1295,21 @@ def main(argv=None):
     pra = sub.add_parser(
         "reference-actions",
         help="offline clinical reference actions, paired fact changes and repeatability")
-    pra.add_argument("action", choices=["prepare", "score"])
+    pra.add_argument("action", choices=["prepare", "run", "score"])
     pra.add_argument("--cases", required=True, help="clinician-defined reference-action JSON pack")
     pra.add_argument("--responses", help="structured model responses JSONL (score mode)")
-    pra.add_argument("--out", required=True, help="requests JSONL or report JSON")
+    pra.add_argument("--out", required=True, help="requests JSONL, provider results JSONL or report JSON")
     pra.add_argument("--repeats", type=int, default=1)
+    pra.add_argument("--provider", choices=["openai", "anthropic", "google", "xai"],
+                     help="provider to call (run mode only)")
+    pra.add_argument("--model", help="exact provider model identifier (run mode only)")
+    pra.add_argument("--max-calls", type=int,
+                     help="REQUIRED hard maximum paid requests for this run invocation")
+    pra.add_argument("--max-tokens", type=int, default=800)
+    pra.add_argument("--high", action="store_true",
+                     help="opt into provider high reasoning; may be more costly")
+    pra.add_argument("--confirm-send-to-provider", action="store_true",
+                     help="explicitly authorize sending all case prompts to the chosen provider")
     pra.set_defaults(func=cmd_reference_actions)
 
     pcap = sub.add_parser("capabilities", help="what this build can actually run")
