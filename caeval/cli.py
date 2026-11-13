@@ -78,6 +78,12 @@ def _score_and_report(ws: Workspace, panel, keys, subject_spec, family, project=
     responses = ws.read_responses()
     scored = pipeline.score_responses(responses, panel, keys)
     result = pipeline.analyze(scored, responses, family, subject_spec, panel)
+    # Run metadata originally described the CONFIGURED panel before scoring.
+    # Replace that provisional conformance with the OBSERVED result so human
+    # adjudication cannot upgrade an API-failed L0 run from a stale L1 flag.
+    run_meta = ws.read_run_meta()
+    run_meta.setdefault("panel", {})["conformance_level"] = result["panel"]["conformance_level"]
+    ws.write_run_meta(run_meta)
     if project is not None:
         from . import claim as claim_mod, maturity as maturity_mod
         # All five axes. The generic path previously passed three, so once the pack
