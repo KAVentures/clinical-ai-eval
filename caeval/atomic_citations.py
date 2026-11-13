@@ -242,3 +242,42 @@ def write_jsonl(path: str | Path, rows: list) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text("".join(json.dumps(x, ensure_ascii=False, sort_keys=True) + "\n"
                          for x in rows), encoding="utf-8")
+
+
+def main(argv=None) -> None:
+    """Standalone CLI; avoids changing shared evaluation CLI while other PRs run."""
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="clinical-citation-audit")
+    parser.add_argument("action", choices=["prepare", "score"])
+    parser.add_argument("--claims", required=True,
+                        help="atomic claims + pinned source text JSON pack")
+    parser.add_argument("--reviews", help="independent annotations JSONL (score)")
+    parser.add_argument("--out", required=True)
+    parser.add_argument("--min-clinicians", type=int, default=2)
+    args = parser.parse_args(argv)
+    pack = load_json(args.claims)
+    if args.action == "prepare":
+        tasks = prepare_review_queue(pack)
+        write_jsonl(args.out, tasks)
+        print(f"Prepared {len(tasks)} claim-source review tasks -> {args.out}")
+        return
+    if not args.reviews:
+        parser.error("score requires --reviews JSONL")
+    report = score(pack, read_jsonl(args.reviews),
+                   min_clinicians=args.min_clinicians)
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, indent=2, ensure_ascii=False,
+                              sort_keys=True), encoding="utf-8")
+    print(json.dumps({"coverage": report["coverage"],
+                      "support": report["support"],
+                      "citation_integrity": report["citation_integrity"],
+                      "claim_authority": report["claim_authority"]}, indent=2))
+    if report["coverage"]["n_unassessed_or_conflicting"]:
+        raise SystemExit("Unassessed or conflicting source support; no pass claim. "
+                         f"Inspect {args.out}")
+
+
+if __name__ == "__main__":
+    main()
