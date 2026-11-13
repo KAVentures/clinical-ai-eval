@@ -2,9 +2,9 @@
 #
 # The judge panel is READ FROM CONFIG, never hardcoded (§11 "Known reconciliation
 # needed before build"). The runtime enforces the configured distinct-provider quorum before any scoring runs.
-A single blinded judge is allowed when it is the prespecified calibrated evaluator
-for the endpoint/scope. Multi-provider panels remain available as an optional
-evaluator-robustness analysis; they are not assumed to eliminate bias.
+# A single blinded judge is allowed when it is the prespecified calibrated evaluator
+# for the endpoint/scope. Multi-provider panels remain available as an optional
+# evaluator-robustness analysis; they are not assumed to eliminate bias.
 #
 # The two upstream repos hardcoded different panels:
 #   evidence-sufficiency: openai / anthropic / xai / google (incl. Grok)
