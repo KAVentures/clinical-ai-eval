@@ -59,6 +59,9 @@ def assess_panel(panel: dict) -> dict:
     # evaluator bias. Rubric-aware entries never count toward the headline quorum.
     distinct = sorted({j.get("provider") for j in blinded})
     all_mock = all(j.get("mock") for j in judges) if judges else True
+    # A mixed mock/real BLINDED panel is still synthetic-contaminated.
+    # A real cued-only judge must not upgrade a mock blinded headline either.
+    mock_in_headline = any(j.get("mock") for j in blinded)
     min_needed = panel.get("min_distinct_providers", 1)
     if len(distinct) < min_needed:
         raise ValueError(
@@ -66,9 +69,9 @@ def assess_panel(panel: dict) -> dict:
             f"this panel configuration requires >= {min_needed} distinct provider(s). "
             f"rubric_aware judges do not count toward this quorum — they see the defect "
             f"specification and are reported separately as a cueing sensitivity analysis.")
-    if all_mock:
+    if all_mock or mock_in_headline:
         level, note = "L0", (
-            "Panel is synthetic (mock). It exercises scoring, validity gates and "
+            "Panel contains synthetic (mock) blinded judges. It exercises scoring, validity gates and "
             "safety/helpfulness separation, but a mock judge CANNOT support a conclusion -> "
             "NON_CONFORMANT for any claim. Swap in a real blinded judge for L1; add independent "
             "providers only when the assessment explicitly studies evaluator robustness.")
@@ -81,6 +84,7 @@ def assess_panel(panel: dict) -> dict:
               "absolute clinical rates are treated as calibrated. Until L2, conclusions must be "
               "worded 'automated screen suggests'.")
     return {"distinct_providers": distinct, "all_mock": all_mock,
+            "mock_in_headline": mock_in_headline,
             "conformance_level": level, "note": note,
             "headline_judge_names": [j["name"] for j in blinded],
             "cued_judge_names": [j["name"] for j in cued_judges(panel)],
