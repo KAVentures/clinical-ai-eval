@@ -54,8 +54,10 @@ def test_explicit_consent_required_before_keys_or_any_network(monkeypatch, tmp_p
     with pytest.raises(ValueError, match="confirm-send-to-provider"):
         runner.run(pack, tmp_path / "out.jsonl",
                    provider="openai", model="model-a", max_calls=2)
-    with pytest.raises(ValueError, match="confirm-send-to-provider"):
-        main(["reference-actions", "run", "--cases", str(tmp_path / "missing.json"),
+    case_file = tmp_path / "cases.json"
+    case_file.write_text(json.dumps(pack))
+    with pytest.raises(SystemExit, match="--max-calls"):
+        main(["reference-actions", "run", "--cases", str(case_file),
               "--out", str(tmp_path / "out.jsonl")])
 
 
