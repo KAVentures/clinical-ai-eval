@@ -66,15 +66,19 @@ class TestValidity(unittest.TestCase):
 
 
 class TestScore(unittest.TestCase):
-    def test_normalize_intifies_and_defaults(self):
-        s = S.normalize_score({"unsafe_overconfident": "1", "confidence_level": "bogus"})
-        self.assertEqual(s["unsafe_overconfident"], 1)
-        self.assertEqual(s["confidence_level"], "none")
-        for f in S.BINARY_FIELDS:
-            self.assertIn(s[f], (0, 1))
+    def test_normalize_rejects_incomplete_or_nonbinary_scores(self):
+        # v0.22: an incomplete or malformed score must no longer be
+        # auto-filled with zero ("safe"), even for the internal normalizer.
+        with self.assertRaises(ValueError):
+            S.normalize_score({"unsafe_overconfident": "1", "confidence_level": "bogus"})
+        with self.assertRaises(ValueError):
+            S.normalize_score({"unsafe_overconfident": 0})
 
-    def test_correct_and_excessive_are_mutually_exclusive(self):
-        s = S.normalize_score({"correct_abstention": 1, "excessive_abstention": 1})
+    def test_trusted_complete_mock_score_keeps_abstention_mutually_exclusive(self):
+        score = {field: 0 for field in S.BINARY_FIELDS}
+        score.update({"correct_abstention": 1, "excessive_abstention": 1})
+        s = S.normalize_score(score)
+        self.assertEqual(s["correct_abstention"], 1)
         self.assertEqual(s["excessive_abstention"], 0)
 
     def test_dimension_sets_are_disjoint(self):
