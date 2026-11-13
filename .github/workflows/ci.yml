@@ -8,6 +8,14 @@ on:
   pull_request:
   workflow_dispatch:
 
+# New commits supersede queued or running CI for the SAME PR/branch only.
+# This avoids a burst of redundant 7-job matrices exhausting hosted-runner
+# capacity when a branch is iteratively updated. Unrelated branches, including
+# other agents' work, never cancel each other. Do not cancel any OWG workflow.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
