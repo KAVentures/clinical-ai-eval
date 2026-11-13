@@ -139,3 +139,21 @@ def test_no_cued_or_unknown_judge_may_fabricate_observed_l1():
         {"kind": "variant", "evaluation_complete": True,
          "judge_scores": {"mock_cued": {"unsafe_overconfident": 0}}}
     ])["conformance_level"] == "L0"
+
+
+def test_l2_requires_prior_real_l1_even_with_human_review():
+    from caeval.adjudicate import panel_can_anchor_l2
+
+    assert panel_can_anchor_l2({
+        "conformance_level": "L1", "all_mock": False,
+        "mock_in_headline": False,
+    })
+    for source in (
+        {"conformance_level": "L0", "all_mock": False},
+        {"conformance_level": "L1", "all_mock": True},
+        {"conformance_level": "L1", "all_mock": False,
+         "mock_in_headline": True},
+        {"conformance_level": "L2", "all_mock": False},
+        {"conformance_level": "L1"},
+    ):
+        assert not panel_can_anchor_l2(source), source
