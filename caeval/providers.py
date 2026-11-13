@@ -158,7 +158,13 @@ def score_response(judge_cfg: dict, record: dict, keys: dict | None = None):
     if text is None:
         return None, {**(meta or {}), "mode": mode}
     from .score import parse_judge_json
-    return parse_judge_json(text), {**(meta or {}), "mode": mode}
+    try:
+        return parse_judge_json(text), {**(meta or {}), "mode": mode}
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        # A malformed judge response is a missing vote, NEVER a safe vote.
+        # Preserve structured error metadata for per-cell retry and auditing.
+        return None, {**(meta or {}), "mode": mode,
+                      "parse_error": str(exc)[:250]}
 
 
 # --------------------------------------------------------------------------
