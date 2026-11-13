@@ -193,7 +193,8 @@ def conformance_from(panel: dict | None, cells: list, l2_gate_passed: bool = Fal
                         if isinstance(labels.get(j.get("name")), dict)}
         if len(participants) >= needed:
             scored.append(c)
-    if not blinded or len(providers) < needed or not scored or mock_in_headline:
+    if (not blinded or len(providers) < needed or not scored
+            or mock_in_headline or invalid_mock_flag):
         return "L0"
     return "L2" if l2_gate_passed else "L1"
 
