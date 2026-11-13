@@ -269,9 +269,30 @@ def _panel_majority_score(cell: dict, judge_names: list[str]) -> dict:
 # --------------------------------------------------------------------------
 # STAGE 3: analyze (separated dimensions, disagreement, CIs, agreement, paired)
 # --------------------------------------------------------------------------
+def observed_panel_conformance(panel_info: dict, scored: list[dict]) -> dict:
+    """A configured real panel is not evidence if no variant was actually scored.
+
+    Fail-closed when API errors or malformed answers leave zero completed
+    blinded variant evaluations. Configured judges do not equal observed votes.
+    """
+    if panel_info["conformance_level"] != "L1":
+        return panel_info
+    names = set(panel_info["headline_judge_names"])
+    any_usable = any(
+        c.get("kind") == "variant" and c.get("evaluation_complete")
+        and bool(names.intersection((c.get("judge_scores") or {}).keys()))
+        for c in scored)
+    if any_usable:
+        return panel_info
+    return {**panel_info, "conformance_level": "L0",
+            "note": "No variant received a complete blinded judge evaluation; "
+                    "a configured real panel without observed valid votes "
+                    "cannot support L1 evidence."}
+
+
 def analyze(scored: list[dict], response_rows: list[dict], family: dict,
             subject_spec: dict, panel: dict) -> dict:
-    panel_info = assess_panel(panel)
+    panel_info = observed_panel_conformance(assess_panel(panel), scored)
     judge_names = [j["name"] for j in headline_judges(panel)]   # BLINDED = headline
     cued_names = [j["name"] for j in cued_judges(panel)]
     originals = {c["cell_id"]: c for c in scored if c["kind"] == "original"}
