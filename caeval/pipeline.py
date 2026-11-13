@@ -62,7 +62,9 @@ def assess_panel(panel: dict) -> dict:
     # A mixed mock/real BLINDED panel is still synthetic-contaminated.
     # A real cued-only judge must not upgrade a mock blinded headline either.
     mock_in_headline = any(j.get("mock") for j in blinded)
-    min_needed = panel.get("min_distinct_providers", 1)
+    min_needed = int(panel.get("min_distinct_providers", 1))
+    if min_needed < 1:
+        raise ValueError("min_distinct_providers must be >= 1")
     if len(distinct) < min_needed:
         raise ValueError(
             f"blinded (headline) judge panel has {len(distinct)} distinct provider(s) {distinct}; "
