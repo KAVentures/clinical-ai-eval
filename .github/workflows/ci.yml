@@ -115,3 +115,4 @@ jobs:
           /tmp/clean/bin/clinical-ai-eval inspect
           /tmp/clean/bin/clinical-ai-eval families
           /tmp/clean/bin/python -c "import caeval.certificates as cc; print('subpackage OK', cc.CERTIFIED)"
+          /tmp/clean/bin/python -c "from caeval.patient.judging import load_prompt; assert 'under_triage' in load_prompt(); print('patient judge prompt OK')"
