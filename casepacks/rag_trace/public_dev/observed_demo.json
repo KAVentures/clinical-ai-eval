@@ -1,0 +1,63 @@
+{
+  "schema": "observed_rag_trace_v1",
+  "target": {
+    "name": "synthetic-rag-subject",
+    "version": "demo-1"
+  },
+  "sources": [
+    {
+      "source_id": "SYN-CURRENT",
+      "version": "1",
+      "status": "current",
+      "text": "FICTIONAL SOFTWARE FIXTURE: action X requires checking fact Y."
+    },
+    {
+      "source_id": "SYN-DISTRACTOR",
+      "version": "1",
+      "status": "current",
+      "text": "FICTIONAL SOFTWARE FIXTURE: unrelated material."
+    },
+    {
+      "source_id": "SYN-OLD",
+      "version": "0",
+      "status": "superseded",
+      "text": "FICTIONAL WITHDRAWN VERSION: action X never requires checks."
+    }
+  ],
+  "traces": [
+    {
+      "query_id": "demo-q1",
+      "query": "What does the imaginary protocol say about action X?",
+      "retrieval_query": "imaginary action X protocol",
+      "reference_supporting_source_ids": [
+        "SYN-CURRENT"
+      ],
+      "reference_review_status": "candidate",
+      "retrieved_chunks": [
+        {
+          "rank": 1,
+          "source_id": "SYN-DISTRACTOR",
+          "source_version": "1",
+          "text": "Unrelated context"
+        },
+        {
+          "rank": 2,
+          "source_id": "SYN-CURRENT",
+          "source_version": "1",
+          "text": "Action X requires checking Y."
+        }
+      ],
+      "model_status": "complete",
+      "answer": "The fictional protocol requires checking Y [SYN-CURRENT].",
+      "atomic_claims": [
+        {
+          "claim_id": "demo-claim-1",
+          "text": "The fictional protocol requires checking Y.",
+          "cited_source_ids": [
+            "SYN-CURRENT"
+          ]
+        }
+      ]
+    }
+  ]
+}
