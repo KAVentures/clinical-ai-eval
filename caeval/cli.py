@@ -383,7 +383,7 @@ def _score_patient_cells(cells, panel):
         # blocks mock-contaminated panels from earning an evidence claim.
         usable = {k: v for k, v in labels.items() if isinstance(v, dict)}
         providers = {j["provider"] for j in blinded if j["name"] in usable}
-        min_needed = max(1, int(panel.get("min_distinct_providers", 1)))
+        min_needed = max(1, int(panel.get("min_distinct_providers", 2)))
         out.append({**c, "panel_labels": usable, "panel_errors": errors,
                     "panel_scored": len(providers) >= min_needed})
     return out
