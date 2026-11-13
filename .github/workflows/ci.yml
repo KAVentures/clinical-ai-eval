@@ -18,7 +18,9 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Python 3.9 wheels are available on Ubuntu 24.04, not ubuntu-latest
+    # (now Ubuntu 26.04). Keep the declared >=3.9 support matrix intact.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
