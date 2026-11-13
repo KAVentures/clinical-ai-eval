@@ -198,8 +198,12 @@ def score_episode(judge_cfg: dict, payload: dict, keys: dict | None = None):
             _mock_patient_judge(judge_cfg.get("provider", "mock_a"), payload, mode))
         return labels, {"status": "mock", "mode": mode,
                         "contract": "patient_multiturn_v1"}
+    # The patient executor doesn't pass the generic pipeline's keys argument.
+    # Resolve the same gitignored provider-key source here for real judges;
+    # never turn an omitted key dictionary into an unauthenticated API attempt.
+    provider_keys = keys if keys is not None else providers.load_keys()
     text, meta = providers.call(judge_cfg["provider"], judge_cfg["model"],
-                                load_prompt(), format_judge_user(payload), keys or {})
+                                load_prompt(), format_judge_user(payload), provider_keys)
     if text is None:
         return None, {**(meta or {}), "mode": mode}
     try:
