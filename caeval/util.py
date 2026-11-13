@@ -79,7 +79,7 @@ def read_toml(path: str | os.PathLike) -> dict:
     result: dict = {}
     current_array_key = None
     current_table: dict | None = None
-    for raw in Path(path).read_text().splitlines():
+    for line_number, raw in enumerate(Path(path).read_text().splitlines(), 1):
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
@@ -96,10 +96,15 @@ def read_toml(path: str | os.PathLike) -> dict:
             result[name] = current_table
             continue
         if "=" not in line:
-            continue
+            raise ValueError(f"Invalid TOML syntax in {path} at line {line_number}: {raw!r}")
         key, _, val = line.partition("=")
+        if not key.strip():
+            raise ValueError(f"Empty TOML key in {path} at line {line_number}")
         # strip trailing inline comment (only outside quotes; our values are simple)
         val = val.split("#", 1)[0] if not (val.strip().startswith(('"', "'"))) else val
         target = current_table if current_table is not None else result
-        target[key.strip()] = _coerce(val)
+        key = key.strip()
+        if key in target:
+            raise ValueError(f"Duplicate TOML key {key!r} in {path} at line {line_number}")
+        target[key] = _coerce(val)
     return result
