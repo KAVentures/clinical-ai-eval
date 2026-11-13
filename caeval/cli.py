@@ -111,7 +111,8 @@ def _generate(ws: Workspace, subject_spec, family, cases, panel):
         "generated_at": utc_now_iso(), "subject_spec": subject_spec, "family_id": family["family_id"],
         "panel": {"names": [j["name"] for j in panel["judges"]], "judges": panel["judges"],
                   "conformance_level": pipeline.assess_panel(panel)["conformance_level"],
-                  "all_mock": pipeline.assess_panel(panel)["all_mock"]},
+                  "all_mock": pipeline.assess_panel(panel)["all_mock"],
+                  "mock_in_headline": pipeline.assess_panel(panel)["mock_in_headline"]},
         "seeds": {"review_sampling_seed": 62}, "n_responses": len(responses),
     })
     return responses
