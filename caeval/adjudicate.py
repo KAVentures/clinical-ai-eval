@@ -146,6 +146,17 @@ def _confusion(human: list, auto: list) -> dict:
             "ppv": r(tp, tp + fp), "npv": r(tn, tn + fn), "n": tp + fp + tn + fn}
 
 
+def panel_can_anchor_l2(meta: dict) -> bool:
+    """True only for a genuinely L1, non-synthetic blinded assessment.
+
+    A panel whose conformance was L0 cannot be promoted by independent human
+    review. All-mock and mixed real/mock blinded panels are both excluded.
+    """
+    return (meta.get("conformance_level") == "L1"
+            and not meta.get("all_mock", True)
+            and not meta.get("mock_in_headline", False))
+
+
 def adjudicate(workspace_dir: str, review_files: list[str], consensus_file: str | None = None) -> dict:
     ws = Workspace(workspace_dir)
     results = _load_results(ws)
@@ -330,7 +341,7 @@ def adjudicate(workspace_dir: str, review_files: list[str], consensus_file: str 
     base_level = meta["panel"].get("conformance_level", "L0")
     judges_are_mock = bool(meta["panel"].get("all_mock", True)
                            or meta["panel"].get("mock_in_headline", False))
-    base_ineligible = base_level != "L1"
+    base_ineligible = not panel_can_anchor_l2(meta["panel"])
     all_mock = judges_are_mock or reviews_are_synthetic
     if integrity_problems:
         level = base_level if base_level == "L1" else "L0"
@@ -344,9 +355,10 @@ def adjudicate(workspace_dir: str, review_files: list[str], consensus_file: str 
             why.append(f"automated run lacks L1 prerequisite (base {base_level})")
         if reviews_are_synthetic:
             why.append(f"review submissions are synthetic ({', '.join(synthetic_reviewers)})")
-        level_note = ("L2 machinery exercised but NON_CONFORMANT for claims: " + "; ".join(why)
-                      + ". A synthetic clinician cannot calibrate a real one, so mock reviews "
-                        "block L2 REGARDLESS of the judge panel.")
+        level_note = ("L2 refused: " + "; ".join(why)
+                      + ". L2 requires a completed authentic human review of a genuinely "
+                        "L1 automated assessment; mock votes or missing L1 evidence cannot "
+                        "be converted into a clinical finding.")
     elif two_reviewers and mand_completion >= 1.0 and completion >= 1.0 \
             and n_contested == 0 and irr_adequate and validity_ok:
         level = "L2"
