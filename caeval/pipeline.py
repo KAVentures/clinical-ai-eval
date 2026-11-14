@@ -35,8 +35,28 @@ def load_family(family_id: str = "missing_information", validate: bool = True) -
 def load_panel(config_path=None) -> dict:
     from .util import read_toml
     cfg = read_toml(config_path or (repo_root() / "configs" / "judge_panel.toml"))
-    return {"min_distinct_providers": int(cfg.get("min_distinct_providers", 1)),
-            "judges": cfg.get("judges", [])}
+    min_needed = cfg.get("min_distinct_providers", 2)
+    if type(min_needed) is not int or min_needed < 1:
+        raise ValueError("min_distinct_providers must be an integer >= 1")
+    judges = cfg.get("judges")
+    if not isinstance(judges, list) or not judges:
+        raise ValueError("judge panel must contain at least one [[judges]] entry")
+    seen_names = set()
+    for i, j in enumerate(judges, 1):
+        if not isinstance(j, dict):
+            raise ValueError(f"judge {i} must be a TOML table")
+        for field in ("name", "provider", "model"):
+            if not isinstance(j.get(field), str) or not j[field].strip():
+                raise ValueError(f"judge {i} requires a nonempty {field}")
+        if j["name"] in seen_names:
+            raise ValueError(f"duplicate judge name {j['name']!r}")
+        seen_names.add(j["name"])
+        # Never interpret 0, an empty string, or a typo as 'real judge'.
+        if type(j.get("mock")) is not bool:
+            raise ValueError(f"judge {i} must explicitly set mock = true or false")
+        if j.get("mode", "blinded") not in ("blinded", "rubric_aware"):
+            raise ValueError(f"judge {i} has invalid mode {j.get('mode')!r}")
+    return {"min_distinct_providers": min_needed, "judges": judges}
 
 
 def headline_judges(panel: dict) -> list[dict]:
@@ -52,6 +72,10 @@ def cued_judges(panel: dict) -> list[dict]:
 
 def assess_panel(panel: dict) -> dict:
     judges = panel["judges"]
+    # Programmatic callers must obey the same strict mock/real typing as TOML
+    # callers; otherwise mock=0 or mock="" would be treated as a real judge.
+    if any(type(j.get("mock")) is not bool for j in judges):
+        raise ValueError("every judge must explicitly declare boolean mock status")
     blinded = headline_judges(panel)
     # The configured distinct-provider quorum applies to the HEADLINE (blinded)
     # evaluator set. A single calibrated judge is a valid screen configuration;
@@ -59,16 +83,21 @@ def assess_panel(panel: dict) -> dict:
     # evaluator bias. Rubric-aware entries never count toward the headline quorum.
     distinct = sorted({j.get("provider") for j in blinded})
     all_mock = all(j.get("mock") for j in judges) if judges else True
-    min_needed = panel.get("min_distinct_providers", 1)
+    # A mixed mock/real BLINDED panel is still synthetic-contaminated.
+    # A real cued-only judge must not upgrade a mock blinded headline either.
+    mock_in_headline = any(j.get("mock") for j in blinded)
+    min_needed = int(panel.get("min_distinct_providers", 2))
+    if min_needed < 1:
+        raise ValueError("min_distinct_providers must be >= 1")
     if len(distinct) < min_needed:
         raise ValueError(
             f"blinded (headline) judge panel has {len(distinct)} distinct provider(s) {distinct}; "
             f"this panel configuration requires >= {min_needed} distinct provider(s). "
             f"rubric_aware judges do not count toward this quorum — they see the defect "
             f"specification and are reported separately as a cueing sensitivity analysis.")
-    if all_mock:
+    if all_mock or mock_in_headline:
         level, note = "L0", (
-            "Panel is synthetic (mock). It exercises scoring, validity gates and "
+            "Panel contains synthetic (mock) blinded judges. It exercises scoring, validity gates and "
             "safety/helpfulness separation, but a mock judge CANNOT support a conclusion -> "
             "NON_CONFORMANT for any claim. Swap in a real blinded judge for L1; add independent "
             "providers only when the assessment explicitly studies evaluator robustness.")
@@ -81,6 +110,7 @@ def assess_panel(panel: dict) -> dict:
               "absolute clinical rates are treated as calibrated. Until L2, conclusions must be "
               "worded 'automated screen suggests'.")
     return {"distinct_providers": distinct, "all_mock": all_mock,
+            "mock_in_headline": mock_in_headline,
             "conformance_level": level, "note": note,
             "headline_judge_names": [j["name"] for j in blinded],
             "cued_judge_names": [j["name"] for j in cued_judges(panel)],
@@ -168,7 +198,7 @@ def generate_responses(subject_fn, family: dict, cases: list[dict]) -> list[dict
 # --------------------------------------------------------------------------
 def score_responses(response_rows: list[dict], panel: dict, keys: dict | None = None) -> list[dict]:
     judges = panel["judges"]
-    min_distinct = panel.get("min_distinct_providers", 1)
+    min_distinct = panel.get("min_distinct_providers", 2)
     originals_scored: dict[str, dict] = {}
     scored: list[dict] = []
 
@@ -200,7 +230,13 @@ def _score_cell(row: dict, judges: list[dict], keys, min_distinct: int) -> dict:
     mode_of = {j["name"]: j.get("mode", "blinded") for j in judges}
     judge_scores, judge_errors = {}, {}
     for j in judges:
-        sc, meta = providers.score_response(j, record, keys)
+        try:
+            sc, meta = providers.score_response(j, record, keys)
+        except Exception as exc:  # noqa: BLE001
+            # An individual provider outage or parse error leaves this vote
+            # unavailable. Do not coerce it into a safe label; do not leak
+            # exception text that may contain credentials or patient data.
+            sc, meta = None, {"error_type": type(exc).__name__}
         if sc is None:
             judge_errors[j["name"]] = str(meta)[:200]
         else:
@@ -263,9 +299,30 @@ def _panel_majority_score(cell: dict, judge_names: list[str]) -> dict:
 # --------------------------------------------------------------------------
 # STAGE 3: analyze (separated dimensions, disagreement, CIs, agreement, paired)
 # --------------------------------------------------------------------------
+def observed_panel_conformance(panel_info: dict, scored: list[dict]) -> dict:
+    """A configured real panel is not evidence if no variant was actually scored.
+
+    Fail-closed when API errors or malformed answers leave zero completed
+    blinded variant evaluations. Configured judges do not equal observed votes.
+    """
+    if panel_info["conformance_level"] != "L1":
+        return panel_info
+    names = set(panel_info["headline_judge_names"])
+    any_usable = any(
+        c.get("kind") == "variant" and c.get("evaluation_complete")
+        and bool(names.intersection((c.get("judge_scores") or {}).keys()))
+        for c in scored)
+    if any_usable:
+        return panel_info
+    return {**panel_info, "conformance_level": "L0",
+            "note": "No variant received a complete blinded judge evaluation; "
+                    "a configured real panel without observed valid votes "
+                    "cannot support L1 evidence."}
+
+
 def analyze(scored: list[dict], response_rows: list[dict], family: dict,
             subject_spec: dict, panel: dict) -> dict:
-    panel_info = assess_panel(panel)
+    panel_info = observed_panel_conformance(assess_panel(panel), scored)
     judge_names = [j["name"] for j in headline_judges(panel)]   # BLINDED = headline
     cued_names = [j["name"] for j in cued_judges(panel)]
     originals = {c["cell_id"]: c for c in scored if c["kind"] == "original"}
@@ -300,7 +357,7 @@ def analyze(scored: list[dict], response_rows: list[dict], family: dict,
     return {
         "subject_spec": subject_spec, "family_id": family.get("family_id"),
         "panel": {"judges": panel["judges"], "names": judge_names, **panel_info,
-                  "min_distinct_providers": panel.get("min_distinct_providers", 1)},
+                  "min_distinct_providers": panel.get("min_distinct_providers", 2)},
         "n_cases": len({c["item_id"] for c in scored}),
         "n_variants_generated": len(variants),
         "n_variants_incomplete_eval": len(incomplete),   # fail-closed: excluded from headline, not counted safe

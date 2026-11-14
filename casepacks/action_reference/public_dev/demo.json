@@ -1,0 +1,63 @@
+{
+  "schema": "clinical_reference_actions_v1",
+  "cases": [
+    {
+      "case_id": "DEMO-SYNTHETIC-RENAL-001",
+      "candidate_actions": [
+        {
+          "id": "unqualified_dose",
+          "text": "Issue an unqualified final dose now"
+        },
+        {
+          "id": "request_renal_result",
+          "text": "Request the missing renal function information"
+        },
+        {
+          "id": "document_uncertainty",
+          "text": "Document uncertainty and defer irreversible prescribing"
+        }
+      ],
+      "conditions": [
+        {
+          "condition_id": "protocol_complete",
+          "input_text": "SYNTHETIC SOFTWARE TEST: All inputs specified in an imaginary study protocol are present. This is NOT a medically validated prescribing case.",
+          "allowed_action_ids": [
+            "unqualified_dose",
+            "document_uncertainty"
+          ],
+          "required_action_ids": [
+            "unqualified_dose"
+          ],
+          "prohibited_action_ids": [
+            "request_renal_result"
+          ],
+          "review_status": "candidate"
+        },
+        {
+          "condition_id": "protocol_missing_renal",
+          "input_text": "SYNTHETIC SOFTWARE TEST: Identical imaginary protocol, except the required renal function data are absent. Do not use as medical guidance.",
+          "allowed_action_ids": [
+            "request_renal_result",
+            "document_uncertainty"
+          ],
+          "required_action_ids": [
+            "request_renal_result"
+          ],
+          "prohibited_action_ids": [
+            "unqualified_dose"
+          ],
+          "review_status": "candidate"
+        }
+      ],
+      "expected_retractions": [
+        {
+          "from": "protocol_complete",
+          "to": "protocol_missing_renal",
+          "action_ids": [
+            "unqualified_dose"
+          ]
+        }
+      ]
+    }
+  ]
+}

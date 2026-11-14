@@ -30,6 +30,7 @@ llm = ["openai", "anthropic", "google-genai"]
 # Runs from either a source checkout or an installed wheel. Wheel builds bundle
 # runtime data under caeval/_data; CAEVAL_HOME remains an explicit override.
 clinical-ai-eval = "caeval.cli:main"
+clinical-citation-audit = "caeval.atomic_citations:main"
 
 [tool.setuptools.dynamic]
 version = {attr = "caeval.version.__version__"}

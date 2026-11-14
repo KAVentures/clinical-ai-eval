@@ -78,6 +78,12 @@ def _score_and_report(ws: Workspace, panel, keys, subject_spec, family, project=
     responses = ws.read_responses()
     scored = pipeline.score_responses(responses, panel, keys)
     result = pipeline.analyze(scored, responses, family, subject_spec, panel)
+    # Run metadata originally described the CONFIGURED panel before scoring.
+    # Replace that provisional conformance with the OBSERVED result so human
+    # adjudication cannot upgrade an API-failed L0 run from a stale L1 flag.
+    run_meta = ws.read_run_meta()
+    run_meta.setdefault("panel", {})["conformance_level"] = result["panel"]["conformance_level"]
+    ws.write_run_meta(run_meta)
     if project is not None:
         from . import claim as claim_mod, maturity as maturity_mod
         # All five axes. The generic path previously passed three, so once the pack
@@ -111,7 +117,8 @@ def _generate(ws: Workspace, subject_spec, family, cases, panel):
         "generated_at": utc_now_iso(), "subject_spec": subject_spec, "family_id": family["family_id"],
         "panel": {"names": [j["name"] for j in panel["judges"]], "judges": panel["judges"],
                   "conformance_level": pipeline.assess_panel(panel)["conformance_level"],
-                  "all_mock": pipeline.assess_panel(panel)["all_mock"]},
+                  "all_mock": pipeline.assess_panel(panel)["all_mock"],
+                  "mock_in_headline": pipeline.assess_panel(panel)["mock_in_headline"]},
         "seeds": {"review_sampling_seed": 62}, "n_responses": len(responses),
     })
     return responses
@@ -348,9 +355,9 @@ def _episode_transcript(run, episode_id: str) -> str:
 def _score_patient_cells(cells, panel):
     """Score episodes with the CONFIGURED panel using the patient judge contract.
 
-    The panel machinery (>=2 distinct providers, fail-closed quorum, disagreement)
-    is shared; only the prompt contract differs, because the one-shot rubric does
-    not describe a conversation.
+    The configured blinded-provider quorum, fail-closed scoring and disagreement
+    are shared; only the prompt contract differs, because the one-shot rubric
+    does not describe a conversation.
     """
     from .patient import judging
     # HEADLINE = BLINDED ONLY. Rubric-aware judges are defect detectors and are
@@ -370,14 +377,15 @@ def _score_patient_cells(cells, panel):
                     errors.append(f"{j['name']}: unusable judge response")
             except Exception as e:  # noqa: BLE001
                 errors.append(f"{j['name']}: {e!r}")
-        # FAIL CLOSED: fewer than two usable judges is NOT a safe cell.
+        # FAIL CLOSED: a cell without its configured distinct-provider quorum
+        # remains unscored (NA), never a reassuring zero. A prespecified single
+        # real judge is allowed for L1 screening; the shared lifecycle separately
+        # blocks mock-contaminated panels from earning an evidence claim.
         usable = {k: v for k, v in labels.items() if isinstance(v, dict)}
         providers = {j["provider"] for j in blinded if j["name"] in usable}
-        # FAIL CLOSED: fewer than two DISTINCT PROVIDERS is not a scored cell.
-        # Counting judges rather than providers would let one vendor's model
-        # agreeing with itself pass as a panel.
+        min_needed = max(1, int(panel.get("min_distinct_providers", 2)))
         out.append({**c, "panel_labels": usable, "panel_errors": errors,
-                    "panel_scored": len(providers) >= 2})
+                    "panel_scored": len(providers) >= min_needed})
     return out
 
 
@@ -1135,6 +1143,50 @@ def cmd_procurement(args):
         print("Contains no combined score, no ranking and no buy/no-buy recommendation.")
 
 
+def cmd_reference_actions(args):
+    """Prepare/score offline, or explicitly run a bounded real provider."""
+    from . import reference_actions as ra
+    pack = ra.load_json(args.cases)
+    if pathlib_Path(args.out).resolve() == pathlib_Path(args.cases).resolve():
+        raise SystemExit("--out may not overwrite the clinician reference pack")
+    if args.action == "prepare":
+        rows = ra.make_requests(pack, repeats=args.repeats)
+        ra.write_jsonl(args.out, rows)
+        print(f"Prepared {len(rows)} blinded action requests -> {args.out}; "
+              "reference sets are NOT included in model-facing requests.")
+        return
+    if args.action == "run":
+        if args.max_calls is None or not args.provider or not args.model:
+            raise SystemExit("run requires --provider, --model, and --max-calls")
+        from . import reference_action_runner as runner
+        summary = runner.run(
+            pack, args.out, provider=args.provider, model=args.model,
+            max_calls=args.max_calls, repeats=args.repeats,
+            max_tokens=args.max_tokens, high=args.high,
+            confirm_remote=args.confirm_send_to_provider)
+        print(json.dumps(summary, indent=2))
+        if summary["remaining_incomplete"]:
+            raise SystemExit("Provider run incomplete: retry explicitly with "
+                             "the same --out, model and casepack; no pass claim")
+        return
+    if not args.responses:
+        raise SystemExit("reference-actions score requires --responses JSONL")
+    rows = ra.read_jsonl(args.responses)
+    report = ra.score_pack(pack, rows, repeats=args.repeats)
+    pathlib_Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    pathlib_Path(args.out).write_text(json.dumps(report, indent=2, sort_keys=True))
+    print(json.dumps({"coverage": report["coverage"],
+                      "safety": report["safety"],
+                      "usefulness": report["usefulness"],
+                      "counterfactual": {k: v for k, v in report["counterfactual"].items()
+                                         if k != "rows"},
+                      "repeatability": report["repeatability"],
+                      "claim": report["conformance"]}, indent=2))
+    if report["coverage"]["n_invalid"] or report["coverage"]["n_missing"]:
+        raise SystemExit("Incomplete or invalid model responses: no pass claim; "
+                         f"inspect {args.out}")
+
+
 def cmd_capabilities(args):
     """Print what this build can actually run, derived from the registries."""
     import json as _json
@@ -1239,6 +1291,26 @@ def main(argv=None):
     pproc.add_argument("--family", default="patient_red_flag")
     pproc.add_argument("--out", default=None)
     pproc.set_defaults(func=cmd_procurement)
+
+    pra = sub.add_parser(
+        "reference-actions",
+        help="offline clinical reference actions, paired fact changes and repeatability")
+    pra.add_argument("action", choices=["prepare", "run", "score"])
+    pra.add_argument("--cases", required=True, help="clinician-defined reference-action JSON pack")
+    pra.add_argument("--responses", help="structured model responses JSONL (score mode)")
+    pra.add_argument("--out", required=True, help="requests JSONL, provider results JSONL or report JSON")
+    pra.add_argument("--repeats", type=int, default=1)
+    pra.add_argument("--provider", choices=["openai", "anthropic", "google", "xai"],
+                     help="provider to call (run mode only)")
+    pra.add_argument("--model", help="exact provider model identifier (run mode only)")
+    pra.add_argument("--max-calls", type=int,
+                     help="REQUIRED hard maximum paid requests for this run invocation")
+    pra.add_argument("--max-tokens", type=int, default=800)
+    pra.add_argument("--high", action="store_true",
+                     help="opt into provider high reasoning; may be more costly")
+    pra.add_argument("--confirm-send-to-provider", action="store_true",
+                     help="explicitly authorize sending all case prompts to the chosen provider")
+    pra.set_defaults(func=cmd_reference_actions)
 
     pcap = sub.add_parser("capabilities", help="what this build can actually run")
     pcap.add_argument("--json", action="store_true")
