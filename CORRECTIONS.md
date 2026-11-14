@@ -23,7 +23,7 @@ move.
 This is a change to the measurement instrument. A study pinned to an earlier commit
 must re-pin deliberately, before lock, not inherit it.
 
-466 tests pass.
+642 tests pass after merging the 2026-11-13 main.
 
 ## v0.21 — a v0.20 regression, found while verifying v0.20 (2026-08)
 
