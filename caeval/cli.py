@@ -24,6 +24,7 @@ from . import adjudicate as adj
 from . import intake as intake_mod
 from . import pipeline, report, selection
 from .subject import build_subject
+from .adapters import persistable
 from .util import repo_root, utc_now_iso
 from .workspace import Workspace
 from targets import demo_target
@@ -63,18 +64,39 @@ def _plan(target_meta: dict) -> dict:
     return plan
 
 
-def _panel_and_keys(panel_path=None):
+def resolve_panel_path(panel_path, project_dir=None):
+    """A panel path from the CLI or project.yaml. Relative paths are tried
+    against the project directory, then the current directory, then the
+    installed package data, so a project works from wherever it is run and
+    from an installed wheel, not only from a source checkout."""
+    if not panel_path:
+        return None
+    path = Path(panel_path)
+    if path.is_absolute():
+        return path
+    for base in ([Path(project_dir)] if project_dir else []) + [Path.cwd(), repo_root()]:
+        if (base / path).exists():
+            return base / path
+    raise SystemExit(f"judge panel not found: {panel_path} (looked in the project directory, "
+                     f"the current directory and {repo_root()})")
+
+
+def _panel_and_keys(panel_path=None, project_dir=None):
+    panel_path = resolve_panel_path(panel_path, project_dir)
     panel = pipeline.load_panel(panel_path) if panel_path else pipeline.load_panel()
     pipeline.assess_panel(panel)  # enforce >=2 DISTINCT providers BEFORE touching keys (§7, §11)
     keys = None
     if not all(j.get("mock") for j in panel["judges"]):
         from .providers import load_keys
-        keys = load_keys()
+        keys = load_keys(registry=pipeline.panel_registry(panel))
     return panel, keys
 
 
 def _score_and_report(ws: Workspace, panel, keys, subject_spec, family, project=None,
                       binding=None, pack_descriptor=None):
+    # Reports and evidence packages are made to be shared: never carry a
+    # connector credential into them, whatever the caller passed.
+    subject_spec = persistable(subject_spec)
     responses = ws.read_responses()
     scored = pipeline.score_responses(responses, panel, keys)
     result = pipeline.analyze(scored, responses, family, subject_spec, panel)
@@ -114,7 +136,9 @@ def _generate(ws: Workspace, subject_spec, family, cases, panel):
     responses = pipeline.generate_responses(subject_fn, family, cases)
     ws.write_responses(responses)
     ws.write_run_meta({
-        "generated_at": utc_now_iso(), "subject_spec": subject_spec, "family_id": family["family_id"],
+        # Persisted spec is credential-free: ${ENV} references are kept, any
+        # literal secret is replaced. The live spec above is what was called.
+        "generated_at": utc_now_iso(), "subject_spec": persistable(subject_spec), "family_id": family["family_id"],
         "panel": {"names": [j["name"] for j in panel["judges"]], "judges": panel["judges"],
                   "conformance_level": pipeline.assess_panel(panel)["conformance_level"],
                   "all_mock": pipeline.assess_panel(panel)["all_mock"],
@@ -224,9 +248,13 @@ def _run_project_bound(args):
 
     from . import executors, packsource
 
-    panel, keys = _panel_and_keys(proj.data.get("panel", {}).get("config"))
+    panel, keys = _panel_and_keys(proj.data.get("panel", {}).get("config"), proj.path)
 
     subject_spec = dict(proj.subject)
+    # Paths in project.yaml are relative to the project, not to wherever the
+    # command happens to be run from.
+    if subject_spec.get("responses_file") and not Path(subject_spec["responses_file"]).is_absolute():
+        subject_spec["responses_file"] = str(Path(proj.path) / subject_spec["responses_file"])
     subject_spec.setdefault("name", proj.target_meta["name"])
     subject_spec.setdefault("version", proj.target_meta["version"])
     subject_spec["audience"] = claim_mod._audience_for(proj)
@@ -1203,6 +1231,128 @@ def cmd_capabilities(args):
           else capabilities.render_markdown())
 
 
+def _model_entries(args):
+    """(role, entry, registry) for every real model a run would call."""
+    from . import llm
+    from . import project as project_mod
+    out = []
+    panel = pipeline.load_panel(args.panel) if args.panel or not args.project else None
+    if args.project:
+        proj = project_mod.load(args.project)
+        spec = proj.subject
+        kind = spec.get("kind")
+        if kind in ("llm", "openai", "anthropic", "xai", "google"):
+            registry = llm.provider_registry({"providers": spec.get("providers") or {}})
+            out.append(("subject", {"provider": spec.get("provider") if kind == "llm" else kind,
+                                    "model": spec.get("model"),
+                                    "reasoning_effort": spec.get("reasoning_effort", "high")}, registry))
+        panel_path = (proj.data.get("panel") or {}).get("config")
+        if not args.panel and panel_path:
+            panel = pipeline.load_panel(resolve_panel_path(panel_path, proj.path))
+    if panel:
+        registry = pipeline.panel_registry(panel)
+        for j in panel["judges"]:
+            if not j.get("mock"):
+                out.append((f"judge:{j['name']}", j, registry))
+    return out, panel
+
+
+def cmd_models(args):
+    """Which real models a run would call, checked offline (`check`) or against
+    each provider's model list (`list`, no tokens generated)."""
+    from . import llm, providers
+    entries, panel = _model_entries(args)
+    if panel is not None:
+        mocks = [j["name"] for j in panel["judges"] if j.get("mock")]
+        if mocks:
+            print(f"mock judges (offline, no provider): {', '.join(mocks)}")
+    if not entries:
+        print("No real models configured: this run makes no paid calls.")
+        return
+    problems = []
+    print(f"{'role':30} {'provider/model':46} {'api':24} {'effort':16} key")
+    for role, e, registry in entries:
+        try:
+            spec = llm.resolve_provider(e["provider"], registry)
+        except llm.ProviderConfigError as exc:
+            problems.append(f"{role}: {exc}")
+            continue
+        effort = str(e.get("reasoning_effort") or "high")
+        if effort not in llm.EFFORTS_BY_API[spec["api"]]:
+            problems.append(f"{role}: reasoning_effort {effort!r} not valid for {spec['api']}")
+        print(f"{role:30} {(str(e['provider']) + '/' + str(e['model'])):46} {spec['api']:24} {effort:16} "
+              f"{spec.get('api_key_env') or '-'}")
+    if args.action == "list":
+        missing = []
+        seen = {}
+        for role, e, registry in entries:
+            if e["provider"] not in seen:
+                try:
+                    seen[e["provider"]] = llm.list_models(e["provider"], providers.load_keys(registry=registry), registry)
+                except Exception as exc:  # noqa: BLE001  no listing endpoint, key, network
+                    seen[e["provider"]] = None
+                    problems.append(f"{e['provider']}: could not list models, so {e['model']} is unverified "
+                                    f"({type(exc).__name__}: {str(exc)[:200]})")
+            ids = seen[e["provider"]]
+            if ids is not None and e["model"] not in ids:
+                missing.append(f"{e['provider']}/{e['model']}")
+        for prov, ids in seen.items():
+            if ids:
+                shown = [i for i in ids if args.grep.lower() in i.lower()]
+                print(f"\n{prov}: {len(ids)} models offered" + (f", {len(shown)} matching {args.grep!r}" if args.grep else ""))
+                for i in shown[:200]:
+                    print(f"  {i}")
+        if missing:
+            problems.append("not offered to this key: " + ", ".join(missing))
+    for p in problems:
+        print(f"ERROR: {p}")
+    if problems:
+        raise SystemExit(1)
+    print("\nOK. `models check` is offline; `models list` asks each provider which IDs your key can use "
+          "(no tokens generated). `connector test` then makes one real call to the subject.")
+
+
+def cmd_prompts(args):
+    """Write the exact prompts a run will send, for `subject.kind: manual`.
+
+    For systems that cannot be called programmatically: paste each prompt into the
+    system, put each answer in the responses file under the same key, then `run`.
+    The prompt file contains only the case text the system would receive; which
+    fact was changed is never written into it."""
+    from . import executors, packsource
+    from . import project as project_mod
+    proj = project_mod.load(args.project)
+    proj.require_valid()
+    sel = selection.select_suites(proj.profiles)
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    responses_file = proj.subject.get("responses_file")
+    total = 0
+    combined: dict = {}
+    for family_id in sel["runnable_suites"]:
+        ex = executors.resolve(family_id)
+        if ex.executor_id != executors.GENERIC_PAIRED_TEXT:
+            print(f"  [{family_id}] skipped: manual responses apply to single-turn text families only")
+            continue
+        cases, _desc = packsource.resolve(proj.data.get("case_pack", {}), ex.pack_kind)
+        prompts: dict = {}
+
+        def _capture(record):
+            prompts[record.get("cell_id") or f"{record.get('item_id')}::{record.get('perturbation_type')}"] = \
+                record["input_text"]
+            return "(placeholder)"
+
+        pipeline.generate_responses(_capture, pipeline.load_family(family_id), cases)
+        (out_dir / f"prompts_{family_id}.json").write_text(json.dumps(prompts, indent=2, ensure_ascii=False))
+        combined.update({k: "" for k in prompts})
+        total += len(prompts)
+        print(f"  [{family_id}] {len(prompts)} prompts -> {out_dir / f'prompts_{family_id}.json'}")
+    template = out_dir / "responses_template.json"
+    template.write_text(json.dumps(combined, indent=2))
+    print(f"{total} prompts. Fill {template} (same keys, the system's answer as the value) and save it "
+          f"as {responses_file or 'the file named in subject.responses_file'}; then `run --project`.")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="clinical-ai-eval", description="EVAL_STANDARD.md reference harness (§10)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1221,6 +1371,14 @@ def main(argv=None):
     pc.add_argument("action", choices=["test"])
     pc.add_argument("--project", required=True)
     pc.set_defaults(func=lambda a: cmd_connector_test(a))
+    ppr = sub.add_parser("prompts", help="write the prompts a run will send (for subject.kind: manual)")
+    ppr.add_argument("--project", required=True); ppr.add_argument("--out", required=True)
+    ppr.set_defaults(func=cmd_prompts)
+    pmod = sub.add_parser("models", help="check (offline) or list (free) the real models a run would call")
+    pmod.add_argument("action", choices=["check", "list"])
+    pmod.add_argument("--project"); pmod.add_argument("--panel")
+    pmod.add_argument("--grep", default="", help="with list: only show IDs containing this text")
+    pmod.set_defaults(func=cmd_models)
     pi = sub.add_parser("init"); pi.add_argument("--workspace"); pi.set_defaults(func=cmd_init)
     pr = sub.add_parser("run")
     pr.add_argument("--arm", default="flawed", choices=list(demo_target.SUBJECT_ARMS))

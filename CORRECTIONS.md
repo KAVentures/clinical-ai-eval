@@ -1,5 +1,45 @@
 # Corrections log
 
+## v0.22.0 — self-service, tested as a first-time user would use it (2026-11)
+
+Walking the documented self-service path end to end, from a clean installed
+wheel, against local stand-ins for a product and a model provider
+(`tools/self_service_rehearsal.py`), found defects that the unit tests did not:
+
+- **Installed packages could not verify evidence.** Code definitions
+  (`caeval/perturbations.py`, `caeval/score.py`, the patient and RAG modules) were
+  looked up under the data root, which in a wheel is `caeval/_data`. Every
+  installed run recorded them as missing and every installed `verify-package`
+  returned INCOMPLETE. They are now resolved from the imported package.
+- **The documented credential pattern did not work.** The project template said
+  `Authorization: "Bearer ${YOUR_ENV_VAR}"`, but the HTTP subject sent that string
+  literally. References are now expanded at call time, and an unset variable fails
+  before any case is sent.
+- **Connector credentials could reach shared files.** The subject spec was
+  written into `run_meta.json` and the evidence package unchanged, so a token
+  typed into the headers was published with the results. Saved specs now keep
+  `${VAR}` references and replace any literal secret.
+- **Keys only came from a file, and the file had to exist.** Environment
+  variables now work on their own.
+- **Project paths depended on the current directory.** A project's judge panel
+  and manual responses file are now resolved against the project directory, then
+  the current directory, then the installed package data.
+- **Manual mode pointed at a flag that never existed** (`--emit-prompts`).
+  `clinical-ai-eval prompts` now writes the exact prompts and a responses template.
+- **HTTP subjects** now retry transient failures, accept list indexes in
+  `answer_path` (`choices.0.message.content`), and never put a response body in
+  an error, because a product's error page can echo the clinical prompt.
+
+Model choice is now configuration: any provider and model for judges and for LLM
+subjects, through four API styles including any OpenAI-compatible endpoint
+(`caeval/llm.py`, `docs/CHOOSING_MODELS.md`). OpenAI and xAI now use their
+Responses APIs. Reasoning effort is set per model and checked per API style, and
+judge diversity is counted by model developer, not API host. `models check` is
+offline; `models list` asks providers which IDs a key can use without generating
+tokens.
+
+657 tests pass.
+
 ## v0.21.1 — the structural gate rejected real clinician queries on the preconstructed path (2026-11)
 
 Found by running the physician-validation study's source selection against the real

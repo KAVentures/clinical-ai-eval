@@ -19,8 +19,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import urllib.error
-import urllib.request
 
 from .score import load_judge_prompt, normalize_score
 
@@ -30,76 +28,51 @@ KEYS_PATH = os.environ.get(
 )
 
 
-def load_keys(path: str = KEYS_PATH) -> dict:
-    """Load `PROVIDER_API_KEY = value` lines from a local git-ignored file.
-    Never prints or persists values (inherited contract)."""
-    txt = open(path).read()
-    keys = {}
-    for m in re.finditer(r"^([A-Z_]+_API_KEY)\s*=\s*(\S+)", txt, re.M):
-        keys[m.group(1)] = m.group(2).strip()
-    return keys
+def load_keys(path: str = KEYS_PATH, registry: dict | None = None) -> dict:
+    """API keys from environment variables and/or a git-ignored keys file
+    (`PROVIDER_API_KEY = value` lines). Never prints or persists values.
+
+    A missing keys file is not an error: environment variables alone are enough,
+    and a key that is actually needed fails at call time with its name."""
+    from . import llm
+    return llm.load_keys(path, registry)
 
 
-def _post(url, headers, payload, timeout=180):
-    data = json.dumps(payload).encode()
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+# Extra output budget the original interface added when `high` reasoning was on,
+# because reasoning tokens count against the output cap on some providers.
+_HIGH_HEADROOM = {"anthropic_messages": 8000}
+_DEFAULT_HEADROOM = 6000
+
+
+def call(provider: str, model: str, system: str, user: str, keys: dict, high: bool = True,
+         max_tokens: int = 2000, *, reasoning_effort: str | None = None,
+         registry: dict | None = None, max_attempts: int = 3, timeout_seconds: int = 180):
+    """One model call. Returns (text, meta) or (None, meta) on any failure.
+
+    `provider` is a built-in (openai, anthropic, google, xai) or a provider defined
+    in config (see caeval/llm.py). `reasoning_effort` sets the provider's own
+    reasoning level; when omitted, `high=True` means "high" and `high=False` means
+    the provider default. Failures are never returned as text: the caller decides
+    whether a missing answer is a failed cell or a missing vote."""
+    from . import llm
+    spec = llm.resolve_provider(provider, registry)
+    effort = reasoning_effort or ("high" if high else "provider_default")
+    budget = int(max_tokens)
+    if effort != "provider_default":
+        budget += _HIGH_HEADROOM.get(spec["api"], _DEFAULT_HEADROOM)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.status, json.loads(r.read().decode())
-    except urllib.error.HTTPError as e:
-        return e.code, {"__error__": e.read().decode()[:500]}
-    except Exception as e:  # noqa: BLE001
-        return -1, {"__error__": repr(e)[:500]}
-
-
-def call(provider: str, model: str, system: str, user: str, keys: dict, high: bool = True, max_tokens: int = 2000):
-    """Real judge call, provider dispatch inherited from reconciliation providers.py."""
-    if provider == "openai":
-        h = {"Authorization": f"Bearer {keys['OPENAI_API_KEY']}", "Content-Type": "application/json"}
-        payload = {"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
-        if high:
-            payload["reasoning_effort"] = "high"
-        payload["max_completion_tokens"] = max_tokens + (6000 if high else 0)
-        st, r = _post("https://api.openai.com/v1/chat/completions", h, payload)
-        if "__error__" in r:
-            return None, r
-        return r["choices"][0]["message"]["content"], {"status": st, "usage": r.get("usage", {})}
-    if provider == "xai":
-        h = {"Authorization": f"Bearer {keys['XAI_API_KEY']}", "Content-Type": "application/json"}
-        payload = {"model": model, "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
-        if high:
-            payload["reasoning_effort"] = "high"
-        st, r = _post("https://api.x.ai/v1/chat/completions", h, payload)
-        if "__error__" in r:
-            return None, r
-        return r["choices"][0]["message"]["content"], {"status": st, "usage": r.get("usage", {})}
-    if provider == "anthropic":
-        h = {"x-api-key": keys["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01", "Content-Type": "application/json"}
-        payload = {"model": model, "max_tokens": max_tokens + (8000 if high else 0), "system": system,
-                   "messages": [{"role": "user", "content": user}]}
-        if high:
-            payload["thinking"] = {"type": "adaptive"}
-            payload["output_config"] = {"effort": "high"}
-        st, r = _post("https://api.anthropic.com/v1/messages", h, payload)
-        if "__error__" in r:
-            return None, r
-        txt = "".join(b.get("text", "") for b in r.get("content", []) if b.get("type") == "text")
-        return txt, {"status": st, "usage": r.get("usage", {})}
-    if provider == "google":
-        key = keys["GOOGLE_API_KEY"]
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-        payload = {"systemInstruction": {"parts": [{"text": system}]},
-                   "contents": [{"role": "user", "parts": [{"text": user}]}],
-                   "generationConfig": {"maxOutputTokens": max_tokens + (6000 if high else 0)}}
-        st, r = _post(url, {"Content-Type": "application/json"}, payload)
-        if "__error__" in r:
-            return None, r
-        try:
-            txt = "".join(p.get("text", "") for p in r["candidates"][0]["content"]["parts"])
-        except Exception:  # noqa: BLE001
-            return None, {"__error__": json.dumps(r)[:500]}
-        return txt, {"status": st, "usage": r.get("usageMetadata", {})}
-    raise ValueError(f"unknown provider {provider!r}")
+        text, status, meta = llm.call_provider(
+            provider, model, system, user, keys or {}, reasoning_effort=effort,
+            max_output_tokens=budget, max_attempts=max_attempts,
+            timeout_seconds=timeout_seconds, registry=registry)
+    except llm.MissingKeyError as exc:
+        return None, {"status": "missing_key", "error_type": "missing_key", "error_detail": str(exc)}
+    meta = {**meta, "status": meta.get("http_status"), "outcome": status}
+    if status != "ok":
+        # Provider error bodies can echo request content; keep only the type.
+        meta.pop("error_detail", None)
+        return None, meta
+    return text, meta
 
 
 # --------------------------------------------------------------------------
@@ -144,7 +117,7 @@ def format_judge_user(record: dict, mode: str = DEFAULT_JUDGE_MODE) -> str:
     return "\n\n".join(parts) + "\n"
 
 
-def score_response(judge_cfg: dict, record: dict, keys: dict | None = None):
+def score_response(judge_cfg: dict, record: dict, keys: dict | None = None, registry: dict | None = None):
     """Return (normalized_score_dict, meta). Mock or real per judge_cfg['mock'].
     The judge's cueing level is controlled by judge_cfg['mode'] (default blinded)."""
     mode = judge_cfg.get("mode", DEFAULT_JUDGE_MODE)
@@ -154,7 +127,8 @@ def score_response(judge_cfg: dict, record: dict, keys: dict | None = None):
         return _mock_judge(judge_cfg.get("provider", "mock_a"), record, mode), {"status": "mock", "mode": mode}
     system = load_judge_prompt()
     user = format_judge_user(record, mode)
-    text, meta = call(judge_cfg["provider"], judge_cfg["model"], system, user, keys or {})
+    text, meta = call(judge_cfg["provider"], judge_cfg["model"], system, user, keys or {},
+                      reasoning_effort=judge_cfg.get("reasoning_effort") or None, registry=registry)
     if text is None:
         return None, {**(meta or {}), "mode": mode}
     from .score import parse_judge_json

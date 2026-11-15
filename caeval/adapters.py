@@ -39,6 +39,109 @@ class AdapterError(RuntimeError):
     cannot talk to is an unknown product, never a safe one."""
 
 
+_ENV_REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def expand_env(obj, environ=None):
+    """Replace `${NAME}` in strings with the environment variable NAME.
+
+    This is how a credential reaches a product endpoint without being written
+    into project.yaml: `Authorization: "Bearer ${MY_PRODUCT_TOKEN}"`. A reference
+    to an unset variable fails closed rather than sending an empty credential."""
+    import os
+    env = os.environ if environ is None else environ
+    if isinstance(obj, str):
+        missing = [n for n in _ENV_REF.findall(obj) if not env.get(n)]
+        if missing:
+            raise AdapterError(f"environment variable(s) not set: {', '.join(sorted(set(missing)))}")
+        return _ENV_REF.sub(lambda m: env[m.group(1)], obj)
+    if isinstance(obj, dict):
+        return {k: expand_env(v, env) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [expand_env(v, env) for v in obj]
+    return obj
+
+
+def persistable(obj):
+    """The view of a connector spec that may be written to a workspace or an
+    evidence package. A secret-named field keeps its value only when the value is
+    a pure `${NAME}` reference (which names a variable, not a secret); anything
+    else under a secret-named key, at any depth, is replaced."""
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            secret = str(k).lower() in SECRET_KEYS or any(t in str(k).lower() for t in ("key", "token", "secret"))
+            if secret and not (isinstance(v, str) and _is_reference_only(v)):
+                out[k] = REDACTED if not isinstance(v, (dict, list)) else persistable(v)
+            else:
+                out[k] = persistable(v)
+        return out
+    if isinstance(obj, (list, tuple)):
+        return [persistable(v) for v in obj]
+    return obj
+
+
+def _is_reference_only(value: str) -> bool:
+    """True when a secret-named value holds nothing but variable references and
+    a fixed scheme word, e.g. "Bearer ${TOKEN}" or "${API_KEY}"."""
+    rest = _ENV_REF.sub("", value).strip()
+    return bool(_ENV_REF.search(value)) and rest.lower() in ("", "bearer", "token", "basic", "apikey", "api-key", "key")
+
+
+def resolve_answer_path(data, path: str, adapter_id: str = "subject"):
+    """Follow a dotted path through dicts and lists: `data.text`,
+    `choices.0.message.content`. Fails with the step that did not resolve."""
+    node = data
+    for key in str(path).split("."):
+        if isinstance(node, list) and key.lstrip("-").isdigit() and -len(node) <= int(key) < len(node):
+            node = node[int(key)]
+        elif isinstance(node, dict) and key in node:
+            node = node[key]
+        else:
+            raise AdapterError(
+                f"{adapter_id}: answer_path {path!r} does not resolve in the response "
+                f"(stopped at {key!r}). Fix the mapping rather than letting the cell score as empty.")
+    if isinstance(node, (dict, list)):
+        raise AdapterError(f"{adapter_id}: answer_path {path!r} points at a {type(node).__name__}, not text")
+    return node
+
+
+RETRYABLE_HTTP = {408, 409, 425, 429, 500, 502, 503, 504, 529}
+
+
+def post_json(url: str, payload: dict, headers: dict, *, timeout: float, retries: int = 3,
+              backoff: float = 1.0, adapter_id: str = "subject", sleep=None):
+    """POST JSON and return the decoded body, retrying transient failures.
+
+    Errors name the host and status only. Response bodies are never put into an
+    exception, because a product's error page can echo the clinical prompt."""
+    import time
+    sleep = sleep or time.sleep
+    host = _host_of(url)
+    last = ""
+    for attempt in range(1, max(1, int(retries)) + 1):
+        req = urllib.request.Request(url, data=json.dumps(payload).encode(),
+                                     headers={"Content-Type": "application/json", **headers}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                raw = r.read().decode("utf-8", errors="replace")
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError as e:
+                raise AdapterError(f"{adapter_id}: {host} returned a non-JSON body") from e
+        except urllib.error.HTTPError as e:
+            last = f"HTTP {e.code}"
+            if e.code not in RETRYABLE_HTTP:
+                raise AdapterError(f"{adapter_id}: {last} from {host}") from None
+        except AdapterError:
+            raise
+        except Exception as e:  # noqa: BLE001  timeouts, refused connections, DNS
+            last = f"transport error ({type(e).__name__})"
+        if attempt < retries:
+            sleep(backoff * (2 ** (attempt - 1)))
+    raise AdapterError(f"{adapter_id}: {last} from {host} after {retries} attempt(s)")
+
+
 def redact(obj):
     """Deep-redact secrets. Applied to everything that leaves this module."""
     if isinstance(obj, dict):
@@ -167,30 +270,15 @@ class HttpConversationAdapter(ConversationAdapter):
     def _reply(self, history) -> str:
         s = self.spec
         payload = {s.history_field: [{"role": h["role"], "content": h["text"]} for h in history],
-                   **s.extra}
+                   **expand_env({k: v for k, v in s.extra.items() if not str(k).startswith("_")})}
         if s.session_field and self._session_id:
             payload[s.session_field] = self._session_id
-        req = urllib.request.Request(
-            s.url, data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json", **s.headers}, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=s.timeout) as r:
-                data = json.loads(r.read().decode())
-        except urllib.error.HTTPError as e:
-            raise AdapterError(f"{s.adapter_id}: HTTP {e.code} from {_host_of(s.url)}") from e
-        except Exception as e:  # noqa: BLE001
-            raise AdapterError(f"{s.adapter_id}: transport error to {_host_of(s.url)}: {e!r}") from e
+        data = post_json(expand_env(s.url), payload, expand_env(s.headers), timeout=s.timeout,
+                         retries=int(s.extra.get("_retries", 3)) if isinstance(s.extra, dict) else 3,
+                         adapter_id=s.adapter_id)
         if s.session_field and isinstance(data, dict) and s.session_field in data:
             self._session_id = data[s.session_field]
-        node = data
-        for key in s.answer_path.split("."):
-            if not isinstance(node, dict) or key not in node:
-                raise AdapterError(
-                    f"{s.adapter_id}: answer_path {s.answer_path!r} does not resolve in the "
-                    f"response (stopped at {key!r}). Fix the adapter mapping rather than "
-                    f"letting the cell score as empty.")
-            node = node[key]
-        return str(node)
+        return str(resolve_answer_path(data, s.answer_path, s.adapter_id))
 
 
 def build_conversation_adapter(spec: AdapterSpec, fn=None) -> ConversationAdapter:

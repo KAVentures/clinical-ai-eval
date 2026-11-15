@@ -32,9 +32,31 @@ def load_family(family_id: str = "missing_information", validate: bool = True) -
     return _sdk_load(family_id, validate=validate).d
 
 
+def panel_registry(panel: dict) -> dict:
+    """Provider registry for a panel: built-ins plus any `[providers.NAME]` tables."""
+    from . import llm
+    return llm.provider_registry({"providers": (panel or {}).get("providers") or {}})
+
+
+def judge_developer(judge: dict, registry: dict | None = None) -> str:
+    """Who built the judge model. Diversity quorums count developers, not API
+    hosts, so two models reached through one aggregator are not two 'providers'
+    and one developer's model reached through two hosts is not two either."""
+    if judge.get("vendor"):
+        return str(judge["vendor"])
+    spec = (registry or {}).get(judge.get("provider"))
+    return str((spec or {}).get("vendor") or judge.get("provider"))
+
+
 def load_panel(config_path=None) -> dict:
+    from . import llm
     from .util import read_toml
     cfg = read_toml(config_path or (repo_root() / "configs" / "judge_panel.toml"))
+    providers_cfg = {k.split(".", 1)[1]: v for k, v in cfg.items() if k.startswith("providers.")}
+    try:
+        registry = llm.provider_registry({"providers": providers_cfg})
+    except llm.ProviderConfigError as exc:
+        raise ValueError(f"judge panel provider definition: {exc}") from exc
     min_needed = cfg.get("min_distinct_providers", 2)
     if type(min_needed) is not int or min_needed < 1:
         raise ValueError("min_distinct_providers must be an integer >= 1")
@@ -56,7 +78,24 @@ def load_panel(config_path=None) -> dict:
             raise ValueError(f"judge {i} must explicitly set mock = true or false")
         if j.get("mode", "blinded") not in ("blinded", "rubric_aware"):
             raise ValueError(f"judge {i} has invalid mode {j.get('mode')!r}")
-    return {"min_distinct_providers": min_needed, "judges": judges}
+    # Second pass, once the panel's structure is known to be sound: every real
+    # judge must name a resolvable provider and a reasoning level its API accepts.
+    for j in judges:
+        if j["mock"]:
+            continue
+        try:
+            api = llm.resolve_provider(j["provider"], registry)["api"]
+        except llm.ProviderConfigError as exc:
+            raise ValueError(f"judge {j['name']!r}: {exc}") from exc
+        effort = str(j.get("reasoning_effort") or "high").lower()
+        if effort not in llm.EFFORTS_BY_API[api]:
+            raise ValueError(
+                f"judge {j['name']!r}: reasoning_effort {effort!r} is not valid for {api}; "
+                f"allowed {sorted(llm.EFFORTS_BY_API[api])}")
+    panel = {"min_distinct_providers": min_needed, "judges": judges}
+    if providers_cfg:
+        panel["providers"] = providers_cfg
+    return panel
 
 
 def headline_judges(panel: dict) -> list[dict]:
@@ -81,7 +120,8 @@ def assess_panel(panel: dict) -> dict:
     # evaluator set. A single calibrated judge is a valid screen configuration;
     # multi-provider panels are an OPTIONAL robustness mode, not presumed to remove
     # evaluator bias. Rubric-aware entries never count toward the headline quorum.
-    distinct = sorted({j.get("provider") for j in blinded})
+    registry = panel_registry(panel)
+    distinct = sorted({judge_developer(j, registry) for j in blinded})
     all_mock = all(j.get("mock") for j in judges) if judges else True
     # A mixed mock/real BLINDED panel is still synthetic-contaminated.
     # A real cued-only judge must not upgrade a mock blinded headline either.
@@ -198,17 +238,18 @@ def generate_responses(subject_fn, family: dict, cases: list[dict]) -> list[dict
 # --------------------------------------------------------------------------
 def score_responses(response_rows: list[dict], panel: dict, keys: dict | None = None) -> list[dict]:
     judges = panel["judges"]
+    registry = panel_registry(panel)
     min_distinct = panel.get("min_distinct_providers", 2)
     originals_scored: dict[str, dict] = {}
     scored: list[dict] = []
 
     # score originals first so variants can pair against them
     for row in [r for r in response_rows if r["kind"] == "original"]:
-        cell = _score_cell(row, judges, keys, min_distinct)
+        cell = _score_cell(row, judges, keys, min_distinct, registry)
         originals_scored[row["cell_id"]] = cell
         scored.append(cell)
     for row in [r for r in response_rows if r["kind"] == "variant"]:
-        cell = _score_cell(row, judges, keys, min_distinct)
+        cell = _score_cell(row, judges, keys, min_distinct, registry)
         ob = originals_scored.get(row["paired_original_cell_id"])
         # pairing is defined ONLY when BOTH cells have a complete evaluation (else NA).
         both_ok = bool(ob) and ob["evaluation_complete"] and cell["evaluation_complete"]
@@ -221,17 +262,17 @@ def score_responses(response_rows: list[dict], panel: dict, keys: dict | None = 
     return scored
 
 
-def _score_cell(row: dict, judges: list[dict], keys, min_distinct: int) -> dict:
+def _score_cell(row: dict, judges: list[dict], keys, min_distinct: int, registry: dict | None = None) -> dict:
     record = {"item_id": row["item_id"], "input_text": row["input_text"],
               "perturbation_type": row["perturbation_type"],
               "expected_missing_evidence": row["expected_missing_evidence"],
               "response_text": row["response_text"]}
-    provider_of = {j["name"]: j.get("provider") for j in judges}
+    provider_of = {j["name"]: judge_developer(j, registry) for j in judges}
     mode_of = {j["name"]: j.get("mode", "blinded") for j in judges}
     judge_scores, judge_errors = {}, {}
     for j in judges:
         try:
-            sc, meta = providers.score_response(j, record, keys)
+            sc, meta = providers.score_response(j, record, keys, registry)
         except Exception as exc:  # noqa: BLE001
             # An individual provider outage or parse error leaves this vote
             # unavailable. Do not coerce it into a safe label; do not leak

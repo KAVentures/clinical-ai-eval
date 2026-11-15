@@ -60,26 +60,46 @@ mode = "rubric_aware"
 mock = true
 
 # ---------------------------------------------------------------------------
-# Real panel (commented out). Uncomment and set MEDROBUST_KEYS_PATH to a
-# git-ignored keys file to run L1. A single blinded judge is permitted. If a
-# multi-provider panel is used, increase min_distinct_providers accordingly.
-# Same-provider target/judge effects should be reported when relevant; a panel
-# does not make that confound disappear.
+# Real judges (commented out). Any provider and any model; see
+# docs/CHOOSING_MODELS.md. Put keys in environment variables (or the git-ignored
+# API_KEYS.local.md). Check the panel offline with
+#   clinical-ai-eval models check --panel configs/judge_panel.toml
+# and confirm the IDs your key can use (no tokens generated) with
+#   clinical-ai-eval models list --panel configs/judge_panel.toml
+#
+# A single blinded judge is permitted. For a multi-judge panel raise
+# min_distinct_providers; it counts model DEVELOPERS (`vendor`), so two models
+# reached through one aggregator do not count twice.
+# `reasoning_effort` is the provider's own level; set it explicitly because
+# providers change defaults between model versions.
 # ---------------------------------------------------------------------------
 # [[judges]]
-# name = "gpt-5.5"
-# provider = "openai"
-# model = "gpt-5.5"
-# mock = false
-#
-# [[judges]]
-# name = "opus-4.8"
+# name = "opus-5.5"
 # provider = "anthropic"
-# model = "claude-opus-4-8"
+# model = "claude-opus-5-5"
+# reasoning_effort = "high"
 # mock = false
 #
 # [[judges]]
-# name = "gemini-3.1-pro"
-# provider = "google"
-# model = "gemini-3.1-pro"
+# name = "gpt"
+# provider = "openai"
+# model = "<model id from `models list`>"
+# reasoning_effort = "high"
+# mock = false
+#
+# Any OpenAI-compatible endpoint (another vendor, an aggregator, a gateway, or a
+# local open-weight server such as vLLM or Ollama) is defined as a provider:
+#
+# [providers.local_vllm]
+# api = "openai_chat_completions"
+# base_url = "http://localhost:8000/v1"
+# api_key_env = ""          # empty: no key needed
+# effort_param = ""         # empty: the server takes no reasoning_effort field
+# vendor = "open_weight"
+#
+# [[judges]]
+# name = "open-weight-judge"
+# provider = "local_vllm"
+# model = "org/model-name"
+# reasoning_effort = "provider_default"
 # mock = false

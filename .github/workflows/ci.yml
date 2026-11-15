@@ -92,6 +92,8 @@ jobs:
           python -m caeval.cli families
           python -m caeval.cli study --init --study-id ci_dry_run
           python -c "import caeval.certificates as cc; print('certificates OK', cc.CERTIFIED)"
+      - name: Documented self-service path, end to end over local HTTP (no network, no keys)
+        run: python tools/self_service_rehearsal.py
       - name: Self-service path (no source edits)
         run: |
           python -m caeval.cli project init /tmp/p --name ci-project
@@ -127,3 +129,5 @@ jobs:
           /tmp/clean/bin/clinical-citation-audit --help
           /tmp/clean/bin/python -c "import caeval.certificates as cc; print('subpackage OK', cc.CERTIFIED)"
           /tmp/clean/bin/python -c "from caeval.patient.judging import load_prompt; assert 'under_triage' in load_prompt(); print('patient judge prompt OK')"
+      - name: Documented self-service path from the installed wheel (no network, no keys)
+        run: /tmp/clean/bin/python tools/self_service_rehearsal.py --cli /tmp/clean/bin/clinical-ai-eval
