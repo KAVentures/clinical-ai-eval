@@ -94,22 +94,44 @@ def hazard_evidence(entry: dict, hazard: dict) -> dict:
     boot = cluster_bootstrap_ci([(c.get("case_id") or c.get("item_id") or i, c[metric])
                                  for i, c in enumerate(cells) if c.get(metric) is not None])
     lo, hi = boot["ci95"]
-    meets = {"<=": rate <= threshold, "<": rate < threshold,
-             "==": rate == threshold, ">=": rate >= threshold, ">": rate > threshold}[op]
-    # An interval straddling the threshold means the run cannot settle it either way.
-    settled = (hi <= threshold) if op in ("<=", "<", "==") else (lo >= threshold)
+    meets_point = {"<=": rate <= threshold, "<": rate < threshold,
+                   "==": rate == threshold, ">=": rate >= threshold,
+                   ">": rate > threshold}[op]
+    n_missing = len(cells) - n
+    # A cluster bootstrap is degenerate for uniform observations; interpreting
+    # [0, 0] from all-zero cases as perfect certainty is scientifically unsafe.
+    # Likewise, partial judge failures cannot silently be treated as successes.
+    adequate = (boot["n_clusters"] >= 2 and n_missing == 0
+                and lo is not None and hi is not None and lo < hi)
+    if op == "<=":
+        pass_bound, fail_bound = hi <= threshold, lo > threshold
+    elif op == "<":
+        pass_bound, fail_bound = hi < threshold, lo >= threshold
+    elif op == ">=":
+        pass_bound, fail_bound = lo >= threshold, hi < threshold
+    elif op == ">":
+        pass_bound, fail_bound = lo > threshold, hi <= threshold
+    else:
+        # Exact equality is not established by an overlapping CI.
+        pass_bound, fail_bound = False, False
+    status = ("MEETS" if adequate and pass_bound else
+              "DOES_NOT_MEET" if adequate and fail_bound else "INCONCLUSIVE")
     return {
         "product_id": entry["product_id"], "hazard_id": hazard["hazard_id"],
         "description": hazard.get("description", ""),
         "severity": hazard.get("severity", "moderate"),
         "metric": metric, "operator": op, "threshold": threshold,
-        "rate": round(rate, 4), "n": n, "ci": [round(lo, 4), round(hi, 4)],
-        "meets_threshold": bool(meets),
-        "status": ("MEETS" if meets and settled else
-                   "MEETS_BUT_UNDERPOWERED" if meets else "DOES_NOT_MEET"),
-        "note": ("" if settled else
-                 "The confidence interval straddles the threshold: this run does not "
-                 "have the precision to settle this hazard either way."),
+        "rate": round(rate, 4), "n": n, "n_total": len(cells),
+        "n_missing": n_missing, "n_clusters": boot["n_clusters"],
+        "ci": [round(lo, 4), round(hi, 4)],
+        "point_meets_threshold": bool(meets_point),
+        "meets_threshold": True if status == "MEETS" else
+                           False if status == "DOES_NOT_MEET" else None,
+        "status": status,
+        "note": ("" if status != "INCONCLUSIVE" else
+                 "Insufficient precision or coverage to settle this hazard. "
+                 "A point estimate, degenerate bootstrap, or missing measurement "
+                 "must not be interpreted as a clinical pass or fail."),
     }
 
 
@@ -161,7 +183,9 @@ def compare(entries: list, hazards: list) -> dict:
             "does_not_meet": sorted(r["product_id"] for r in rows
                                     if r["meets_threshold"] is False),
             "no_evidence": sorted(r["product_id"] for r in rows
-                                  if r["meets_threshold"] is None),
+                                  if r["status"] == "NO_EVIDENCE"),
+            "inconclusive": sorted(r["product_id"] for r in rows
+                                   if r["status"] == "INCONCLUSIVE"),
         })
     return {
         "products": [e["product_id"] for e in entries],
@@ -220,12 +244,13 @@ def render_markdown(cmp_result: dict) -> str:
         L.append(f"## {h['hazard_id']} ({h['severity']}) — {h['description']}")
         L.append(f"Your predeclared bar: `{crit['metric']} {crit['operator']} {crit['threshold']}`")
         L.append("")
-        L.append("| product | rate | 95% CI | n | status |")
+        L.append("| product | rate | 95% CI | observed / eligible | status |")
         L.append("|---|---|---|---|---|")
         for r in h["products"]:
             rate = "—" if r["rate"] is None else f"{r['rate']:.1%}"
             ci = "—" if not r.get("ci") else f"[{r['ci'][0]:.1%}, {r['ci'][1]:.1%}]"
-            L.append(f"| {r['product_id']} | {rate} | {ci} | {r['n']} | {r['status']} |")
+            L.append(f"| {r['product_id']} | {rate} | {ci} | "
+                     f"{r['n']}/{r.get('n_total', r['n'])} | {r['status']} |")
         notes = [f"- {r['product_id']}: {r['note']}" for r in h["products"] if r.get("note")]
         if notes:
             L += [""] + notes
