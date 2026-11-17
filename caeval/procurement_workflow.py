@@ -166,6 +166,9 @@ def ingest_package(directory, vendor_id: str, workspace) -> dict:
     if not family_id or analysis.get("family_id") != family_id:
         raise ProcurementError(
             "verified package family does not match its analysis; refusing attribution")
+    if family_id not in state["conditions"]["families"]:
+        raise ProcurementError(
+            f"family {family_id!r} was not frozen into this procurement; refusing new scope")
     # Never substitute unrelated fields (pack version, executor name, maturity
     # or conformance) for the FAMILY, PROMPT or STANDARD identifiers. That made
     # two genuinely different measurements appear comparable.
@@ -207,6 +210,16 @@ def record_result(directory, vendor_id: str, family_id: str, cells: list,
     state = load(directory)
     if not any(v["vendor_id"] == vendor_id for v in state["vendors"]):
         raise ProcurementError(f"vendor {vendor_id!r} is not registered")
+    if family_id not in state["conditions"]["families"]:
+        raise ProcurementError(f"family {family_id!r} is outside the frozen procurement")
+    existing = state["results"].get(vendor_id, {}).get(family_id)
+    if existing and existing.get("ingestion") == "verified_package":
+        # An already observed vendor result must not be silently replaced with
+        # an updated product answer or a caller-supplied fixture. A new vendor
+        # version requires a separately frozen assessment.
+        raise ProcurementError(
+            f"{vendor_id!r}/{family_id!r} already has a verified run. "
+            "Do not overwrite procurement evidence; start a new assessment.")
     declared = environment.get("conditions_hash")
     if not declared:
         # An absent hash previously passed the guard entirely, so the frozen
@@ -233,6 +246,8 @@ def record_result(directory, vendor_id: str, family_id: str, cells: list,
 def compare(directory, family_id: str) -> dict:
     """Build the buyer-facing comparison for one family."""
     state = load(directory)
+    if family_id not in state["conditions"]["families"]:
+        raise ProcurementError(f"family {family_id!r} was not in the frozen scope")
     entries = []
     for v in state["vendors"]:
         res = state["results"].get(v["vendor_id"], {}).get(family_id)
