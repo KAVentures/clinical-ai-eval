@@ -177,7 +177,11 @@ def ingest_package(directory, vendor_id: str, workspace) -> dict:
                     if man.get("executor") == "patient_episode"
                     else provenance.get("judge_prompt_sha256")
                          or definitions.get("prompts/judge_prompt.txt"))
-    panel = (provenance.get("panel") or {}).get("judges")
+    # Two package shapes record the panel: single-turn reports write
+    # {"judges": [...], ...}; the shared lifecycle (patient, RAG) writes the list
+    # of judges that actually scored. Both identify the same thing.
+    raw_panel = provenance.get("panel")
+    panel = raw_panel.get("judges") if isinstance(raw_panel, dict) else raw_panel
     environment = {
         "conditions_hash": analysis.get("conditions_hash") or run_meta.get("conditions_hash"),
         "family_id": family_id,
