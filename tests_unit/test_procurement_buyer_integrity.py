@@ -88,8 +88,9 @@ class BuyerIntegrityTests(unittest.TestCase):
         self.assertEqual(env["judge_panel_hash"],
                          stable_hash_text(json.dumps(judges, sort_keys=True)))
         self.assertEqual(recorded["ingestion"], "verified_package")
-        with self.assertRaisesRegex(pw.ProcurementError, "already has a verified run"):
-            pw.ingest_package(self.buyer, "vendor1", ws)
+        with patch.object(manifest, "verify_manifest", return_value={"verdict": "VALID"}):
+            with self.assertRaisesRegex(pw.ProcurementError, "already has a verified run"):
+                pw.ingest_package(self.buyer, "vendor1", ws)
         with self.assertRaisesRegex(pw.ProcurementError, "already has a verified run"):
             pw.record_result(
                 self.buyer, "vendor1", "missing_information", [],
