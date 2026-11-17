@@ -1124,7 +1124,9 @@ def cmd_procurement(args):
         hazards = _json.loads(Path(args.hazards).read_text()) if args.hazards else []
         st = pw.init(args.path, args.name or "procurement",
                      args.families or ["patient_red_flag"],
-                     {"pack_id": args.pack_id or "", "clinician_reviewed": False},
+                     {"pack_id": args.pack_id or "",
+                      "content_hash": args.pack_hash or "",
+                      "clinician_reviewed": False},
                      args.panel or "configs/judge_panel.toml", hazards)
         print(f"conditions frozen: {st['conditions_hash']}")
         print("Every vendor run is checked against this hash. Editing the pack, families, "
@@ -1134,6 +1136,12 @@ def cmd_procurement(args):
         st = pw.add_vendor(args.path, args.vendor, spec, args.label or "")
         v = st["vendors"][-1]
         print(f"registered {v['vendor_id']} as blinded label {v['blinded_label']!r}")
+    elif args.action == "ingest-package":
+        if not args.vendor or not args.workspace:
+            raise SystemExit("procurement ingest-package requires --vendor ID and --workspace DIR")
+        state = pw.ingest_package(args.path, args.vendor, args.workspace)
+        print(f"verified evidence package ingested for {args.vendor}; "
+              f"families now recorded: {sorted(state['results'].get(args.vendor, {}))}")
     elif args.action == "compare":
         print(_json.dumps(pw.compare(args.path, args.family), indent=2))
     elif args.action == "export":
@@ -1278,15 +1286,18 @@ def main(argv=None):
                        choices=["public_dev", "private_qualification"])
     ppack.set_defaults(func=cmd_pack)
     pproc = sub.add_parser("procurement", help="multi-vendor comparison workflow")
-    pproc.add_argument("action", choices=["init", "add-vendor", "compare", "export"])
+    pproc.add_argument("action", choices=["init", "add-vendor", "ingest-package", "compare", "export"])
     pproc.add_argument("path")
     pproc.add_argument("--name", default=None)
     pproc.add_argument("--families", nargs="*", default=None)
     pproc.add_argument("--pack-id", default=None)
+    pproc.add_argument("--pack-hash", default=None,
+                       help="SHA-256/content hash of the exact frozen case pack")
     pproc.add_argument("--panel", default=None)
     pproc.add_argument("--hazards", default=None, help="JSON file of predeclared hazards")
     pproc.add_argument("--vendor", default=None)
     pproc.add_argument("--subject", default=None, help="vendor subject spec JSON")
+    pproc.add_argument("--workspace", default=None, help="verified run workspace (ingest-package)")
     pproc.add_argument("--label", default=None, help="blinded label reviewers see")
     pproc.add_argument("--family", default="patient_red_flag")
     pproc.add_argument("--out", default=None)
