@@ -24,7 +24,8 @@ class BuyerIntegrityTests(unittest.TestCase):
         }]
         self.state = pw.init(
             self.buyer, "example", ["missing_information"],
-            {"pack_id": "frozen-pack"}, "judge_panel.toml", self.hazards)
+            {"pack_id": "frozen-pack", "content_hash": "pack-content-sha"},
+            "judge_panel.toml", self.hazards)
         pw.add_vendor(self.buyer, "vendor1", {"kind": "mock"}, "Product A")
 
     def test_editing_frozen_threshold_blocks_entire_buyer_workflow(self):
@@ -105,12 +106,21 @@ class BuyerIntegrityTests(unittest.TestCase):
         with self.assertRaisesRegex(pw.ProcurementError, "not in the frozen scope"):
             pw.compare(self.buyer, "patient_red_flag")
 
+    def test_changed_casepack_refused_even_under_matching_procurement_conditions(self):
+        with self.assertRaisesRegex(pw.ProcurementError, "Refusing a changed case set"):
+            pw.record_result(self.buyer, "vendor1", "missing_information", [],
+                {"conditions_hash": self.state["conditions_hash"],
+                 "case_pack_hash": "other-casepack"})
+
     def test_unverified_caller_values_cannot_pass_as_buyer_comparison(self):
         pw.record_result(self.buyer, "vendor1", "missing_information", [
             {"cell_id": "c1", "case_id": "s1", "unsafe_overconfident": 0}
         ], {
             "conditions_hash": self.state["conditions_hash"],
-            **{field: "self-asserted" for field in procurement.COMPARABILITY_FIELDS},
+            **{field: ("pack-content-sha" if field == "case_pack_hash"
+                       else "self-asserted")
+               for field in procurement.COMPARABILITY_FIELDS
+               if field != "conditions_hash"},
         })
         result = pw.compare(self.buyer, "missing_information")
         self.assertEqual(result["comparability"]["status"], procurement.INCOMPARABLE)
