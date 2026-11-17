@@ -37,7 +37,14 @@ def load(directory) -> dict:
     f = _path(directory)
     if not f.exists():
         raise ProcurementError(f"no {STATE_FILE} in {directory}; run `procurement init` first")
-    return json.loads(f.read_text())
+    state = json.loads(f.read_text())
+    # A frozen dossier must not silently accept edits to its buyer-declared
+    # hazards, population, evaluator or case-pack identity after registration.
+    if state.get("conditions_hash") != conditions_hash(state.get("conditions", {})):
+        raise ProcurementError(
+            "frozen procurement conditions were edited without a new study; "
+            "create a new procurement instead of comparing against changed criteria")
+    return state
 
 
 def save(directory, state: dict) -> Path:
@@ -152,36 +159,81 @@ def ingest_package(directory, vendor_id: str, workspace) -> dict:
     cells = [_json.loads(l) for l in (ws / "results.jsonl").read_text().splitlines()
              if l.strip()]
     man = _json.loads((ws / manifest_mod.MANIFEST_FILE).read_text())
+    provenance = _json.loads((ws / "provenance.json").read_text())
+    run_meta = _json.loads((ws / "run_meta.json").read_text())
+    definitions = man.get("definitions") or {}
+    family_id = man.get("family_id")
+    if not family_id or analysis.get("family_id") != family_id:
+        raise ProcurementError(
+            "verified package family does not match its analysis; refusing attribution")
+    if family_id not in state["conditions"]["families"]:
+        raise ProcurementError(
+            f"family {family_id!r} was not frozen into this procurement; refusing new scope")
+    # Never substitute unrelated fields (pack version, executor name, maturity
+    # or conformance) for the FAMILY, PROMPT or STANDARD identifiers. That made
+    # two genuinely different measurements appear comparable.
+    family_definition = definitions.get(f"tests/{family_id}/family.yaml")
+    judge_prompt = (definitions.get("prompts/patient_judge_prompt.txt")
+                    if man.get("executor") == "patient_episode"
+                    else provenance.get("judge_prompt_sha256")
+                         or definitions.get("prompts/judge_prompt.txt"))
+    # Two package shapes record the panel: single-turn reports write
+    # {"judges": [...], ...}; the shared lifecycle (patient, RAG) writes the list
+    # of judges that actually scored. Both identify the same thing.
+    raw_panel = provenance.get("panel")
+    panel = raw_panel.get("judges") if isinstance(raw_panel, dict) else raw_panel
     environment = {
-        "conditions_hash": analysis.get("conditions_hash")
-                           or _json.loads((ws / "run_meta.json").read_text()).get("conditions_hash"),
-        "family_id": analysis.get("family_id"),
-        "family_version": str((analysis.get("case_pack") or {}).get("version", "")),
-        "case_pack_hash": (analysis.get("case_pack") or {}).get("content_hash"),
-        "judge_panel_hash": stable_hash_text(json.dumps(sorted(analysis.get("panel", [])))),
-        "judge_prompt_hash": (analysis.get("executor") or ""),
-        "selection_rules_hash": recorded.get("family_maturity"),
-        "eval_standard_version": (analysis.get("claim_authority") or {}).get("run_conformance"),
-        "package_digest": man.get("manifest_hash") or man.get("package_hash"),
+        "conditions_hash": analysis.get("conditions_hash") or run_meta.get("conditions_hash"),
+        "family_id": family_id,
+        # A content hash is a stronger version identifier than a mutable label.
+        "family_version": f"sha256:{family_definition}" if family_definition else None,
+        "case_pack_hash": (analysis.get("case_pack") or {}).get("content_hash")
+                          or (provenance.get("plan_binding") or {}).get("case_pack_hash"),
+        "judge_panel_hash": (stable_hash_text(json.dumps(panel, sort_keys=True))
+                             if isinstance(panel, list) and panel else None),
+        "judge_prompt_hash": judge_prompt,
+        "selection_rules_hash": definitions.get("selection_rules.yaml"),
+        "eval_standard_version": provenance.get("eval_standard"),
+        "package_digest": man.get("manifest_hash"),
         "verify_verdict": verdict,
     }
-    return record_result(directory, vendor_id, analysis["family_id"], cells, environment,
-                         package=dict(environment,
-                                      conformance=analysis.get("conformance_level"),
-                                      claim=recorded,
-                                      workspace=str(ws)))
+    return _record_result(directory, vendor_id, analysis["family_id"], cells, environment,
+                          package=dict(environment,
+                                       conformance=analysis.get("conformance_level"),
+                                       claim=recorded,
+                                       workspace=str(ws)))
 
 
 def record_result(directory, vendor_id: str, family_id: str, cells: list,
                   environment: dict, package: dict | None = None) -> dict:
-    """Attach one vendor's run. Refuses results produced under other conditions.
+    """Insert unverified development fixtures; NEVER confer verified provenance.
 
-    Prefer `ingest_package()`: this entry point trusts the caller for the cells and
-    the environment, which is adequate for a fixture and not for procurement.
+    Production evidence must flow through ingest_package(), which independently
+    checks the package manifest and derives metadata from its signed contents.
     """
+    if package is not None:
+        raise ProcurementError(
+            "record_result cannot claim verified package provenance. "
+            "Use ingest_package() to verify the actual workspace first.")
+    return _record_result(directory, vendor_id, family_id, cells, environment)
+
+
+def _record_result(directory, vendor_id: str, family_id: str, cells: list,
+                   environment: dict, package: dict | None = None) -> dict:
+    """Internal writer; only ingest_package passes verified package metadata."""
     state = load(directory)
     if not any(v["vendor_id"] == vendor_id for v in state["vendors"]):
         raise ProcurementError(f"vendor {vendor_id!r} is not registered")
+    if family_id not in state["conditions"]["families"]:
+        raise ProcurementError(f"family {family_id!r} is outside the frozen procurement")
+    existing = state["results"].get(vendor_id, {}).get(family_id)
+    if existing and existing.get("ingestion") == "verified_package":
+        # An already observed vendor result must not be silently replaced with
+        # an updated product answer or a caller-supplied fixture. A new vendor
+        # version requires a separately frozen assessment.
+        raise ProcurementError(
+            f"{vendor_id!r}/{family_id!r} already has a verified run. "
+            "Do not overwrite procurement evidence; start a new assessment.")
     declared = environment.get("conditions_hash")
     if not declared:
         # An absent hash previously passed the guard entirely, so the frozen
@@ -195,6 +247,11 @@ def record_result(directory, vendor_id: str, family_id: str, cells: list,
             f"vendor {vendor_id!r} was evaluated under conditions {declared!r}, but this "
             f"procurement froze {state['conditions_hash']!r}. Comparing them would "
             f"confound the product with the evaluation environment.")
+    expected_pack = state["conditions"]["case_pack"].get("content_hash")
+    if expected_pack and environment.get("case_pack_hash") != expected_pack:
+        raise ProcurementError(
+            f"vendor {vendor_id!r} used case pack {environment.get('case_pack_hash')!r}, "
+            f"but the buyer froze {expected_pack!r}. Refusing a changed case set.")
     state["results"].setdefault(vendor_id, {})[family_id] = {
         "cells": cells, "environment": environment, "recorded_at": utc_now_iso(),
         "package": package,
@@ -208,6 +265,8 @@ def record_result(directory, vendor_id: str, family_id: str, cells: list,
 def compare(directory, family_id: str) -> dict:
     """Build the buyer-facing comparison for one family."""
     state = load(directory)
+    if family_id not in state["conditions"]["families"]:
+        raise ProcurementError(f"family {family_id!r} was not in the frozen scope")
     entries = []
     for v in state["vendors"]:
         res = state["results"].get(v["vendor_id"], {}).get(family_id)
@@ -225,6 +284,24 @@ def compare(directory, family_id: str) -> dict:
     out = procurement.compare(entries, hazards or state["conditions"]["hazards"])
     out["family_id"] = family_id
     out["conditions_hash"] = state["conditions_hash"]
+    out["case_pack_content_locked"] = bool(
+        state["conditions"]["case_pack"].get("content_hash"))
+    # Fixture/API-inserted values remain useful for development but must not
+    # masquerade as independently verified vendor evidence in a buyer report.
+    unverified = sorted(v["blinded_label"] for v in state["vendors"]
+        if (res := state["results"].get(v["vendor_id"], {}).get(family_id))
+        and res.get("ingestion") != "verified_package")
+    out["unverified_input_products"] = unverified
+    if unverified:
+        out["comparability"]["status"] = procurement.INCOMPARABLE
+        out["comparability"]["reasons"].append(
+            f"unverified caller-supplied data: {unverified}")
+        out["comparability"]["note"] = (
+            "At least one product's results were not ingested from a verified "
+            "evidence package. This is NOT a verified procurement comparison.")
+        out["claim_authority"]["decision_grade"] = False
+        out["claim_authority"]["reason"] += (
+            " At least one input was caller-supplied without package verification.")
     out["vendors_without_results"] = sorted(
         v["blinded_label"] for v in state["vendors"]
         if family_id not in state["results"].get(v["vendor_id"], {}))
@@ -239,7 +316,8 @@ def export_dossier(directory, out_path=None) -> str:
          f"Conditions frozen: `{state['conditions_hash']}` at {state['created_at']}",
          f"Families: {', '.join(state['conditions']['families'])}",
          f"Case pack: `{state['conditions']['case_pack'].get('pack_id')}` "
-         f"(clinician-reviewed: {state['conditions']['case_pack'].get('clinician_reviewed')})",
+         f"(clinician-reviewed: {state['conditions']['case_pack'].get('clinician_reviewed')}; "
+         f"content-hash locked: {bool(state['conditions']['case_pack'].get('content_hash'))})",
          "",
          "> This dossier contains **no combined score, no ranking and no buy/no-buy "
          "recommendation**. Weighting a missed red flag against an unnecessary referral "
@@ -252,6 +330,10 @@ def export_dossier(directory, out_path=None) -> str:
             L += [f"## {family_id}", "", f"NOT MEASURED: {e}", ""]
             continue
         L += [procurement.render_markdown(cmp_result), ""]
+        if cmp_result.get("unverified_input_products"):
+            L += [f"**UNVERIFIED FIXTURE / CALLER INPUT:** "
+                  f"{', '.join(cmp_result['unverified_input_products'])}. "
+                  "Do not rely on these results for procurement.", ""]
         if cmp_result["vendors_without_results"]:
             L += [f"**Vendors with no result for this family:** "
                   f"{', '.join(cmp_result['vendors_without_results'])} — absence of a "

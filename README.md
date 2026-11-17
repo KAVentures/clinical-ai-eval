@@ -1,13 +1,19 @@
 # clinical-ai-eval — reference harness for the EVAL_STANDARD.md protocol
 
 A runnable, offline reference implementation of a **candidate protocol** (not a
-validated standard) for perturbation-robustness screening of **text-based,
-clinician-facing** clinical decision-support systems. Two probe families are
-implemented — **missing-information** and **conflicting-evidence**. It turns the
-upstream research repos' published methods into a reproducible process: intake →
-suite selection → controlled perturbations → **structural validity pre-filter** →
-**paired** scoring → **version-pinned automated evaluation** (one calibrated judge or an optional
-multi-provider robustness panel) → **blinded human-review + validity queues** → evidence package → L2 adjudication.
+validated standard) and a technical-alpha **assessment product** for clinical-AI
+startups, healthcare organisations and procurement teams. Users can connect
+their systems, declare intended use, run structured stress tests, ask clinicians
+to review important cases, and export auditable evidence. Clinician-facing
+missing-information and conflicting-evidence probes are implemented; patient
+red-flag and RAG/retrieval probes also run, with narrower and explicitly
+experimental coverage. See the generated capability table below for the exact
+feature status.
+
+**Start here:** [Organisational product and procurement guide](docs/ORGANISATIONAL_PRODUCT_GUIDE.md)
+for startups, internal governance and buyer workflows. For measurement theory,
+see [EVAL_STANDARD.md](EVAL_STANDARD.md); for the planned physician validation
+study, see [clinical-ai-eval-physician-validation](https://github.com/KAVentures/clinical-ai-eval-physician-validation).
 
 The primary output is a **screen plus an evidence package, never a
 deployment-readiness verdict** (§0). Every report says so in its first paragraph and
