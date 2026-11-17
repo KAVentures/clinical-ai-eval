@@ -107,6 +107,14 @@ class BuyerIntegrityTests(unittest.TestCase):
         with self.assertRaisesRegex(pw.ProcurementError, "not in the frozen scope"):
             pw.compare(self.buyer, "patient_red_flag")
 
+    def test_raw_result_api_cannot_self_certify_as_verified(self):
+        with self.assertRaisesRegex(pw.ProcurementError, "cannot claim verified package"):
+            pw.record_result(
+                self.buyer, "vendor1", "missing_information", [],
+                {"conditions_hash": self.state["conditions_hash"],
+                 "case_pack_hash": "pack-content-sha"},
+                package={"verify_verdict": "VALID", "package_digest": "forged"})
+
     def test_changed_casepack_refused_even_under_matching_procurement_conditions(self):
         with self.assertRaisesRegex(pw.ProcurementError, "Refusing a changed case set"):
             pw.record_result(self.buyer, "vendor1", "missing_information", [],
