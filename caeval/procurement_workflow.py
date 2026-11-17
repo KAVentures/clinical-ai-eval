@@ -193,20 +193,30 @@ def ingest_package(directory, vendor_id: str, workspace) -> dict:
         "package_digest": man.get("manifest_hash"),
         "verify_verdict": verdict,
     }
-    return record_result(directory, vendor_id, analysis["family_id"], cells, environment,
-                         package=dict(environment,
-                                      conformance=analysis.get("conformance_level"),
-                                      claim=recorded,
-                                      workspace=str(ws)))
+    return _record_result(directory, vendor_id, analysis["family_id"], cells, environment,
+                          package=dict(environment,
+                                       conformance=analysis.get("conformance_level"),
+                                       claim=recorded,
+                                       workspace=str(ws)))
 
 
 def record_result(directory, vendor_id: str, family_id: str, cells: list,
                   environment: dict, package: dict | None = None) -> dict:
-    """Attach one vendor's run. Refuses results produced under other conditions.
+    """Insert unverified development fixtures; NEVER confer verified provenance.
 
-    Prefer `ingest_package()`: this entry point trusts the caller for the cells and
-    the environment, which is adequate for a fixture and not for procurement.
+    Production evidence must flow through ingest_package(), which independently
+    checks the package manifest and derives metadata from its signed contents.
     """
+    if package is not None:
+        raise ProcurementError(
+            "record_result cannot claim verified package provenance. "
+            "Use ingest_package() to verify the actual workspace first.")
+    return _record_result(directory, vendor_id, family_id, cells, environment)
+
+
+def _record_result(directory, vendor_id: str, family_id: str, cells: list,
+                   environment: dict, package: dict | None = None) -> dict:
+    """Internal writer; only ingest_package passes verified package metadata."""
     state = load(directory)
     if not any(v["vendor_id"] == vendor_id for v in state["vendors"]):
         raise ProcurementError(f"vendor {vendor_id!r} is not registered")
