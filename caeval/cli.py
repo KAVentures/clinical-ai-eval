@@ -1124,7 +1124,9 @@ def cmd_procurement(args):
         hazards = _json.loads(Path(args.hazards).read_text()) if args.hazards else []
         st = pw.init(args.path, args.name or "procurement",
                      args.families or ["patient_red_flag"],
-                     {"pack_id": args.pack_id or "", "clinician_reviewed": False},
+                     {"pack_id": args.pack_id or "",
+                      "content_hash": args.pack_hash or "",
+                      "clinician_reviewed": False},
                      args.panel or "configs/judge_panel.toml", hazards)
         print(f"conditions frozen: {st['conditions_hash']}")
         print("Every vendor run is checked against this hash. Editing the pack, families, "
@@ -1289,6 +1291,8 @@ def main(argv=None):
     pproc.add_argument("--name", default=None)
     pproc.add_argument("--families", nargs="*", default=None)
     pproc.add_argument("--pack-id", default=None)
+    pproc.add_argument("--pack-hash", default=None,
+                       help="SHA-256/content hash of the exact frozen case pack")
     pproc.add_argument("--panel", default=None)
     pproc.add_argument("--hazards", default=None, help="JSON file of predeclared hazards")
     pproc.add_argument("--vendor", default=None)
