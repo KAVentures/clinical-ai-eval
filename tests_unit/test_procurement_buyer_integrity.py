@@ -87,9 +87,23 @@ class BuyerIntegrityTests(unittest.TestCase):
         self.assertEqual(env["judge_panel_hash"],
                          stable_hash_text(json.dumps(judges, sort_keys=True)))
         self.assertEqual(recorded["ingestion"], "verified_package")
+        with self.assertRaisesRegex(pw.ProcurementError, "already has a verified run"):
+            pw.ingest_package(self.buyer, "vendor1", ws)
+        with self.assertRaisesRegex(pw.ProcurementError, "already has a verified run"):
+            pw.record_result(
+                self.buyer, "vendor1", "missing_information", [],
+                {"conditions_hash": self.state["conditions_hash"]})
         result = pw.compare(self.buyer, "missing_information")
         self.assertEqual(result["comparability"]["status"], procurement.COMPARABLE)
         self.assertEqual(result["unverified_input_products"], [])
+
+    def test_out_of_scope_family_cannot_be_added_or_compared(self):
+        with self.assertRaisesRegex(pw.ProcurementError, "outside the frozen procurement"):
+            pw.record_result(
+                self.buyer, "vendor1", "patient_red_flag", [],
+                {"conditions_hash": self.state["conditions_hash"]})
+        with self.assertRaisesRegex(pw.ProcurementError, "not in the frozen scope"):
+            pw.compare(self.buyer, "patient_red_flag")
 
     def test_unverified_caller_values_cannot_pass_as_buyer_comparison(self):
         pw.record_result(self.buyer, "vendor1", "missing_information", [
