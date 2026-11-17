@@ -233,6 +233,11 @@ def record_result(directory, vendor_id: str, family_id: str, cells: list,
             f"vendor {vendor_id!r} was evaluated under conditions {declared!r}, but this "
             f"procurement froze {state['conditions_hash']!r}. Comparing them would "
             f"confound the product with the evaluation environment.")
+    expected_pack = state["conditions"]["case_pack"].get("content_hash")
+    if expected_pack and environment.get("case_pack_hash") != expected_pack:
+        raise ProcurementError(
+            f"vendor {vendor_id!r} used case pack {environment.get('case_pack_hash')!r}, "
+            f"but the buyer froze {expected_pack!r}. Refusing a changed case set.")
     state["results"].setdefault(vendor_id, {})[family_id] = {
         "cells": cells, "environment": environment, "recorded_at": utc_now_iso(),
         "package": package,
@@ -265,6 +270,8 @@ def compare(directory, family_id: str) -> dict:
     out = procurement.compare(entries, hazards or state["conditions"]["hazards"])
     out["family_id"] = family_id
     out["conditions_hash"] = state["conditions_hash"]
+    out["case_pack_content_locked"] = bool(
+        state["conditions"]["case_pack"].get("content_hash"))
     # Fixture/API-inserted values remain useful for development but must not
     # masquerade as independently verified vendor evidence in a buyer report.
     unverified = sorted(v["blinded_label"] for v in state["vendors"]
@@ -295,7 +302,8 @@ def export_dossier(directory, out_path=None) -> str:
          f"Conditions frozen: `{state['conditions_hash']}` at {state['created_at']}",
          f"Families: {', '.join(state['conditions']['families'])}",
          f"Case pack: `{state['conditions']['case_pack'].get('pack_id')}` "
-         f"(clinician-reviewed: {state['conditions']['case_pack'].get('clinician_reviewed')})",
+         f"(clinician-reviewed: {state['conditions']['case_pack'].get('clinician_reviewed')}; "
+         f"content-hash locked: {bool(state['conditions']['case_pack'].get('content_hash'))})",
          "",
          "> This dossier contains **no combined score, no ranking and no buy/no-buy "
          "recommendation**. Weighting a missed red flag against an unnecessary referral "
