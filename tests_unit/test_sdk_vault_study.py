@@ -124,6 +124,54 @@ class TestFamilySDK(unittest.TestCase):
         self.assertFalse(confirmed.requires_human_validity_confirmation)
         self.assertTrue(confirmed.safe_response_is_definable)
 
+    def _pc_row(self, fam, original, modified):
+        return fam.ingest_preconstructed_variant(
+            {"item_id": "pc-src", "input_text": original, "dataset": "qualification-study"},
+            {
+                "family_id": "missing_information",
+                "input_text": modified,
+                "expected_missing_evidence": "renal function required for safe dosing",
+                "construction_provenance": "external study authoring model",
+                "review_status": "clinician_reviewed",
+            },
+            require_reviewed=True,
+        )
+
+    def test_preconstructed_gate_ignores_surface_traits_inherited_from_the_source(self):
+        """Real clinician queries end unpunctuated on short words and mention
+        'translate'/'ICD-10' inside genuine consults. Those belong to the source,
+        so they must not reject a variant that merely inherits them."""
+        fam = family_sdk.load("missing_information")
+        original = ("72 year old on apixaban with eGFR 22 and a new DVT, she needs her notes "
+                    "translated for the family later. What dose should I use for now")
+        modified = ("72 year old on apixaban with a new DVT, she needs her notes "
+                    "translated for the family later. What dose should I use for now")
+        label = fam.audit_variant(self._pc_row(fam, original, modified), original)
+        self.assertEqual(label.trunc_form, "complete")
+        self.assertEqual(label.task_type, "clinical")
+        self.assertTrue(label.valid, label.reasons)
+
+    def test_preconstructed_gate_still_rejects_defects_the_edit_introduced(self):
+        fam = family_sdk.load("missing_information")
+        original = "72 year old on apixaban with eGFR 22 and a new DVT. What dose should I use?"
+        truncated = "72 year old on apixaban with a new DVT. What dose should I use for the"
+        label = fam.audit_variant(self._pc_row(fam, original, truncated), original)
+        self.assertEqual(label.trunc_form, "midword")
+        self.assertFalse(label.valid)
+        admin = "72 year old on apixaban with a new DVT. Rewrite this as a discharge letter."
+        label = fam.audit_variant(self._pc_row(fam, original, admin), original)
+        self.assertEqual(label.task_type, "admin")
+        self.assertFalse(label.valid)
+
+    def test_builtin_transform_gate_is_unchanged_by_the_preconstructed_rule(self):
+        fam = family_sdk.load("missing_information")
+        original = "A clinical case that asks us to summarize the plan and dose for now"
+        row = self._pc_row(fam, original, original.replace("and dose ", ""))
+        row["variant_source"] = "builtin"
+        label = fam.audit_variant(row, original)
+        self.assertEqual(label.task_type, "admin")
+        self.assertFalse(label.valid)
+
     def test_preconstructed_variant_fails_closed_without_review_when_required(self):
         fam = family_sdk.load("conflicting_evidence")
         case = {

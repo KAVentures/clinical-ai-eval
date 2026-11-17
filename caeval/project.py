@@ -151,7 +151,7 @@ class Project:
         s = self.subject
         kind = s.get("kind")
         if not kind:
-            problems.append("subject.kind is required (mock|openai|anthropic|xai|google|http|manual)")
+            problems.append("subject.kind is required (mock|llm|openai|anthropic|xai|google|http|manual)")
         cp = self.data.get("case_pack", {}) or {}
         if not (cp.get("source") or any(
                 isinstance(v, dict) and v.get("source") for v in cp.values())):
@@ -161,8 +161,12 @@ class Project:
                 "for a demonstration, or point at a directory you author.")
         elif kind == "http" and not s.get("url"):
             problems.append("subject.kind=http requires subject.url")
-        elif kind in ("openai", "anthropic", "xai", "google") and not s.get("model"):
+        elif kind in ("openai", "anthropic", "xai", "google", "llm") and not s.get("model"):
             problems.append(f"subject.kind={kind} requires subject.model")
+        elif kind == "llm" and not s.get("provider"):
+            problems.append("subject.kind=llm requires subject.provider (a built-in, or one under subject.providers)")
+        elif kind not in (None, "", "mock", "llm", "openai", "anthropic", "xai", "google", "http", "manual"):
+            problems.append(f"subject.kind={kind!r} is not a known connector kind")
         elif kind == "manual" and not s.get("responses_file"):
             problems.append("subject.kind=manual requires subject.responses_file")
 
@@ -265,14 +269,26 @@ def template(name: str = "my-clinical-ai", mode: str = "demonstration") -> dict:
             "regulated_medical_device": "",
             "deployment_jurisdictions": "",
         },
+        # What is being tested. Keep secrets out of this file: write
+        # "${ENV_VAR}" and set the variable in your shell; it is expanded at run
+        # time and only the reference is ever saved. Guide: docs/TEST_YOUR_SYSTEM.md
         "subject": {
             "kind": "mock",
-            "_kind_options": ["mock", "openai", "anthropic", "xai", "google", "http", "manual"],
+            "_kind_options": ["mock", "http", "llm", "manual"],
             "arm": "flawed",
-            "_http_example": {"kind": "http", "url": "https://your-product/answer",
+            "_http_example": {"kind": "http", "url": "https://your-product.example/answer",
                               "prompt_field": "question", "answer_path": "data.text",
-                              "headers": {"Authorization": "Bearer ${YOUR_ENV_VAR}"},
-                              "timeout": 120},
+                              "headers": {"Authorization": "Bearer ${YOUR_PRODUCT_TOKEN}"},
+                              "timeout": 120, "retries": 3},
+            "_llm_example": {"kind": "llm", "provider": "anthropic", "model": "claude-opus-5-5",
+                             "reasoning_effort": "high", "max_tokens": 4000},
+            "_llm_custom_provider_example": {
+                "kind": "llm", "provider": "my_gateway", "model": "vendor/model-name",
+                "reasoning_effort": "provider_default",
+                "providers": {"my_gateway": {"api": "openai_chat_completions",
+                                             "base_url": "https://gateway.example/v1",
+                                             "api_key_env": "MY_GATEWAY_API_KEY",
+                                             "effort_param": ""}}},
         },
         # Set when this run is a vendor submission to a frozen procurement. The
         # hash is issued by `procurement init` and travels into the evidence

@@ -132,13 +132,27 @@ Verified against: edited raw responses, edited scores, an edited report, a delet
 required artifact, an added artifact, and a manifest forged to match an edit.
 
 ## Evaluate YOUR product (self-service — no source edits)
+
+**Start with [docs/TEST_YOUR_SYSTEM.md](docs/TEST_YOUR_SYSTEM.md).** It walks
+through connecting your product (HTTP endpoint, a model API, or pasted-in
+responses), choosing a judge from any provider ([docs/CHOOSING_MODELS.md](docs/CHOOSING_MODELS.md)),
+using your own cases, and what each result lets you claim.
+
 ```bash
 clinical-ai-eval project init ./my-assessment --name my-product
 #   answer every field in my-assessment/project.yaml  (blank = unanswered = BLOCKED)
+#   credentials as "${ENV_VAR}" references: expanded at call time, never saved
 clinical-ai-eval target validate --project ./my-assessment
-clinical-ai-eval connector test  --project ./my-assessment   # dry-run before spending
+clinical-ai-eval models check    --project ./my-assessment   # offline: judge/subject models
+clinical-ai-eval models list     --project ./my-assessment   # free: IDs your keys can use
+clinical-ai-eval connector test  --project ./my-assessment   # one real call before spending
 clinical-ai-eval plan            --project ./my-assessment
+clinical-ai-eval run             --project ./my-assessment
 ```
+
+`python tools/self_service_rehearsal.py` runs this whole path offline against
+local stand-ins for a product and a model provider (CI runs it from a clean
+installed wheel too).
 The intake is **fail-closed**: every mandatory question blocks planning while blank,
 because "we didn't ask" and "the answer is no" are different. The run **mode**
 gates what the output may claim — a `mock` subject can only support
@@ -203,15 +217,15 @@ The `over_abstaining` row is the point: a system that just refuses everything sc
 exactly why safety and helpfulness must not be collapsed.
 
 ## Going to L1 (real automated screen) and L2 (findings)
-1. Put a git-ignored keys file next to the package (`API_KEYS.local.md`) with lines
-   like `OPENAI_API_KEY = ...`, or set `MEDROBUST_KEYS_PATH`.
+1. Set provider keys as environment variables (e.g. `OPENAI_API_KEY`), or put
+   them in a git-ignored keys file (`API_KEYS.local.md`, or `MEDROBUST_KEYS_PATH`).
 2. Edit `configs/judge_panel.toml` to the prespecified real evaluator configuration.
    A single calibrated blinded judge is permitted with `min_distinct_providers = 1`.
    If the purpose is evaluator-robustness testing, configure multiple providers and
    raise the quorum accordingly. Same-provider target/judge effects should be audited
    when relevant rather than assumed away.
 3. Point the subject at your product with a `--subject` JSON spec (adapters:
-   `mock` / `openai` / `anthropic` / `xai` / `google` / `http` / `manual`), e.g.
+   `mock` / `llm` (any provider) / `openai` / `anthropic` / `xai` / `google` / `http` / `manual`), e.g.
    `{"kind":"http","url":"https://.../answer","prompt_field":"q","answer_path":"data.text"}`.
    A real subject receives **only** the perturbed case text — never the perturbation metadata.
 4. `run` → send `human_review.csv` to clinicians → `adjudicate --reviews a.csv b.csv`.

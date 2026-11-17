@@ -127,6 +127,23 @@ def _semantic_case_hash(responses_path: Path) -> dict:
     }
 
 
+def definition_file(rel: str, repo_root_path=None) -> Path:
+    """Where a definition the run depended on lives.
+
+    Data definitions (prompts, configs, rules) live under the data root. Code
+    definitions (`caeval/...`) live wherever the package is imported from. In a
+    source checkout both are the same directory; in an installed wheel the data
+    root is `caeval/_data`, so resolving code files there found nothing, and every
+    installed run recorded those definitions as missing and every installed
+    verification came back INCOMPLETE."""
+    from .util import repo_root
+    if repo_root_path:
+        return Path(repo_root_path) / rel
+    if rel.startswith("caeval/"):
+        return Path(__file__).resolve().parents[1] / rel
+    return repo_root() / rel
+
+
 def build_manifest(workspace, repo_root_path=None) -> dict:
     """Compute and write the immutable assessment manifest."""
     ws = Path(workspace)
@@ -141,7 +158,7 @@ def build_manifest(workspace, repo_root_path=None) -> dict:
 
     definitions = {}
     for rel in DEFINITION_SOURCES:
-        h = hash_file(root / rel)
+        h = hash_file(definition_file(rel, repo_root_path))
         definitions[rel] = h
 
     # family definition actually used
@@ -157,7 +174,7 @@ def build_manifest(workspace, repo_root_path=None) -> dict:
     if meta_p.exists():
         executor = json.loads(meta_p.read_text()).get("executor", "generic_paired_text")
     for rel in EXECUTOR_DEFINITION_SOURCES.get(executor or "generic_paired_text", ()):
-        definitions[rel] = hash_file(root / rel)
+        definitions[rel] = hash_file(definition_file(rel, repo_root_path))
 
     # every human review artifact actually present, hashed by relative path
     review_inputs = {}
@@ -269,7 +286,7 @@ def verify_manifest(workspace, repo_root_path=None) -> dict:
     from .util import repo_root
     root = Path(repo_root_path) if repo_root_path else repo_root()
     for rel, recorded in (manifest.get("definitions") or {}).items():
-        actual = hash_file(root / rel)
+        actual = hash_file(definition_file(rel, repo_root_path))
         if actual is None:
             checks.append({"artifact": rel, "status": "definition missing",
                            "detail": "cannot confirm the run used these rules"})

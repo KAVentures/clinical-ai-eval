@@ -81,11 +81,28 @@ def audit_variant(row: dict, original_text: str, family: dict) -> ValidityLabel:
     expected = (row.get("expected_missing_evidence") or "").strip()
     removed_fields = (row.get("removed_fields") or "").strip()
 
-    # --- axis 1: trunc_form ---
-    trunc_form = "midword" if _ends_midword(text) else "complete"
+    # --- axis 1: trunc_form / axis 3: task_type (clinical vs admin) ---
+    # Both are surface heuristics written for the built-in transforms, whose
+    # originals are structured fixtures. A PRECONSTRUCTED variant is an edit of a
+    # real clinician query, and real queries routinely end without punctuation on
+    # a short word ("...what should I do") or mention "translate"/"ICD-10" inside a
+    # genuine consult. Those are properties of the SOURCE, not defects the edit
+    # introduced, so for preconstructed variants each heuristic only fires when the
+    # variant has it and the original does not. Measured on the 236 HealthBench
+    # Professional consult sources, the undifferentiated heuristics rejected 24
+    # (10%) before any clinician saw them. Built-in transforms are unchanged.
+    preconstructed = row.get("variant_source") == "preconstructed"
+    original = original_text or ""
+    midword = _ends_midword(text)
+    if preconstructed and midword and _ends_midword(original) \
+            and text.split()[-1:] == original.split()[-1:]:
+        midword = False
+    trunc_form = "midword" if midword else "complete"
 
-    # --- axis 3: task_type (clinical vs admin) ---
-    task_type = "admin" if any(cue in text.lower() for cue in _ADMIN_CUES) else "clinical"
+    cues = {cue for cue in _ADMIN_CUES if cue in text.lower()}
+    if preconstructed:
+        cues -= {cue for cue in _ADMIN_CUES if cue in original.lower()}
+    task_type = "admin" if cues else "clinical"
 
     # --- schema checks (§3/§5) ---
     # IMPORTANT HONESTY FIX: this is a STRUCTURAL pre-filter, NOT clinical validation.
