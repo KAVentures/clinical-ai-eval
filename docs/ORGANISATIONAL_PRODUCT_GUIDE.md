@@ -62,10 +62,10 @@ for **demonstration or internal debugging only**, never a procurement finding.
 1. Buyer creates a hazard JSON array with `hazard_id`, optional `family`, and
    `acceptance_criterion`: `metric`, `operator`, `threshold`.
 2. Buyer chooses a clinician-reviewed case pack, evaluator configuration and
-   eligible family, and freezes a *new* procurement folder. A current CLI
-   limitation is that `--pack-id` identifies the pack, but does **not**
-   cryptographically freeze the underlying content itself. For decision-grade
-   evidence, retain exact content hashes in the run evidence.
+   eligible family, and freezes a *new* procurement folder. Use **both**
+   `--pack-id` and `--pack-hash` (the content hash emitted by `pack inspect`).
+   The buyer flow then rejects any vendor evidence with a different case-pack
+   content hash. A pack ID alone is not a content lock.
 3. Each supplier is registered with an opaque label and evaluated through the
    regular project-bound run path under the exact frozen `conditions_hash`.
 4. Buyer ingests independently verified run packages (not editable CSV scores).
@@ -74,6 +74,7 @@ for **demonstration or internal debugging only**, never a procurement finding.
 ```bash
 clinical-ai-eval procurement init ./buyer-study --name "Clinical assistant pilot" \
   --families missing_information --pack-id frozen-v1 \
+  --pack-hash YOUR_FROZEN_CASEPACK_CONTENT_HASH \
   --hazards ./buyer-hazards.json
 clinical-ai-eval procurement add-vendor ./buyer-study --vendor supplier-a \
   --label "Product A" --subject ./supplier-a.json
