@@ -33,9 +33,9 @@ COMPARABLE = "COMPARABLE"
 INCOMPARABLE = "INCOMPARABLE"
 
 # Run properties that must match for two products' numbers to mean the same thing.
-COMPARABILITY_FIELDS = ["case_pack_hash", "family_id", "family_version",
-                        "judge_panel_hash", "judge_prompt_hash", "selection_rules_hash",
-                        "eval_standard_version"]
+COMPARABILITY_FIELDS = ["conditions_hash", "case_pack_hash", "family_id",
+                        "family_version", "judge_panel_hash", "judge_prompt_hash",
+                        "selection_rules_hash", "eval_standard_version"]
 
 
 def check_comparability(entries: list) -> dict:
