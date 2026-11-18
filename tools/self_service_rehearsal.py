@@ -217,5 +217,29 @@ def run(cli: CLI, work: Path, srv: Server) -> None:
     check("claim:" in out and srv.requests == before, "manual run completes with zero network requests")
 
 
+    step("Patient-facing chatbot: conversational connector, custom response mapping")
+    triage = work / "acme-triage"
+    cli("project", "init", triage, "--name", "acme-triage")
+    t = yaml.safe_load((triage / "project.yaml").read_text())
+    t["project"]["mode"] = "internal_regression"
+    t["target"] = {"name": "ACME triage bot", "version": "1.0", "vendor": "ACME"}
+    t["target_profile"]["types"] = ["patient_triage_chatbot"]
+    t["intake"] = {q: "rehearsal answer" for q in t["intake"]}
+    t["governance"] = {"influences_diagnosis_or_treatment": "yes", "clinician_reviews_every_response": "no",
+                       "regulated_medical_device": "unsure", "deployment_jurisdictions": "SE"}
+    t["subject"] = {"kind": "http", "modality": "conversation", "url": f"{srv.base}/product/chat",
+                    "history_field": "messages", "answer_path": "reply", "retries": 3, "timeout": 30,
+                    "headers": {"Authorization": "Bearer ${ACME_PRODUCT_TOKEN}"}}
+    t["case_pack"] = {"source": "builtin:public_smoke"}
+    (triage / "project.yaml").write_text(yaml.safe_dump(t, sort_keys=False))
+    out = cli("connector", "test", "--project", triage, env=token_env)
+    check("conversation probe" in out and "connector OK" in out,
+          "connector test probes a conversational product as a conversation")
+    out = cli("run", "--project", triage, env=token_env)
+    check("patient_red_flag" in out and "claim:" in out,
+          "a patient-facing run completes with the product's own reply field (answer_path: reply)")
+    check(not files_containing(triage, PRODUCT_TOKEN), "the chatbot token appears in no saved file")
+
+
 if __name__ == "__main__":
     main()
