@@ -28,6 +28,10 @@ class BuildPyWithRuntimeData(_build_py):
             ("configs", "*.toml"),
             ("prompts", "*.txt"),
             ("schemas", "*.json"),
+            # Public demo case packs (builtin:public_smoke and the demo packs).
+            # private_qualification/ is never shipped.
+            ("casepacks", "*.py"),
+            ("casepacks", "*.json"),
         ]
         for dirname, pattern in specs:
             src_root = ROOT / dirname
@@ -35,6 +39,8 @@ class BuildPyWithRuntimeData(_build_py):
                 continue
             for src in src_root.rglob(pattern):
                 rel = src.relative_to(ROOT)
+                if "private_qualification" in rel.parts or "__pycache__" in rel.parts:
+                    continue
                 out = dest / rel
                 out.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, out)

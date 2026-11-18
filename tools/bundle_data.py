@@ -18,6 +18,10 @@ def main() -> None:
     shutil.copy(ROOT / "selection_rules.yaml", DST / "selection_rules.yaml")
     for d in DIRS:
         shutil.copytree(ROOT / d, DST / d)
+    # Public demo case packs only: what builtin:public_smoke and the demo
+    # commands load. private_qualification/ is never shipped.
+    shutil.copytree(ROOT / "casepacks", DST / "casepacks",
+                    ignore=shutil.ignore_patterns("private_qualification", "__pycache__"))
     print(f"bundled -> {DST.relative_to(ROOT)}: " + ", ".join(sorted(p.name for p in DST.iterdir())))
 
 if __name__ == "__main__":

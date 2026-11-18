@@ -1,5 +1,26 @@
 # Corrections log
 
+## v0.22.1 — patient-facing products could not be connected (2026-11)
+
+The conversational connector used by the patient-facing families took only the
+URL, headers and extra fields from project.yaml. `answer_path`, `history_field`,
+`session_field` and `timeout` were ignored, so a chatbot whose reply is anywhere
+but `answer` could not be connected. Worse, `connector test` probed it with the
+single-turn connector and reported **OK**, and only the run then failed.
+
+Every mapping field is now passed through, and `connector test` probes a
+`modality: conversation` subject as a conversation (one exchange plus reset
+stability). The self-service rehearsal now covers a patient-facing chatbot end to
+end.
+
+**Installed packages could not run patient-facing tests at all.** The built-in
+patient pack (`builtin:public_smoke`) is defined in
+`casepacks/patient/public_dev/smoke_worlds.py`, which was never bundled into the
+wheel, so an installed `run` for a patient-triage profile failed with
+`ModuleNotFoundError`. The public demo packs are now bundled;
+`casepacks/*/private_qualification/` never is. Found by running the rehearsal's new
+patient step from a clean wheel install.
+
 ## v0.22.0 — self-service, tested as a first-time user would use it (2026-11)
 
 Walking the documented self-service path end to end, from a clean installed

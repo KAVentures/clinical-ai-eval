@@ -69,9 +69,28 @@ subject:
 - `answer_path` follows dicts and lists: `choices.0.message.content` works.
 - The system receives **only the case text**, never which fact was changed.
 
-A conversational product (patient-facing families) uses an
-`http_conversation` adapter, which sends the transcript on each turn. See
-`caeval/adapters.py`.
+### A conversational product (patient-facing chatbots)
+
+```yaml
+target_profile:
+  types: [patient_triage_chatbot]
+subject:
+  kind: http
+  modality: conversation
+  url: https://triage.acme.example/api/chat
+  history_field: messages              # request: {"messages": [{"role": ..., "content": ...}, ...]}
+  answer_path: reply                   # where the reply is in the JSON response
+  session_field: ""                    # set if your product returns a session id to echo back
+  headers:
+    Authorization: "Bearer ${ACME_TRIAGE_TOKEN}"
+  timeout: 120
+  retries: 3
+```
+
+The whole transcript is sent on every turn. `connector test` probes the product as
+a conversation: one exchange, then repeated resets to check that replies are
+stable. A product whose replies differ across identical resets is reported, because
+paired comparisons from it carry sampling noise or leaked state.
 
 ### A model API directly
 

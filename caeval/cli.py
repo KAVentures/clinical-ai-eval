@@ -302,6 +302,34 @@ def _run_project_bound(args):
         print(f"  [{family_id}] claim: {pkg.get('claim_label')}  -> {pkg.get('final_report_md')}")
 
 
+def _conversation_spec(subject_spec: dict):
+    """The conversational connector exactly as project.yaml describes it.
+
+    Every mapping field is passed through: a product whose reply is not at the
+    default `answer` path, or whose transcript field is not `messages`, could not
+    otherwise be connected at all."""
+    from . import adapters
+    if subject_spec.get("kind") != "http":
+        raise SystemExit(
+            f"a conversational subject must be kind: http (got {subject_spec.get('kind')!r}); "
+            "set modality: conversation on an http subject")
+    extra = dict(subject_spec.get("extra", {}))
+    if subject_spec.get("retries") is not None:
+        extra["_retries"] = int(subject_spec["retries"])
+    return adapters.AdapterSpec(
+        adapter_id=subject_spec.get("name", "target"),
+        kind="http_conversation",
+        version=str(subject_spec.get("version", "unknown")),
+        url=subject_spec["url"],
+        headers=subject_spec.get("headers", {}),
+        extra=extra,
+        history_field=subject_spec.get("history_field", "messages"),
+        answer_path=subject_spec.get("answer_path", "answer"),
+        session_field=subject_spec.get("session_field", ""),
+        timeout=int(subject_spec.get("timeout", 120)),
+    )
+
+
 def _run_patient_family(ws, proj, family_id, cases, pack_desc, subject_spec,
                         panel=None, binding=None, conditions_hash=""):
     """Multi-turn execution, then the SHARED assurance lifecycle.
@@ -330,12 +358,7 @@ def _run_patient_family(ws, proj, family_id, cases, pack_desc, subject_spec,
                           MOCKS[arm], "mock", "project-declared mock subject", is_mock=True)
         target_fn = MOCKS[arm]
     else:
-        aspec = adapters.AdapterSpec(
-            adapter_id=subject_spec.get("name", "target"),
-            kind="http_conversation",
-            version=str(subject_spec.get("version", "unknown")),
-            url=subject_spec["url"], headers=subject_spec.get("headers", {}),
-            extra=subject_spec.get("extra", {}))
+        aspec = _conversation_spec(subject_spec)
         adapter, probe = adapters.connect(aspec)
         (Path(ws.path) / "adapter_probe.json").write_text(json.dumps(probe, indent=2))
         target_fn = adapter
@@ -888,6 +911,22 @@ def cmd_connector_test(args):
     proj.require_valid()
     spec = proj.subject
     print(f"connector: kind={spec.get('kind')} target={proj.target_meta['name']}")
+    if spec.get("modality") == "conversation":
+        # A conversational product is probed as a conversation: one exchange,
+        # then repeated resets to see whether replies are stable.
+        from . import adapters
+        try:
+            _adapter, report_ = adapters.connect(_conversation_spec(spec))
+        except (adapters.AdapterError, SystemExit) as e:
+            raise SystemExit(f"connector call FAILED: {e}")
+        det = report_.get("determinism", {})
+        print(f"conversation probe: capabilities={report_.get('capabilities')} "
+              f"deterministic={det.get('deterministic')} ({det.get('distinct_replies')} distinct of {det.get('trials')})")
+        if report_.get("missing_for_patient_family"):
+            print(f"note: missing for the patient family: {report_['missing_for_patient_family']}. "
+                  + str(det.get("note", "")))
+        print("connector OK")
+        return
     try:
         subject = build_subject(spec)
     except Exception as e:  # noqa: BLE001

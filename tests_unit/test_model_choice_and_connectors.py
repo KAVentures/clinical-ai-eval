@@ -186,3 +186,25 @@ def test_code_definitions_resolve_from_the_package_even_when_data_lives_elsewher
     assert not (data / "caeval" / "score.py").exists()
     assert manifest.definition_file("caeval/score.py").exists()
     assert manifest.definition_file("prompts/judge_prompt.txt") == data / "prompts" / "judge_prompt.txt"
+
+
+def test_conversational_subject_honours_every_mapping_field():
+    from caeval.cli import _conversation_spec
+    spec = _conversation_spec({"kind": "http", "modality": "conversation", "url": "https://x/chat",
+                               "history_field": "turns", "answer_path": "data.reply",
+                               "session_field": "sid", "timeout": 30, "retries": 5,
+                               "headers": {"Authorization": "Bearer ${T}"}})
+    assert (spec.history_field, spec.answer_path, spec.session_field, spec.timeout) == \
+        ("turns", "data.reply", "sid", 30)
+    assert spec.extra["_retries"] == 5
+
+
+def test_conversation_with_a_custom_reply_field_over_real_http(monkeypatch):
+    from caeval import adapters
+    from caeval.cli import _conversation_spec
+    with Server("tok", "key") as srv:
+        monkeypatch.setenv("T", "tok")
+        adapter, report = adapters.connect(_conversation_spec(
+            {"kind": "http", "url": f"{srv.base}/product/chat", "answer_path": "reply",
+             "headers": {"Authorization": "Bearer ${T}"}}))
+        assert report["ok"] and "conversation" in report["capabilities"]
