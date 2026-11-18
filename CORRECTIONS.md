@@ -13,6 +13,14 @@ Every mapping field is now passed through, and `connector test` probes a
 stability). The self-service rehearsal now covers a patient-facing chatbot end to
 end.
 
+**Installed packages could not run patient-facing tests at all.** The built-in
+patient pack (`builtin:public_smoke`) is defined in
+`casepacks/patient/public_dev/smoke_worlds.py`, which was never bundled into the
+wheel, so an installed `run` for a patient-triage profile failed with
+`ModuleNotFoundError`. The public demo packs are now bundled;
+`casepacks/*/private_qualification/` never is. Found by running the rehearsal's new
+patient step from a clean wheel install.
+
 ## v0.22.0 — self-service, tested as a first-time user would use it (2026-11)
 
 Walking the documented self-service path end to end, from a clean installed
