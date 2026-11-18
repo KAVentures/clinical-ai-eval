@@ -1,0 +1,79 @@
+name: One-time v0.22.1 release and safe branch cleanup
+
+on:
+  pull_request:
+    paths: ['.github/workflows/one-time-v0221-release.yml']
+  push:
+    branches: [main]
+    paths: ['.github/workflows/one-time-v0221-release.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.repository == 'KAVentures/clinical-ai-eval'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify exact release source and prevent accidental retagging
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET=b5c514d589824bf24d314f70fad3de4038fb91dc
+          git merge-base --is-ancestor "$TARGET" HEAD
+          git show "$TARGET:caeval/version.py" | grep -Fx '__version__ = "0.22.1"'
+          git fetch --tags origin
+          if git rev-parse -q --verify 'refs/tags/v0.22.1^{commit}' >/dev/null; then
+            test "$(git rev-parse 'refs/tags/v0.22.1^{commit}')" = "$TARGET"
+          fi
+          echo "v0.22.1 release must reference exact tested PR #23 merge $TARGET"
+      - name: Publish tag and GitHub Release for tested patch commit
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TARGET=b5c514d589824bf24d314f70fad3de4038fb91dc
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if ! git rev-parse -q --verify 'refs/tags/v0.22.1^{commit}' >/dev/null; then
+            git tag -a v0.22.1 "$TARGET" -m 'Clinical AI Eval v0.22.1: patient chatbot self-service patch'
+            git push origin refs/tags/v0.22.1
+          fi
+          if ! gh release view v0.22.1 >/dev/null 2>&1; then
+            cat > /tmp/notes.txt <<'EOF'
+          v0.22.1 fixes patient-facing clinical AI chatbot connectivity and package distribution.
+
+          - Conversation adapters now honour the configured response path, conversation history field, session field, timeout and retry limit.
+          - Connector checks exercise conversational exchange/reset behaviour rather than incorrectly reporting a single-turn HTTP probe as a pass.
+          - Installed wheels now include public synthetic patient case packs while excluding private qualification packs.
+          - Extended end-to-end self-service rehearsal includes a patient-chatbot example; all seven PR #23 CI jobs passed.
+
+          **Scientific status:** these are product/integration fixes. Clinical test families remain experimental and this release does not certify healthcare-AI safety, clinical validity or procurement readiness.
+          EOF
+            gh release create v0.22.1 --verify-tag --title 'Clinical AI Eval v0.22.1' --notes-file /tmp/notes.txt
+          fi
+      - name: Remove only already-integrated old branches (never discard unique commits)
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+          for branch in 'chatgpt/procurement-evidence-integrity-20261117' 'study-alignment-calibrated-judge' 'research/branch-intersection-safety'; do
+            if ! git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+              echo "Already absent: $branch"
+              continue
+            fi
+            head=$(git rev-parse "refs/remotes/origin/$branch")
+            if git merge-base --is-ancestor "$head" 'refs/remotes/origin/main'; then
+              echo "Removing fully-integrated branch $branch ($head)"
+              if ! git push origin --delete "$branch"; then echo "WARN: deletion refused for $branch"; fi
+            else
+              echo "PRESERVED: $branch has unique commits"
+            fi
+          done
+          echo 'Other stale-looking branches are deliberately retained when not fully merged.'
