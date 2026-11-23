@@ -84,6 +84,19 @@ def render_page(data: dict, message: str = "", error: str = "") -> bytes:
         )
     if not rows:
         rows.append("<tr><td colspan='4' class='muted'>No vendors added yet.</td></tr>")
+    evidence_rows = []
+    for v in vendors:
+        for doc in v["documents"]:
+            integrity = doc["integrity"]
+            evidence_rows.append(
+                "<tr><td>" + esc(v["name"]) + "</td><td>" +
+                esc(doc["kind"].replace("_", " ")) + "</td><td>" +
+                esc(doc["title"]) + "</td><td>" +
+                esc(integrity) + "</td><td>" +
+                esc(doc["review_status"]) + "</td></tr>"
+            )
+    if not evidence_rows:
+        evidence_rows.append("<tr><td colspan='5' class='muted'>No documents uploaded.</td></tr>")
     options = "".join(
         "<option value='" + esc(v["vendor_id"]) + "'>" + esc(v["name"]) + "</option>"
         for v in vendors
@@ -125,6 +138,11 @@ procurement recommendation or deployment approval.</div>
 <div class='row'><h2>Vendor assessment</h2><span class='tag'>Local data</span></div>
 <table><thead><tr><th>Candidate</th><th>Docs</th><th>Missing</th><th>Status</th></tr></thead>
 <tbody>{''.join(rows)}</tbody></table></div>
+<section class='panel'><h2>Evidence inventory</h2>
+<table><thead><tr><th>Vendor</th><th>Type</th><th>Document</th><th>Integrity</th><th>Review</th>
+</tr></thead><tbody>{''.join(evidence_rows)}</tbody></table>
+<p class='small'>Intact means the file hash matches its submitted copy.
+It does not verify that the document's assertions are true.</p></section>
 <section class='panel'><h2>Next steps</h2>
 <ul>{todo or "<li>No automated administrative next steps recorded.</li>"}</ul>
 <p class='small'>Clinical testing and verified comparative results remain in the
@@ -196,6 +214,7 @@ def parse_upload(body: bytes, content_type: str):
     if not message.is_multipart():
         raise buyer.BuyerError("invalid multipart document upload")
     fields, file_data, filename = {}, None, None
+    seen = set()
     parts = list(message.iter_parts())
     if len(parts) > 8:
         raise buyer.BuyerError("too many multipart fields")
@@ -203,8 +222,9 @@ def parse_upload(body: bytes, content_type: str):
         if part.get_content_disposition() != "form-data":
             raise buyer.BuyerError("invalid multipart field")
         name = part.get_param("name", header="content-disposition")
-        if name not in ("vendor_id", "kind", "title", "document") or name in fields:
+        if name not in ("vendor_id", "kind", "title", "document") or name in seen:
             raise buyer.BuyerError("unknown or duplicate multipart field")
+        seen.add(name)
         payload = part.get_payload(decode=True) or b""
         if name == "document":
             file_data = payload
