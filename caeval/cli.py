@@ -1239,6 +1239,10 @@ def cmd_buyer(args):
             result = buyer.add_evidence(args.path, args.vendor_id or "",
                                         args.kind or "", args.file or "",
                                         args.title or "")
+        elif args.action == "serve":
+            from . import buyer_web
+            buyer_web.serve(args.path, port=args.port, open_browser=not args.no_browser)
+            return
         elif args.action == "status":
             result = buyer.status(args.path)
         elif args.action == "dossier":
@@ -1538,7 +1542,7 @@ def main(argv=None):
     pproc.set_defaults(func=cmd_procurement)
 
     pb = sub.add_parser("buyer", help="local-only buyer workspace (JSON for CLI agents)")
-    pb.add_argument("action", choices=["contract", "init", "vendor-add", "evidence-add", "status", "dossier"])
+    pb.add_argument("action", choices=["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve"])
     pb.add_argument("path", nargs="?", help="local buyer workspace directory (except contract)")
     pb.add_argument("--name", help="project name on init, vendor name on vendor-add")
     pb.add_argument("--intended-use", default="", help="planned clinical/administrative use")
@@ -1549,6 +1553,8 @@ def main(argv=None):
     pb.add_argument("--file", default=None, help="local evidence document to copy privately")
     pb.add_argument("--title", default=None)
     pb.add_argument("--out", default=None, help="new dossier path; never overwrites")
+    pb.add_argument("--port", type=int, default=0, help="local browser port; 0 picks a free port")
+    pb.add_argument("--no-browser", action="store_true", help="do not automatically open the browser")
     pb.set_defaults(func=cmd_buyer)
 
     pra = sub.add_parser(
