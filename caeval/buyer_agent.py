@@ -297,6 +297,17 @@ def contract() -> dict:
         "network_calls": 0, "data_storage": "local_only",
         "entrypoint": "clinical-ai-eval buyer",
         "actions": ["contract", "init", "vendor-add", "evidence-add", "status", "dossier"],
+        "action_schemas": {
+            "contract": {"required": [], "writes": False},
+            "init": {"required": ["path", "--name"],
+                     "optional": ["--intended-use", "--setting", "--jurisdiction"],
+                     "writes": True},
+            "vendor-add": {"required": ["path", "--vendor-id", "--name"], "writes": True},
+            "evidence-add": {"required": ["path", "--vendor-id", "--kind", "--file"],
+                             "optional": ["--title"], "writes": True},
+            "status": {"required": ["path"], "writes": False},
+            "dossier": {"required": ["path", "--out"], "writes": True},
+        },
         "evidence_kinds": list(EVIDENCE_KINDS),
         "max_document_bytes": MAX_DOCUMENT_BYTES,
         "notes": [
