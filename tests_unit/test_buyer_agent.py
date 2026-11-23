@@ -115,6 +115,19 @@ class BuyerWorkspaceTests(unittest.TestCase):
         data = json.loads((self.root / "buyer.json").read_text())
         self.assertEqual(data["project_name"], "Hospital trial")
 
+    def test_agent_contract_declares_required_arguments(self):
+        contract = buyer.contract()
+        self.assertEqual(contract["transport"], "local_subprocess_json")
+        self.assertFalse(contract["action_schemas"]["status"]["writes"])
+        self.assertIn("--vendor-id", contract["action_schemas"]["evidence-add"]["required"])
+
+    def test_cli_missing_path_is_structured_failure(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as exc:
+            main(["buyer", "status"])
+        self.assertEqual(exc.exception.code, 1)
+        self.assertFalse(json.loads(output.getvalue())["ok"])
+
     def test_no_unintended_network_calls(self):
         buyer.add_vendor(self.root, "a", "A")
         with patch("urllib.request.urlopen", side_effect=AssertionError("network forbidden")):
