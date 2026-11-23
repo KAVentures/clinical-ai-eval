@@ -1225,6 +1225,8 @@ def cmd_buyer(args):
     from . import buyer_agent as buyer
 
     try:
+        if args.action != "contract" and not args.path:
+            raise buyer.BuyerError("buyer workspace PATH is required")
         if args.action == "contract":
             result = buyer.contract()
         elif args.action == "init":
