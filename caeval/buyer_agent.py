@@ -140,7 +140,7 @@ def _digest_stream(handle):
 
 
 def add_evidence(directory, vendor_id: str, kind: str, source_file: str,
-                 title: str = "") -> dict:
+                 title: str = "", source_filename: str | None = None) -> dict:
     root = _root(directory)
     data = load(root)
     if vendor_id not in {v["vendor_id"] for v in data["vendors"]}:
@@ -180,7 +180,8 @@ def add_evidence(directory, vendor_id: str, kind: str, source_file: str,
         "evidence_id": "ev-" + uuid.uuid4().hex[:12],
         "vendor_id": vendor_id, "kind": kind,
         "title": (title or source.name).strip(),
-        "source_filename": source.name, "sha256": digest,
+        "source_filename": (source_filename or source.name).replace("\\\\", "/").rsplit("/", 1)[-1][:200],
+        "sha256": digest,
         "relative_path": f"evidence/{digest}", "bytes": len(blob),
         "added_at": _now(),
         "review_status": "not_reviewed",
@@ -296,7 +297,7 @@ def contract() -> dict:
         "schema_version": SCHEMA_VERSION, "transport": "local_subprocess_json",
         "network_calls": 0, "data_storage": "local_only",
         "entrypoint": "clinical-ai-eval buyer",
-        "actions": ["contract", "init", "vendor-add", "evidence-add", "status", "dossier"],
+        "actions": ["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve"],
         "action_schemas": {
             "contract": {"required": [], "writes": False},
             "init": {"required": ["path", "--name"],
@@ -307,6 +308,9 @@ def contract() -> dict:
                              "optional": ["--title"], "writes": True},
             "status": {"required": ["path"], "writes": False},
             "dossier": {"required": ["path", "--out"], "writes": True},
+            "serve": {"required": ["path"], "optional": ["--port", "--no-browser"],
+                      "writes": True, "interactive": True,
+                      "scope": "loopback_only"},
         },
         "evidence_kinds": list(EVIDENCE_KINDS),
         "max_document_bytes": MAX_DOCUMENT_BYTES,
