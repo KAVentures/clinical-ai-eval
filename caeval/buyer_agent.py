@@ -67,10 +67,13 @@ def init(directory, name: str, intended_use: str = "", setting: str = "",
     if not str(name).strip():
         raise BuyerError("project name is required")
     root = _root(directory)
+    if (root / STATE_FILE).exists():
+        raise BuyerError(f"{root / STATE_FILE} exists; refusing to overwrite the buyer project")
+    newly_created = not root.exists()
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    # An organisation-controlled workspace should not be world-readable by default.
-    # Ownership and multi-user access still require an external filesystem policy.
-    if os.name == "posix":
+    # Do not chmod an existing organisation-owned directory: it may have a
+    # deliberately managed shared-access policy. New projects start owner-only.
+    if newly_created and os.name == "posix":
         os.chmod(root, 0o700)
     data = {
         "schema_version": SCHEMA_VERSION, "project_name": name.strip(),
@@ -180,7 +183,7 @@ def add_evidence(directory, vendor_id: str, kind: str, source_file: str,
         "evidence_id": "ev-" + uuid.uuid4().hex[:12],
         "vendor_id": vendor_id, "kind": kind,
         "title": (title or source.name).strip(),
-        "source_filename": (source_filename or source.name).replace("\\\\", "/").rsplit("/", 1)[-1][:200],
+        "source_filename": (source_filename or source.name).replace("\\", "/").rsplit("/", 1)[-1][:200],
         "sha256": digest,
         "relative_path": f"evidence/{digest}", "bytes": len(blob),
         "added_at": _now(),
