@@ -93,7 +93,9 @@ def render_page(data: dict, message: str = "", error: str = "") -> bytes:
                            for k in buyer.EVIDENCE_KINDS)
     todo = "".join("<li>" + esc(a["description"]) + "</li>" for a in data["next_actions"])
     notices = ""
-    if message == "vendor-added":
+    if message == "project-created":
+        notices += "<div class='notice'>Private buyer workspace created on this machine.</div>"
+    elif message == "vendor-added":
         notices += "<div class='notice'>Vendor registered locally.</div>"
     elif message == "evidence-added":
         notices += "<div class='notice'>Document copied into the private local evidence store.</div>"
@@ -157,6 +159,33 @@ patient records unless the organisation has approved the local data environment.
     return content.encode("utf-8")
 
 
+def render_setup() -> bytes:
+    """First-run wizard: create a private workspace without learning CLI syntax."""
+    return (f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Clinical AI Eval — Start local assessment</title><style>{STYLE}</style></head>
+<body><main class='shell' style='max-width:690px'>
+<div class='kicker'>Clinical AI Eval · local setup</div>
+<h1>Start a healthcare AI assessment</h1>
+<p class='muted'>Create a workspace on this machine. Vendor documents and
+administrative records stay here; this step uses no cloud account.</p>
+<div class='panel'><h2>Organisation's assessment</h2>
+<form action='/project-init' method='post'>
+<label>Project name<input name='name' required maxlength='200'
+placeholder='Clinical AI procurement pilot'></label>
+<label>Intended use<input name='intended_use' required maxlength='1500'
+placeholder='Clinician-facing decision support for emergency care'></label>
+<label>Care setting<input name='setting' required maxlength='500'
+placeholder='Emergency department'></label>
+<label>Jurisdiction<input name='jurisdiction' required maxlength='80'
+placeholder='SE / Sweden'></label>
+<button type='submit'>Create private workspace</button></form></div>
+<div class='notice'>This is an administrative workspace. Clinical evaluation
+is experimental unless separately validated and physician-reviewed.
+This browser is for one local user, not a shared hospital installation.</div>
+</main></body></html>""").encode("utf-8")
+
+
 def parse_upload(body: bytes, content_type: str):
     if not content_type.lower().startswith("multipart/form-data;"):
         raise buyer.BuyerError("document upload requires multipart/form-data")
@@ -201,7 +230,7 @@ class BuyerHTTPServer(ThreadingHTTPServer):
 
     def __init__(self, directory, port: int = 0):
         self.directory = Path(directory).expanduser().resolve()
-        buyer.load(self.directory)
+        # A new workspace can be created through the browser onboarding wizard.
         self.session_token = secrets.token_urlsafe(32)
         super().__init__((HOST, port), BuyerHandler)
 
@@ -272,10 +301,13 @@ class BuyerHandler(BaseHTTPRequestHandler):
                                "Launch with the private URL shown in your terminal.")
         query = urllib.parse.parse_qs(parts.query)
         try:
-            data = buyer.status(self.server.directory)
-            content = render_page(
-                data, query.get("message", [""])[0],
-                query.get("error", [""])[0])
+            if not (self.server.directory / buyer.STATE_FILE).exists():
+                content = render_setup()
+            else:
+                data = buyer.status(self.server.directory)
+                content = render_page(
+                    data, query.get("message", [""])[0],
+                    query.get("error", [""])[0])
         except (buyer.BuyerError, OSError, ValueError) as exc:
             return self._error(HTTPStatus.INTERNAL_SERVER_ERROR,
                                "Could not read local buyer workspace: " + str(exc))
@@ -290,7 +322,7 @@ class BuyerHandler(BaseHTTPRequestHandler):
             return self._error(HTTPStatus.FORBIDDEN,
                                "cross-origin local writes are not permitted")
         path = urllib.parse.urlsplit(self.path).path
-        if path not in ("/vendor-add", "/evidence-add"):
+        if path not in ("/project-init", "/vendor-add", "/evidence-add"):
             return self._error(HTTPStatus.NOT_FOUND, "unknown route")
         try:
             n = int(self.headers.get("Content-Length", "-1"))
@@ -300,13 +332,24 @@ class BuyerHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(n)
             if len(body) != n:
                 raise buyer.BuyerError("incomplete request body")
-            if path == "/vendor-add":
+            if path in ("/project-init", "/vendor-add"):
                 if not ctype.startswith("application/x-www-form-urlencoded"):
-                    raise buyer.BuyerError("invalid vendor form content type")
+                    raise buyer.BuyerError("invalid local form content type")
+                if n > 8192:
+                    raise buyer.BuyerError("local form exceeds allowed size")
                 fields = urllib.parse.parse_qs(body.decode("utf-8"), keep_blank_values=True)
-                for key in ("vendor_id", "name"):
-                    if len(fields.get(key, [])) != 1:
-                        raise buyer.BuyerError(f"one {key} is required")
+                required = (("name", "intended_use", "setting", "jurisdiction")
+                            if path == "/project-init" else ("vendor_id", "name"))
+                for key in required:
+                    if len(fields.get(key, [])) != 1 or not fields[key][0].strip():
+                        raise buyer.BuyerError(f"one nonempty {key} is required")
+                if path == "/project-init":
+                    buyer.init(self.server.directory, fields["name"][0],
+                               fields["intended_use"][0], fields["setting"][0],
+                               fields["jurisdiction"][0])
+                    return self._redirect("?message=project-created")
+                if not (self.server.directory / buyer.STATE_FILE).is_file():
+                    raise buyer.BuyerError("create a buyer project before registering vendors")
                 buyer.add_vendor(self.server.directory, fields["vendor_id"][0], fields["name"][0])
                 return self._redirect("?message=vendor-added")
             fields, payload, filename = parse_upload(body, ctype)
