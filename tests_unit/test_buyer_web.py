@@ -51,6 +51,9 @@ class LocalBuyerBrowserTests(unittest.TestCase):
         return self._request(path, data=urllib.parse.urlencode(fields).encode("utf-8"),
                              headers=headers)
 
+    def test_browser_bound_to_loopback(self):
+        self.assertEqual(self.app.server_address[0], "127.0.0.1")
+
     def test_no_access_before_login(self):
         with self.assertRaises(urllib.error.HTTPError) as exc:
             self._request("/")
@@ -125,6 +128,50 @@ class LocalBuyerBrowserTests(unittest.TestCase):
         self._login()
         html = self._request("/").read().decode("utf-8")
         self.assertNotIn(self.app.session_token, html)
+
+
+class FirstRunBrowserTests(unittest.TestCase):
+    def test_setup_wizard_creates_private_local_workspace(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp) / "not-yet-created"
+            with BuyerHTTPServer(root, 0) as app:
+                thread = threading.Thread(target=app.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    client = urllib.request.build_opener(
+                        urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+                    page = client.open(app.launch_url, timeout=3).read().decode("utf-8")
+                    self.assertIn("Start a healthcare AI assessment", page)
+                    fields = urllib.parse.urlencode({
+                        "name": "Regional AI Procurement",
+                        "intended_use": "Clinician decision support",
+                        "setting": "Emergency ward",
+                        "jurisdiction": "SE",
+                    }).encode("utf-8")
+                    response = client.open(urllib.request.Request(
+                        f"http://127.0.0.1:{app.server_port}/project-init",
+                        data=fields,
+                        headers={
+                            "Content-Type": "application/x-www-form-urlencoded",
+                            "Origin": f"http://127.0.0.1:{app.server_port}",
+                        }), timeout=3)
+                    self.assertIn(b"Regional AI Procurement", response.read())
+                    self.assertEqual(buyer.load(root)["jurisdiction"], "SE")
+                finally:
+                    app.shutdown()
+                    thread.join(timeout=3)
+
+    def test_duplicate_file_parts_rejected(self):
+        boundary = "testboundary"
+        blob = (
+            f"--{boundary}\\r\\nContent-Disposition: form-data; "
+            f"name=\\\"document\\\"; filename=\\\"a.txt\\\"\\r\\n\\r\\na"
+            f"\\r\\n--{boundary}\\r\\nContent-Disposition: form-data; "
+            f"name=\\\"document\\\"; filename=\\\"b.txt\\\"\\r\\n\\r\\nb"
+            f"\\r\\n--{boundary}--\\r\\n"
+        ).encode("utf-8")
+        with self.assertRaises(buyer.BuyerError):
+            parse_upload(blob, f"multipart/form-data; boundary={boundary}")
 
 
 if __name__ == "__main__":
