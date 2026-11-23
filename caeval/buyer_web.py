@@ -75,15 +75,23 @@ def render_page(data: dict, message: str = "", error: str = "") -> bytes:
         bad = sum(d["integrity"] != "intact" for d in v["documents"])
         label = ("Integrity issue" if bad else
                  "Evidence incomplete" if v["missing_evidence_kinds"] else "Documents present")
+        test_state = v.get("evaluation_status", "not_configured")
+        test_label = {
+            "verified_package_present": str(v.get("verified_package_count", 0)) + " verified package(s)",
+            "awaiting_verified_evidence": "Awaiting verified evidence",
+            "not_registered_for_testing": "Not in testing study",
+            "not_configured": "Testing not configured",
+        }.get(test_state, "Unknown")
         style = "warning" if bad or v["missing_evidence_kinds"] else ""
         rows.append(
             "<tr><td>" + esc(v["name"]) + "<div class='small'>" + esc(v["vendor_id"]) +
             "</div></td><td>" + str(len(v["documents"])) +
             "</td><td>" + str(len(v["missing_evidence_kinds"])) +
-            "</td><td><span class='tag " + style + "'>" + label + "</span></td></tr>"
+            "</td><td><span class='tag " + style + "'>" + label + "</span></td>" +
+            "<td>" + esc(test_label) + "</td></tr>"
         )
     if not rows:
-        rows.append("<tr><td colspan='4' class='muted'>No vendors added yet.</td></tr>")
+        rows.append("<tr><td colspan='5' class='muted'>No vendors added yet.</td></tr>")
     evidence_rows = []
     for v in vendors:
         for doc in v["documents"]:
@@ -136,7 +144,7 @@ procurement recommendation or deployment approval.</div>
 <div class='value'>{incomplete}</div></div></div>
 <div class='grid'><div><div class='panel'>
 <div class='row'><h2>Vendor assessment</h2><span class='tag'>Local data</span></div>
-<table><thead><tr><th>Candidate</th><th>Docs</th><th>Missing</th><th>Status</th></tr></thead>
+<table><thead><tr><th>Candidate</th><th>Docs</th><th>Missing</th><th>Evidence status</th><th>Testing</th></tr></thead>
 <tbody>{''.join(rows)}</tbody></table></div>
 <section class='panel'><h2>Evidence inventory</h2>
 <table><thead><tr><th>Vendor</th><th>Type</th><th>Document</th><th>Integrity</th><th>Review</th>
