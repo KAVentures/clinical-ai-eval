@@ -231,6 +231,18 @@ def status(directory) -> dict:
                         "documents": docs, "missing_evidence_kinds": sorted(set(EVIDENCE_KINDS) - supplied),
                         "all_documents_intact": all(d["integrity"] == "intact" for d in docs)})
     assessment = _assessment_status(root)
+    for v in vendors:
+        if assessment["status"] != "configured":
+            v["evaluation_status"] = "not_configured"
+            v["verified_package_count"] = 0
+        elif v["vendor_id"] not in assessment["registered_vendor_ids"]:
+            v["evaluation_status"] = "not_registered_for_testing"
+            v["verified_package_count"] = 0
+        else:
+            count = assessment["verified_result_counts"].get(v["vendor_id"], 0)
+            v["verified_package_count"] = count
+            v["evaluation_status"] = ("verified_package_present" if count > 0
+                                      else "awaiting_verified_evidence")
     actions = []
     if missing_intake:
         actions.append({"id": "complete_intake", "description": "Complete buyer intended use, setting, and jurisdiction before making claims."})
@@ -242,6 +254,12 @@ def status(directory) -> dict:
         actions.append({"id": "freeze_assessment", "description": "Freeze reviewed case pack, hazards, thresholds, and evaluators through existing procurement init."})
     if assessment["status"] == "invalid":
         actions.append({"id": "repair_assessment", "description": "Fix invalid frozen assessment state before any comparison."})
+    if any(v["evaluation_status"] == "not_registered_for_testing" for v in vendors):
+        actions.append({"id": "register_assessment_subjects",
+                        "description": "Register each relevant candidate in the frozen clinical testing study before running it."})
+    if any(v["evaluation_status"] == "awaiting_verified_evidence" for v in vendors):
+        actions.append({"id": "complete_clinical_testing",
+                        "description": "Run and clinician-review candidate evaluations; ingest only verified packages. A registered vendor without evidence has not passed."})
     return {
         "schema_version": SCHEMA_VERSION, "directory": str(root),
         "project_name": data["project_name"], "intended_use": data.get("intended_use"),
