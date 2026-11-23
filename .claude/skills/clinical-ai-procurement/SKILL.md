@@ -31,11 +31,23 @@ Read `docs/LOCAL_FIRST_BUYER_WORKFLOW.md` for the supported lifecycle.
 - Never expose the current unauthenticated loopback console on a network.
 - State what was actually checked versus missing, pending review, or experimental.
 
+## Human-facing local dashboard
+
+Use `clinical-ai-eval buyer serve ./hospital-assessment` to launch the loopback-only
+browser interface, including first-run setup, vendor management and private
+document upload. This command is long-running and prints a session-bearing local
+URL. Do **not** copy that token into a cloud chat or log. Default to CLI commands
+for automation; use `serve --no-browser` only when the user wants a local UI.
+
+The browser is single-user. Never proxy it to a hospital intranet or expose it
+through a tunnel; shared use requires proper multi-user authentication and TLS.
+
 ## Useful commands
 
 ```bash
 clinical-ai-eval buyer contract
 clinical-ai-eval buyer status ./hospital-assessment
+clinical-ai-eval buyer serve ./hospital-assessment
 clinical-ai-eval buyer dossier ./hospital-assessment --out ./dossier-new.md
 clinical-ai-eval capabilities --json
 ```
