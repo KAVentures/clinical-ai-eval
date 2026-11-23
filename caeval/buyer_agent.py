@@ -67,6 +67,11 @@ def init(directory, name: str, intended_use: str = "", setting: str = "",
     if not str(name).strip():
         raise BuyerError("project name is required")
     root = _root(directory)
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # An organisation-controlled workspace should not be world-readable by default.
+    # Ownership and multi-user access still require an external filesystem policy.
+    if os.name == "posix":
+        os.chmod(root, 0o700)
     data = {
         "schema_version": SCHEMA_VERSION, "project_name": name.strip(),
         "intended_use": intended_use.strip(), "setting": setting.strip(),
