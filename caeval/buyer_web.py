@@ -13,6 +13,7 @@ import json
 import os
 import secrets
 import tempfile
+import threading
 import urllib.parse
 import webbrowser
 from email import policy
@@ -260,6 +261,7 @@ class BuyerHTTPServer(ThreadingHTTPServer):
         self.directory = Path(directory).expanduser().resolve()
         # A new workspace can be created through the browser onboarding wizard.
         self.session_token = secrets.token_urlsafe(32)
+        self.mutation_lock = threading.Lock()
         super().__init__((HOST, port), BuyerHandler)
 
     @property
@@ -372,13 +374,15 @@ class BuyerHandler(BaseHTTPRequestHandler):
                     if len(fields.get(key, [])) != 1 or not fields[key][0].strip():
                         raise buyer.BuyerError(f"one nonempty {key} is required")
                 if path == "/project-init":
-                    buyer.init(self.server.directory, fields["name"][0],
-                               fields["intended_use"][0], fields["setting"][0],
-                               fields["jurisdiction"][0])
+                    with self.server.mutation_lock:
+                        buyer.init(self.server.directory, fields["name"][0],
+                                   fields["intended_use"][0], fields["setting"][0],
+                                   fields["jurisdiction"][0])
                     return self._redirect("?message=project-created")
                 if not (self.server.directory / buyer.STATE_FILE).is_file():
                     raise buyer.BuyerError("create a buyer project before registering vendors")
-                buyer.add_vendor(self.server.directory, fields["vendor_id"][0], fields["name"][0])
+                with self.server.mutation_lock:
+                    buyer.add_vendor(self.server.directory, fields["vendor_id"][0], fields["name"][0])
                 return self._redirect("?message=vendor-added")
             fields, payload, filename = parse_upload(body, ctype)
             if not fields.get("vendor_id") or not fields.get("kind"):
@@ -389,10 +393,11 @@ class BuyerHandler(BaseHTTPRequestHandler):
                 os.chmod(tmp.name, 0o600)
                 with tmp:
                     tmp.write(payload)
-                buyer.add_evidence(self.server.directory, fields["vendor_id"],
-                                   fields["kind"], tmp.name,
-                                   fields.get("title") or filename,
-                                   source_filename=filename)
+                with self.server.mutation_lock:
+                    buyer.add_evidence(self.server.directory, fields["vendor_id"],
+                                       fields["kind"], tmp.name,
+                                       fields.get("title") or filename,
+                                       source_filename=filename)
             finally:
                 Path(tmp.name).unlink(missing_ok=True)
             return self._redirect("?message=evidence-added")
