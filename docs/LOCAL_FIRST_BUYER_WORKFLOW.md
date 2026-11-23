@@ -8,6 +8,42 @@ SaaS, Supabase, or an online AI model** for this workflow.
 This is the *first buyer-facing foundation*, not a finished hospital procurement
 product, a validated clinical evaluator, or a regulatory certification.
 
+## Local web application — OWG-style launch
+
+The buyer dashboard runs as a background-capable local HTTP process and opens in
+the default browser. There is **no separate hosted frontend** and no cloud account.
+
+```bash
+clinical-ai-eval buyer serve ./hospital-assessment
+```
+
+If this directory is new, the local browser shows a setup wizard to define the
+assessment; otherwise it opens the existing buyer workspace. The interface
+supports vendor registration and local evidence uploads, a vendor/evidence
+inventory, integrity status and next-action guidance. It never sends the uploaded
+file to an AI provider.
+
+The server binds **only to `127.0.0.1`**, on an OS-selected free port by default,
+and gives the browser a random per-process local session token. It enforces an
+exact loopback Host, SameSite session cookie, origin checks on forms, no-store
+headers and a restrictive CSP. It serves no documents themselves, only their
+metadata and integrity status. The initial launch URL should be treated as a
+local session secret. Closing the terminal stops the server.
+
+For an agent, script or custom desktop launcher:
+
+```bash
+clinical-ai-eval buyer serve ./hospital-assessment --no-browser --port 8766
+```
+
+This single-user prototype is **not** authenticated multi-user hospital software.
+Never expose the localhost port through a reverse proxy, VPN tunnel, network
+binding or cloud service. Production shared use needs proper identity, role
+permissions, access logging, TLS and a dedicated review of local API threats.
+
+A packaged click-to-launch installer and persistent background service are
+future delivery work; the current CLI starts the local browser app.
+
 ## Quick start — works without network access
 
 Install the project from your locally obtained checkout, preferably in a virtual
