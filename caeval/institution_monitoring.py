@@ -107,6 +107,8 @@ def create(directory,actor,spec,*,confirmed=False):
             or type(delta) not in (int,float) or not math.isfinite(delta) or not 0<delta<=1):
         raise access.AccessDenied("invalid cadence, first due time or descriptive alert threshold")
     access.require(actor,"admin")
+    with access.db(directory) as conn:
+        _account(conn,actor,("admin",))
     material=_material(directory,spec["baseline_job"],spec["exchange_id"],spec["connector_id"],spec["panel_id"],spec["governance"])
     identifier="monitor-"+uuid.uuid4().hex
     with access.db(directory) as conn:
@@ -262,6 +264,15 @@ def _active(directory,identifier,digest):
             raise access.AccessDenied("schedule changed")
 
 
+def _checkpoint(directory,occurrence,collection_id,job_id):
+    with access.db(directory) as conn:
+        _schema(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        if conn.execute("UPDATE monitoring_occurrences SET collection_id=?,job_id=? WHERE id=? AND state='running'",
+                        (collection_id,job_id,occurrence)).rowcount!=1:
+            raise access.AccessDenied("occurrence no longer running")
+
+
 def run_due(directory,identifier,approved_digest,*,allow_candidate_calls=False,allow_model_calls=False):
     """Trusted CLI worker; one most-recent due occurrence, no catch-up burst."""
     if allow_candidate_calls is not True:
@@ -297,12 +308,14 @@ def run_due(directory,identifier,approved_digest,*,allow_candidate_calls=False,a
         _active(directory,identifier,approved_digest)
         collection=connector.queue(directory,b["exchange_id"],b["connector_id"])
         collection_id=collection["id"]
+        _checkpoint(directory,occurrence,collection_id,None)
         if collection["binding"]!=b["connector_binding"]:
             raise buyer.BuyerError("collection binding changed")
         _active(directory,identifier,approved_digest)
         collected=connector.execute(directory,collection_id,collection["binding_hash"],row["owner"])
         if collected["state"]!="complete_unscored":
-            state="incomplete"
+            state="incomplete" if collected["state"]=="incomplete" else "failed"
+            result={"reason":"candidate collection did not complete","decision_grade":False}
         else:
             _current(directory,b)
             _active(directory,identifier,approved_digest)
@@ -313,6 +326,7 @@ def run_due(directory,identifier,approved_digest,*,allow_candidate_calls=False,a
                 raise buyer.BuyerError("retest scientific binding changed")
             job=jobs.enqueue(directory,prepared["assessment_id"])
             job_id=job["id"]
+            _checkpoint(directory,occurrence,collection_id,job_id)
             _active(directory,identifier,approved_digest)
             completed=jobs.execute(directory,job_id,allow_model_calls=allow_model_calls)
             if completed["status"]=="completed":
