@@ -108,6 +108,7 @@ def _dashboard(directory, actor):
     else:
         body += "<p><a href='/lifecycle'>Implementation and monitoring register</a></p>"
         body += "<p><a href='/evidence'>Scientific evidence overview</a></p>"
+        body += "<p><a href='/committee'>Procurement committee</a></p>"
         rows = access.summary(directory, actor)
         body += "<h2>Evaluation job overview</h2><table><tr><th>Job</th><th>Status</th><th>Mode</th><th>Packages</th></tr>"
         for row in rows:
@@ -197,6 +198,28 @@ class InstitutionApp:
                     body+="<tr>"+"".join("<td>"+esc(row[k])+"</td>" for k in ("seq","actor","action","object_id","outcome"))+"</tr>"
                 access.event(self.directory,actor["user_id"],"audit-opened")
                 return respond("200 OK",page("Access audit",body+"</table>"))
+            if path=="/committee" and method=="GET":
+                from . import institution_committee_web as committee
+                return respond("200 OK",committee.render(self.directory,actor))
+            if path=="/committee-snapshot" and method=="GET":
+                from . import institution_committee_web as committee
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("select one snapshot")
+                return respond("200 OK",committee.render_snapshot(self.directory,actor,q["id"]))
+            if path in ("/committee-freeze","/committee-disposition") and method=="POST":
+                from . import institution_committee as committee
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/committee-freeze" and not form:
+                    result=committee.freeze(self.directory,actor)
+                    identifier=result["snapshot_id"]
+                elif path=="/committee-disposition" and set(form)=={"snapshot_id","kind","rationale"}:
+                    identifier=form["snapshot_id"]
+                    committee.disposition(self.directory,actor,identifier,form["kind"],form["rationale"])
+                else:
+                    raise access.AccessDenied("invalid committee form")
+                return respond("303 See Other",extra=[("Location","/committee-snapshot?id="+identifier)])
             if path=="/evidence" and method=="GET":
                 from . import institution_analysis_web as evidence
                 return respond("200 OK",evidence.render(self.directory,actor))
