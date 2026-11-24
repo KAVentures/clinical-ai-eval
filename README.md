@@ -10,6 +10,8 @@ red-flag and RAG/retrieval probes also run, with narrower and explicitly
 experimental coverage. See the generated capability table below for the exact
 feature status.
 
+**Local-first buyer workflow:** [Offline evidence register and CLI/Claude Code integration](docs/LOCAL_FIRST_BUYER_WORKFLOW.md) — run the procurement admin workflow on a hospital-controlled machine, including a JSON CLI for agents. Clinical evaluation remains a separately governed evidence process.
+
 **Start here:** [Organisational product and procurement guide](docs/ORGANISATIONAL_PRODUCT_GUIDE.md)
 for startups, internal governance and buyer workflows. For measurement theory,
 see [EVAL_STANDARD.md](EVAL_STANDARD.md); for the planned physician validation

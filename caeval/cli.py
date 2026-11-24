@@ -1218,6 +1218,47 @@ def cmd_procurement(args):
         print("Contains no combined score, no ranking and no buy/no-buy recommendation.")
 
 
+
+def cmd_buyer(args):
+    """Local-only, machine-readable buyer evidence workspace for agents and humans."""
+    import json as _json
+    from . import buyer_agent as buyer
+
+    try:
+        if args.action != "contract" and not args.path:
+            raise buyer.BuyerError("buyer workspace PATH is required")
+        if args.action == "contract":
+            result = buyer.contract()
+        elif args.action == "init":
+            result = buyer.init(args.path, args.name or "",
+                                args.intended_use or "", args.setting or "",
+                                args.jurisdiction or "")
+        elif args.action == "vendor-add":
+            result = buyer.add_vendor(args.path, args.vendor_id or "", args.name or "")
+        elif args.action == "evidence-add":
+            result = buyer.add_evidence(args.path, args.vendor_id or "",
+                                        args.kind or "", args.file or "",
+                                        args.title or "")
+        elif args.action == "serve":
+            from . import buyer_web
+            buyer_web.serve(args.path, port=args.port, open_browser=not args.no_browser)
+            return
+        elif args.action == "status":
+            result = buyer.status(args.path)
+        elif args.action == "dossier":
+            if not args.out:
+                raise buyer.BuyerError("--out is required for dossier")
+            result = buyer.dossier(args.path, args.out)
+        else:
+            raise buyer.BuyerError("unknown buyer command")
+        print(_json.dumps({"ok": True, "result": result}, ensure_ascii=False, indent=2))
+    except (buyer.BuyerError, FileNotFoundError, PermissionError, OSError) as exc:
+        print(_json.dumps({"ok": False, "error": {"type": type(exc).__name__,
+                                                   "message": str(exc)}},
+                          ensure_ascii=False, indent=2))
+        raise SystemExit(1)
+
+
 def cmd_reference_actions(args):
     """Prepare/score offline, or explicitly run a bounded real provider."""
     from . import reference_actions as ra
@@ -1513,6 +1554,22 @@ def main(argv=None):
     pproc.add_argument("--family", default="patient_red_flag")
     pproc.add_argument("--out", default=None)
     pproc.set_defaults(func=cmd_procurement)
+
+    pb = sub.add_parser("buyer", help="local-only buyer workspace (JSON for CLI agents)")
+    pb.add_argument("action", choices=["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve"])
+    pb.add_argument("path", nargs="?", help="local buyer workspace directory (except contract)")
+    pb.add_argument("--name", help="project name on init, vendor name on vendor-add")
+    pb.add_argument("--intended-use", default="", help="planned clinical/administrative use")
+    pb.add_argument("--setting", default="", help="care setting")
+    pb.add_argument("--jurisdiction", default="", help="e.g. SE, EU, UK")
+    pb.add_argument("--vendor-id", default=None)
+    pb.add_argument("--kind", default=None, help="evidence kind (see buyer contract)")
+    pb.add_argument("--file", default=None, help="local evidence document to copy privately")
+    pb.add_argument("--title", default=None)
+    pb.add_argument("--out", default=None, help="new dossier path; never overwrites")
+    pb.add_argument("--port", type=int, default=0, help="local browser port; 0 picks a free port")
+    pb.add_argument("--no-browser", action="store_true", help="do not automatically open the browser")
+    pb.set_defaults(func=cmd_buyer)
 
     pra = sub.add_parser(
         "reference-actions",
