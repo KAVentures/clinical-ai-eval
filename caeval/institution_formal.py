@@ -30,6 +30,15 @@ def _schema(conn):
         digest TEXT NOT NULL, PRIMARY KEY(handoff,reviewer))""")
 
 
+def _attestation_schema(conn):
+    conn.execute("""CREATE TABLE IF NOT EXISTS formal_browser_attestations(
+        handoff TEXT NOT NULL, reviewer TEXT NOT NULL,
+        pending_digest TEXT NOT NULL, canonical_digest TEXT NOT NULL,
+        administrator TEXT NOT NULL REFERENCES users(id),
+        PRIMARY KEY(handoff,reviewer),
+        FOREIGN KEY(handoff,reviewer) REFERENCES formal_browser_pending(handoff,reviewer))""")
+
+
 def _actor(conn,actor,*roles):
     access.require(actor,*roles)
     row=conn.execute("SELECT role,enabled FROM users WHERE id=?",(actor["user_id"],)).fetchone()
@@ -55,6 +64,19 @@ def _load(directory,conn,identifier):
     if {r[0] for r in conn.execute("SELECT reviewer FROM formal_browser_roster WHERE handoff=?",(identifier,))}!=set(issued):
         raise access.AccessDenied("registered reviewer roster changed")
     records=formal._submissions(ws,binding,safety,validity,issued)
+    _attestation_schema(conn)
+    ledger={r["reviewer"]:dict(r) for r in conn.execute(
+        "SELECT * FROM formal_browser_attestations WHERE handoff=?",(identifier,))}
+    if set(ledger)!=set(records):
+        raise access.AccessDenied("browser attestation ledger differs from canonical review store")
+    for rid,record in records.items():
+        pending=_pending(conn,identifier,rid,binding,safety,validity,issued)
+        entry=ledger[rid]
+        if (not pending or pending[1]!=entry["pending_digest"]
+                or pending[0]["submission"]["answers"]!=record["answers"]
+                or record["digest"]!=entry["canonical_digest"]
+                or record["operator"]!=entry["administrator"]):
+            raise access.AccessDenied("browser review provenance differs from canonical submission")
     return ws,binding,safety,validity,issued,records
 
 
@@ -200,6 +222,8 @@ def attest(directory,actor,identifier,rid,digest,confirmed):
         if not pending or pending[1]!=digest or rid in records:
             raise access.AccessDenied("exact pending independent review required")
         result=formal.submit(directory,identifier,rid,pending[0],actor["user_id"],confirm_identity=True)
+        conn.execute("INSERT INTO formal_browser_attestations VALUES(?,?,?,?,?)",
+                     (identifier,rid,digest,result["digest"],actor["user_id"]))
         access._audit(conn,actor["user_id"],"formal-browser-review-attested",identifier)
     return result
 
