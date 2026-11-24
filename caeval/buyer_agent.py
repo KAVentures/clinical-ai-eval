@@ -404,9 +404,9 @@ def contract() -> dict:
     """Machine-readable discovery for Claude Code, CLI agents and future MCP servers."""
     return {
         "schema_version": SCHEMA_VERSION, "transport": "local_subprocess_json",
-        "network_calls": 0, "network_policy": "none except explicitly authorized job-execute", "data_storage": "local_only",
+        "network_calls": 0, "network_policy": "none except explicitly authorized job-execute or loopback collection-execute", "data_storage": "local_only",
         "entrypoint": "clinical-ai-eval buyer",
-        "actions": ["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research", "plan-preview", "plan-show", "rehearsal-run", "rehearsal-show", "manual-packs", "manual-prepare", "manual-template", "manual-import", "manual-responses", "assessment-panels", "assessment-prepare", "assessment-check", "job-enqueue", "job-list", "job-status", "job-cancel", "job-execute", "review-template", "review-submit", "review-inventory"],
+        "actions": ["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research", "plan-preview", "plan-show", "rehearsal-run", "rehearsal-show", "manual-packs", "manual-prepare", "manual-template", "manual-import", "manual-responses", "assessment-panels", "assessment-prepare", "assessment-check", "job-enqueue", "job-list", "job-status", "job-cancel", "job-execute", "review-template", "review-submit", "review-inventory", "connector-list", "collection-queue", "collection-list", "collection-status", "collection-cancel", "collection-execute"],
         "action_schemas": {
             "contract": {"required": [], "writes": False},
             "init": {"required": ["path", "--name"],
@@ -441,6 +441,13 @@ def contract() -> dict:
             "review-template": {"required": ["path", "--job-id", "--family-id"], "writes": False},
             "review-submit": {"required": ["path", "--file"], "writes": True},
             "review-inventory": {"required": ["path", "--job-id", "--family-id"], "writes": False},
+            "connector-list": {"required": ["path"], "writes": False},
+            "collection-queue": {"required": ["path", "--exchange-id", "--connector-id"], "writes": True},
+            "collection-list": {"required": ["path"], "writes": False},
+            "collection-status": {"required": ["path", "--collection-id"], "writes": False},
+            "collection-cancel": {"required": ["path", "--collection-id"], "writes": True},
+            "collection-execute": {"required": ["path", "--collection-id", "--approve-binding", "--operator"],
+                                   "writes": True, "network_scope": "literal_loopback_only"},
             "questionnaire-import": {"required": ["path", "--vendor-id", "--file"], "writes": True},
             "dossier": {"required": ["path", "--out"], "writes": True},
             "serve": {"required": ["path"], "optional": ["--port", "--no-browser"],
@@ -450,7 +457,7 @@ def contract() -> dict:
         "evidence_kinds": list(EVIDENCE_KINDS),
         "max_document_bytes": MAX_DOCUMENT_BYTES,
         "notes": [
-            "Only job-execute with explicit authorization can call configured real judge endpoints; all other buyer actions are local.",
+            "Job-execute with explicit authorization may call configured judge endpoints; collection-execute with exact binding approval may call a staged literal-loopback product endpoint. Other buyer actions make no network calls.",
             "An external agent may still send data to its model provider; keep private clinical data out of agent prompts unless approved.",
             "Clinical testing and verified comparisons use the separate existing run, adjudicate, and procurement commands.",
             "This module does not certify products or authorize clinical deployment.",
