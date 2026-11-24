@@ -89,6 +89,71 @@ class AssessmentHandoffTests(unittest.TestCase):
         with self.assertRaises(buyer.BuyerError):
             assess.prepare(self.root, incomplete["submission_id"], "mock", self.gov)
 
+    def test_queue_and_execute_canonical_candidate_assessment_then_review(self):
+        from caeval import buyer_jobs as jobs, buyer_physician_review as reviews
+        bound = self.prepare()
+        job = jobs.enqueue(self.root, bound["assessment_id"])
+        self.assertEqual(job["status"], "queued")
+        self.assertFalse(job["real_judges"])
+        self.assertEqual(jobs.list_jobs(self.root)[0]["id"], job["id"])
+        result = jobs.execute(self.root, job["id"])
+        self.assertEqual(result["status"], "completed", result)
+        self.assertFalse(result["decision_grade"])
+        self.assertEqual(jobs.status(self.root, job["id"]), result)
+        family = result["result"]["packages"][0]["family_id"]
+        doc = reviews.template(self.root, job["id"], family)
+        self.assertTrue(doc["request"]["items"])
+        for item in doc["request"]["items"]:
+            self.assertEqual(set(item), {"slot", "case", "response"})
+        doc["submission"]["reviewer_id"] = "reviewer-a"
+        for item in doc["submission"]["verdicts"]:
+            item.update(verdict="cannot_judge", notes="Fixture")
+        saved = reviews.submit(self.root, doc)
+        self.assertFalse(saved["identity_verified"])
+        self.assertEqual(saved, reviews.submit(self.root, doc))
+        doc["submission"]["verdicts"][0]["verdict"] = "safe"
+        with self.assertRaises(buyer.BuyerError):
+            reviews.submit(self.root, doc)
+        doc["submission"]["reviewer_id"] = "reviewer-b"
+        reviews.submit(self.root, doc)
+        inv = reviews.inventory(self.root, job["id"], family)
+        self.assertEqual(inv["n_submitted_reviewer_ids"], 2)
+        self.assertFalse(inv["adjudicated"])
+        self.assertEqual(jobs.status(self.root, job["id"]), result)
+        ws = self.root / "evaluation-jobs" / job["id"] / "out" / ("run_" + family)
+        (ws / "final_report.md").write_text("modified")
+        self.assertEqual(jobs.status(self.root, job["id"])["status"], "invalid")
+        with self.assertRaises(buyer.BuyerError):
+            reviews.template(self.root, job["id"], family)
+
+    def test_queue_cancel_and_duplicate_execution_fail_closed(self):
+        from caeval import buyer_jobs as jobs
+        bound = self.prepare()
+        job = jobs.enqueue(self.root, bound["assessment_id"])
+        self.assertEqual(jobs.cancel(self.root, job["id"])["status"], "cancelled")
+        with patch.object(jobs.subprocess, "run") as runner:
+            with self.assertRaises(buyer.BuyerError):
+                jobs.execute(self.root, job["id"])
+            runner.assert_not_called()
+        job = jobs.enqueue(self.root, bound["assessment_id"])
+        with patch.object(jobs.subprocess, "run") as runner:
+            runner.return_value.returncode = 1
+            self.assertEqual(jobs.execute(self.root, job["id"])["status"], "failed")
+            with self.assertRaises(buyer.BuyerError):
+                jobs.execute(self.root, job["id"])
+
+    def test_real_judge_requires_explicit_permission(self):
+        from caeval import buyer_jobs as jobs
+        self.panel.write_text('min_distinct_providers = 1\n[[judges]]\nname = "real"\nprovider = "openai"\nmodel = "test"\nmock = false\n')
+        bound = self.prepare()
+        job = jobs.enqueue(self.root, bound["assessment_id"])
+        self.assertTrue(job["real_judges"])
+        with patch.object(jobs.subprocess, "run") as runner:
+            with self.assertRaises(buyer.BuyerError):
+                jobs.execute(self.root, job["id"])
+            runner.assert_not_called()
+        self.assertEqual(jobs.status(self.root, job["id"])["status"], "queued")
+
     def test_extra_pack_file_rejected(self):
         result = self.prepare()
         dest = self.root / "prepared-assessments" / result["assessment_id"]
