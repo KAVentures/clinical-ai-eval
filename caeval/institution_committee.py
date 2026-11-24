@@ -127,8 +127,18 @@ def _comparison(root, ids):
                 continue
             # Canonical output includes rates, uncertainty, missingness and
             # comparability. No cells or raw clinical content are returned.
+            verified=[]
+            current=pw.load(tmp)
+            for vendor in current["vendors"]:
+                vid=vendor["vendor_id"]
+                rec=current["results"].get(vid,{}).get(family)
+                if rec is not None:
+                    verified.append({"vendor_id":vid,"blinded_label":vendor["blinded_label"],
+                        "target_name":vendor["subject_spec"]["name"],
+                        "target_version":vendor["subject_spec"]["version"],
+                        "manifest_hash":rec["environment"]["package_digest"]})
             families.append({"family_id":family,"status":"exploratory",
-                "comparison":cmp})
+                "verified_packages":verified,"comparison":cmp})
     if pw.load(directory)!=original:
         raise access.AccessDenied("frozen study changed during reconstruction")
     return {"status":"configured","conditions_hash":original["conditions_hash"],
@@ -139,6 +149,7 @@ def overview(directory,actor):
     with access.db(directory) as conn:
         _actor(conn,actor)
     root=Path(directory).resolve()
+    source=buyer.load(root)
     state=buyer.status(root)
     vendors=[]
     for v in state["vendors"]:
@@ -148,6 +159,8 @@ def overview(directory,actor):
                         "missing_evidence_kinds":v["missing_evidence_kinds"],
                         "disclosures_self_reported_unverified":disclosures})
     comparison=_comparison(root,{v["vendor_id"] for v in vendors})
+    if buyer.load(root)!=source:
+        raise access.AccessDenied("buyer register changed during evidence reconstruction")
     return {"schema":"institution-committee-evidence/1","project_name":state["project_name"],
             "intended_use":state["intended_use"],"missing_intake":state["missing_intake"],
             "vendors":vendors,"clinical_comparison":comparison,
