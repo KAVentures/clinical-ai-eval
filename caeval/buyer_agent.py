@@ -404,9 +404,9 @@ def contract() -> dict:
     """Machine-readable discovery for Claude Code, CLI agents and future MCP servers."""
     return {
         "schema_version": SCHEMA_VERSION, "transport": "local_subprocess_json",
-        "network_calls": 0, "data_storage": "local_only",
+        "network_calls": 0, "network_policy": "none except explicitly authorized job-execute", "data_storage": "local_only",
         "entrypoint": "clinical-ai-eval buyer",
-        "actions": ["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research", "plan-preview", "plan-show", "rehearsal-run", "rehearsal-show", "manual-packs", "manual-prepare", "manual-template", "manual-import", "manual-responses", "assessment-panels", "assessment-prepare", "assessment-check"],
+        "actions": ["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research", "plan-preview", "plan-show", "rehearsal-run", "rehearsal-show", "manual-packs", "manual-prepare", "manual-template", "manual-import", "manual-responses", "assessment-panels", "assessment-prepare", "assessment-check", "job-enqueue", "job-list", "job-status", "job-cancel", "job-execute", "review-template", "review-submit", "review-inventory"],
         "action_schemas": {
             "contract": {"required": [], "writes": False},
             "init": {"required": ["path", "--name"],
@@ -432,6 +432,15 @@ def contract() -> dict:
             "assessment-prepare": {"required": ["path", "--file"], "writes": True,
                                    "executes": False},
             "assessment-check": {"required": ["path", "--assessment-id"], "writes": False},
+            "job-enqueue": {"required": ["path", "--assessment-id"], "writes": True},
+            "job-list": {"required": ["path"], "writes": False},
+            "job-status": {"required": ["path", "--job-id"], "writes": False},
+            "job-cancel": {"required": ["path", "--job-id"], "writes": True},
+            "job-execute": {"required": ["path", "--job-id"], "optional": ["--allow-model-calls"],
+                            "writes": True, "may_call_models": True},
+            "review-template": {"required": ["path", "--job-id", "--family-id"], "writes": False},
+            "review-submit": {"required": ["path", "--file"], "writes": True},
+            "review-inventory": {"required": ["path", "--job-id", "--family-id"], "writes": False},
             "questionnaire-import": {"required": ["path", "--vendor-id", "--file"], "writes": True},
             "dossier": {"required": ["path", "--out"], "writes": True},
             "serve": {"required": ["path"], "optional": ["--port", "--no-browser"],
@@ -441,7 +450,7 @@ def contract() -> dict:
         "evidence_kinds": list(EVIDENCE_KINDS),
         "max_document_bytes": MAX_DOCUMENT_BYTES,
         "notes": [
-            "Commands do not use remote LLMs, phone home, or upload documents; dossier export is local.",
+            "Only job-execute with explicit authorization can call configured real judge endpoints; all other buyer actions are local.",
             "An external agent may still send data to its model provider; keep private clinical data out of agent prompts unless approved.",
             "Clinical testing and verified comparisons use the separate existing run, adjudicate, and procurement commands.",
             "This module does not certify products or authorize clinical deployment.",
