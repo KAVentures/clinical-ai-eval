@@ -109,6 +109,7 @@ def _dashboard(directory, actor):
         body += "<p><a href='/lifecycle'>Implementation and monitoring register</a></p>"
         body += "<p><a href='/evidence'>Scientific evidence overview</a></p>"
         body += "<p><a href='/committee'>Procurement committee</a></p>"
+        body += "<p><a href='/collections'>Candidate response collections</a></p>"
         rows = access.summary(directory, actor)
         body += "<h2>Evaluation job overview</h2><table><tr><th>Job</th><th>Status</th><th>Mode</th><th>Packages</th></tr>"
         for row in rows:
@@ -198,6 +199,15 @@ class InstitutionApp:
                     body+="<tr>"+"".join("<td>"+esc(row[k])+"</td>" for k in ("seq","actor","action","object_id","outcome"))+"</tr>"
                 access.event(self.directory,actor["user_id"],"audit-opened")
                 return respond("200 OK",page("Access audit",body+"</table>"))
+            if path=="/collections" and method=="GET":
+                from . import institution_connector_web as collection
+                return respond("200 OK",collection.render(self.directory,actor))
+            if path in ("/collection-queue","/collection-cancel") and method=="POST":
+                from . import institution_connector_web as collection
+                form=_form(env)
+                _csrf(actor,form)
+                collection.dispatch(self.directory,actor,path,form)
+                return respond("303 See Other",extra=[("Location","/collections")])
             if path=="/committee" and method=="GET":
                 from . import institution_committee_web as committee
                 return respond("200 OK",committee.render(self.directory,actor))
