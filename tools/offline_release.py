@@ -258,6 +258,53 @@ def _run(argv,cwd):
     return result.stdout
 
 
+def _receipt(obj):
+    return {"schema":"caeval-offline-install/1","release_id":obj["release_id"],
+            "version":obj["version"],"source_commit":obj["source_commit"],"target":obj["target"],
+            "wheel_hashes":{k:v["sha256"] for k,v in obj["wheels"].items()},
+            "dependency_check":"passed","installed_cli_smoke":"passed",
+            "service_activated":False,"production_approved":False}
+
+
+def _check_environment(dest,obj,cwd):
+    environment=dest/"venv"
+    if environment.is_symlink() or not environment.is_dir():
+        raise ReleaseError("installed environment unavailable")
+    python=environment/("Scripts/python.exe" if os.name=="nt" else "bin/python")
+    if not python.is_file():
+        raise ReleaseError("installed interpreter unavailable")
+    _run([python,"-I","-m","pip","--isolated","check"],cwd)
+    check=("import importlib.metadata as m,json,sys,pathlib,caeval,re;"
+           "want=json.loads(sys.argv[1]);"
+           "norm=lambda n:re.sub(r'[-_.]+','-',n).lower();"
+           "actual={norm(d.metadata['Name']):d.version for d in m.distributions()};"
+           "assert set(actual)<=set(want)|{'pip','setuptools'};"
+           "assert all(m.version(k)==v for k,v in want.items());"
+           "assert pathlib.Path(sys.prefix).resolve()==pathlib.Path(sys.argv[2]).resolve();"
+           "assert pathlib.Path(caeval.__file__).resolve().is_relative_to(pathlib.Path(sys.prefix).resolve());"
+           "assert caeval.__version__==want['clinical-ai-eval']")
+    _run([python,"-I","-c",check,json.dumps({v["name"]:v["version"] for v in obj["wheels"].values()}),environment],cwd)
+    for args in (("inspect",),("families",),("capabilities","--check")):
+        _run([python,"-I","-m","caeval.cli",*args],cwd)
+
+
+def check_install(directory,expected,destination):
+    """Recheck a retained version before controlled upgrade or rollback.
+
+    This checks receipt identity, package versions, dependency consistency and
+    runnable CLI. It does not authenticate installed executable bytes.
+    """
+    obj=verify(directory,expected)
+    dest=root(destination)
+    with _open_regular(dest/"installed-release.json") as f:
+        raw=f.read(MAX_MANIFEST+1)
+    if len(raw)>MAX_MANIFEST or json.loads(raw.decode("utf-8"))!=_receipt(obj):
+        raise ReleaseError("installed release receipt differs from approved bundle")
+    with tempfile.TemporaryDirectory(prefix=".caeval-release-check-") as tmp:
+        _check_environment(dest,obj,Path(tmp))
+    return {**_receipt(obj),"rechecked":True,"installed_file_integrity":"not_established"}
+
+
 def install(directory,expected,destination,*,confirmed=False):
     if confirmed is not True:
         raise ReleaseError("explicit trusted release approval required")
@@ -283,23 +330,8 @@ def install(directory,expected,destination,*,confirmed=False):
             _run([python,"-I","-m","pip","--isolated","--disable-pip-version-check",
                   "install","--no-index","--no-deps","--only-binary=:all:","--no-cache-dir",
                   "--force-reinstall",*wheels],stage)
-            _run([python,"-I","-m","pip","--isolated","check"],stage)
-            # Verify the installed versions of ALL approved distributions and
-            # that application import resolves to the newly installed environment.
-            check=("import importlib.metadata as m,json,sys,pathlib,caeval;"
-                   "want=json.loads(sys.argv[1]);"
-                   "assert all(m.version(k)==v for k,v in want.items());"
-                   "assert pathlib.Path(caeval.__file__).resolve().is_relative_to(pathlib.Path(sys.prefix).resolve());"
-                   "assert caeval.__version__==want['clinical-ai-eval']")
-            _run([python,"-I","-c",check,json.dumps({v["name"]:v["version"] for v in obj["wheels"].values()})],stage)
-            for args in (("inspect",),("families",),("capabilities","--check")):
-                _run([python,"-I","-m","caeval.cli",*args],stage)
-            # Smoke test is intentionally not a clinical claim or proof of network isolation.
-            receipt={"schema":"caeval-offline-install/1","release_id":expected,"version":obj["version"],
-                     "source_commit":obj["source_commit"],"target":obj["target"],
-                     "wheel_hashes":{k:v["sha256"] for k,v in obj["wheels"].items()},
-                     "dependency_check":"passed","installed_cli_smoke":"passed",
-                     "service_activated":False,"production_approved":False}
+            _check_environment(dest,obj,stage)
+            receipt=_receipt(obj)
             _exclusive_json(dest/"installed-release.json",receipt)
             return receipt
         except BaseException:
@@ -314,12 +346,13 @@ def main(argv=None):
     prep.add_argument("wheelhouse")
     prep.add_argument("--version",required=True)
     prep.add_argument("--source-commit",required=True)
-    for name in ("verify","install"):
+    for name in ("verify","install","check-install"):
         q=sub.add_parser(name)
         q.add_argument("wheelhouse")
         q.add_argument("--approve-release",required=True)
-        if name=="install":
+        if name in ("install","check-install"):
             q.add_argument("--destination",required=True)
+        if name=="install":
             q.add_argument("--confirm-trusted-wheels",action="store_true")
     args=p.parse_args(argv)
     try:
@@ -328,6 +361,8 @@ def main(argv=None):
         elif args.action=="verify":
             obj=verify(args.wheelhouse,args.approve_release)
             out={"release_id":obj["release_id"],"integrity":"verified","version":obj["version"]}
+        elif args.action=="check-install":
+            out=check_install(args.wheelhouse,args.approve_release,args.destination)
         else:
             out=install(args.wheelhouse,args.approve_release,args.destination,confirmed=args.confirm_trusted_wheels)
         print(json.dumps(out,indent=2))
