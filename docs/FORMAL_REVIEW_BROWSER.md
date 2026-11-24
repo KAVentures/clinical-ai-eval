@@ -13,7 +13,9 @@ reviewer. The administrator must externally verify credentials, expertise,
 conflicts of interest and independence before freezing the roster. One
 browser handoff per job/family is permitted. A new evaluation job is required
 for a changed roster. Browser queues are limited to 400 items (larger queues
-require the approved offline workflow).
+require the approved offline workflow). Browser notes and consensus rationales
+are limited to 1,000 characters per item to fit the bounded form transport,
+including multilingual text. The offline packet format retains its existing limits.
 
 Each assigned reviewer signs in and opens their own packet. They see blinded
 case/response pairs (or original/perturbed case pairs for validity review),
@@ -28,7 +30,9 @@ it into the canonical formal-review store. The system records the explicit
 attestation; it does not make it on the administrator's behalf.
 
 After all independent and validity submissions are attested, the administrator
-can compute the canonical adjudication. If there are tied cells, the original
+can compute the canonical adjudication. The dashboard distinguishes waiting
+for reviews, ties requiring consensus, no ties, and locked consensus. If
+there are tied cells, the original
 reviewers must discuss them through an approved institutional process. The
 administrator records only their confirmed consensus and rationale in the
 separate consensus form; cannot_judge leaves a case unresolved. Independent

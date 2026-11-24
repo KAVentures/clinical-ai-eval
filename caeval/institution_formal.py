@@ -12,6 +12,8 @@ from . import formal_review as formal, institution_access as access
 from . import buyer_plan, buyer_jobs as jobs, buyer_manual as manual
 
 MAX_BROWSER_CELLS=400
+# Worst-case UTF-8 form encoding is 12 bytes per Unicode codepoint.
+MAX_BROWSER_NOTE=1000
 MAX_HANDOFFS=100
 
 
@@ -173,9 +175,16 @@ def overview(directory,actor):
                     roster.append({"reviewer":reviewer,"kind":"validity" if reviewer==binding["validity_reviewer"] else "safety",
                                    "state":"attested" if reviewer in records else "pending_attestation" if pending else "awaiting",
                                    "digest":pending[1] if pending else None})
+                ready=set(records)==set(issued)
+                consensus_state="awaiting_reviews"
+                if ready:
+                    digest=_verified_consensus(conn,reg["id"],ws,binding,safety,records,issued)
+                    consensus_state=("recorded" if digest else "required"
+                                     if formal._consensus_request(binding,safety,records,issued)["items"]
+                                     else "not_required")
                 rows.append({"id":reg["id"],"job":reg["job"],"family":reg["family"],
                              "synthetic":binding["synthetic"],"roster":roster,
-                             "ready":set(records)==set(issued)})
+                             "ready":ready,"consensus_state":consensus_state})
         access._audit(conn,actor["user_id"],"formal-browser-overview")
     return rows
 
@@ -211,6 +220,8 @@ def lock_review(directory,actor,identifier,binding_hash,answers,confirmed):
         expected=formal._template(binding,safety,validity,issued[rid],rid)
         doc={"request":expected["request"],"submission":{"answers":answers,"independent_review_confirmed":True}}
         rows=formal._validate_submission(doc,expected)
+        if any(len(r["notes"])>MAX_BROWSER_NOTE for r in rows):
+            raise access.AccessDenied("browser notes exceed per-item limit")
         payload={"reviewer":rid,"binding_hash":binding_hash,"answers":rows}
         digest=buyer_plan._digest(payload)
         prior=_pending(conn,identifier,rid,binding,safety,validity,issued)
@@ -245,7 +256,6 @@ def attest(directory,actor,identifier,rid,digest,confirmed):
 def analyze(directory,actor,identifier):
     with access.db(directory) as conn:
         _schema(conn)
-        _actor(conn,actor,"admin")
         conn.execute("BEGIN IMMEDIATE")
         _actor(conn,actor,"admin")
         ws,binding,safety,validity,issued,records=_load(directory,conn,identifier)
@@ -266,8 +276,10 @@ def consensus_template(directory,actor,identifier):
     with access.db(directory) as conn:
         _schema(conn)
         _actor(conn,actor,"admin")
-        _load(directory,conn,identifier)
-    return formal.consensus_template(directory,identifier)
+        ws,binding,safety,validity,issued,records=_load(directory,conn,identifier)
+        if _verified_consensus(conn,identifier,ws,binding,safety,records,issued):
+            raise access.AccessDenied("consensus already recorded")
+        return formal.consensus_template(directory,identifier)
 
 
 def consensus(directory,actor,identifier,request_digest,answers,confirmed):
@@ -275,11 +287,16 @@ def consensus(directory,actor,identifier,request_digest,answers,confirmed):
         _schema(conn)
         conn.execute("BEGIN IMMEDIATE")
         _actor(conn,actor,"admin")
-        _load(directory,conn,identifier)
+        ws,binding,safety,validity,issued,records=_load(directory,conn,identifier)
+        if _verified_consensus(conn,identifier,ws,binding,safety,records,issued):
+            raise access.AccessDenied("consensus already recorded")
         doc=formal.consensus_template(directory,identifier)
         if buyer_plan._digest(doc["request"])!=request_digest:
             raise access.AccessDenied("stale consensus form")
-        doc["submission"]={"answers":answers,"confirmed_by_original_reviewers":confirmed}
+        normalized=formal._consensus_answers(doc["request"],answers)
+        if any(len(r["rationale"])>MAX_BROWSER_NOTE for r in normalized):
+            raise access.AccessDenied("browser rationale exceeds per-item limit")
+        doc["submission"]={"answers":normalized,"confirmed_by_original_reviewers":confirmed}
         result=formal.submit_consensus(directory,identifier,doc,actor["user_id"],confirm_consensus=confirmed)
         prior=conn.execute("SELECT canonical_digest,administrator FROM formal_browser_consensus WHERE handoff=?",(identifier,)).fetchone()
         if prior and (prior["canonical_digest"]!=result["digest"] or prior["administrator"]!=actor["user_id"]):

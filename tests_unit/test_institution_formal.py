@@ -77,6 +77,27 @@ class FormalBrowserTests(unittest.TestCase):
         with self.assertRaises(access.AccessDenied):
             coord.analyze(self.root,actor,ident)
 
+    def test_browser_note_limit_and_no_consensus_when_all_agree(self):
+        _,actor=self.login("admin")
+        ident=coord.prepare(self.root,actor,self.job,self.family,["doc-a","doc-b"],"doc-validity",True)["id"]
+        for rid in ("doc-a","doc-b","doc-validity"):
+            _,reviewer=self.login(rid)
+            doc=coord.reviewer_template(self.root,reviewer,ident)
+            rows=doc["submission"]["answers"]
+            for row in rows:
+                if rid=="doc-validity":
+                    row.update({q:"yes" for q in formal.VALIDITY})
+                else:
+                    row["verdict"]="safe"
+            rows[0]["notes"]="🙂"*(coord.MAX_BROWSER_NOTE+1)
+            with self.assertRaises(access.AccessDenied):
+                coord.lock_review(self.root,reviewer,ident,doc["request"]["binding_hash"],rows,True)
+            rows[0]["notes"]="🙂"*coord.MAX_BROWSER_NOTE
+            locked=coord.lock_review(self.root,reviewer,ident,doc["request"]["binding_hash"],rows,True)
+            coord.attest(self.root,actor,ident,rid,locked["digest"],True)
+        self.assertEqual(coord.overview(self.root,actor)[0]["consensus_state"],"not_required")
+        self.assertFalse(coord.analyze(self.root,actor,ident)["decision_grade"])
+
     def test_complete_formal_browser_workflow(self):
         admin,actor=self.login("admin")
         form={"job":self.job,"family":self.family,"reviewers":"doc-a,doc-b","validity_reviewer":"doc-validity","confirmed":"yes"}
@@ -86,6 +107,7 @@ class FormalBrowserTests(unittest.TestCase):
         ident=row["id"]
         self.assertTrue(row["synthetic"])
         self.assertFalse(row["ready"])
+        self.assertEqual(row["consensus_state"],"awaiting_reviews")
         self.assertEqual(self.request("/formal-prepare","POST",{"csrf":actor["csrf"],**form},admin)["status"],"403 Forbidden")
         outsider,other=self.login("unassigned")
         self.assertNotIn(ident,self.request("/formal",token=outsider)["body"])
@@ -121,6 +143,7 @@ class FormalBrowserTests(unittest.TestCase):
             self.assertEqual(self.request("/formal-attest","POST",{"csrf":reviewer["csrf"],**attest},token)["status"],"403 Forbidden")
             self.post("/formal-attest",admin,actor,attest)
         self.assertTrue(coord.overview(self.root,actor)[0]["ready"])
+        self.assertEqual(coord.overview(self.root,actor)[0]["consensus_state"],"required")
         before=coord.analyze(self.root,actor,ident)["canonical_adjudication"]
         self.assertEqual(before["n_contested"],1)
         self.assertEqual(self.request("/formal-consensus?id="+ident,token=outsider)["status"],"403 Forbidden")
@@ -136,6 +159,9 @@ class FormalBrowserTests(unittest.TestCase):
         self.assertEqual(result["canonical_adjudication"]["inter_rater"],before["inter_rater"])
         self.assertFalse(result["decision_grade"])
         self.assertIsNotNone(result["consensus_digest"])
+        self.assertEqual(coord.overview(self.root,actor)[0]["consensus_state"],"recorded")
+        self.assertEqual(self.request("/formal-consensus?id="+ident,token=admin)["status"],"403 Forbidden")
+        self.assertNotIn("Resolve tied cells after reviewer discussion",self.request("/formal",token=admin)["body"])
         with access.db(self.root) as db:
             ledger=db.execute("SELECT canonical_digest FROM formal_browser_consensus WHERE handoff=?",(ident,)).fetchone()
             self.assertEqual(ledger["canonical_digest"],result["consensus_digest"])

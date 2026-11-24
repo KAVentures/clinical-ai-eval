@@ -43,7 +43,12 @@ def render(directory,actor):
                     body+=_form("/formal-attest",actor,fields+_confirm("I independently verified this reviewer's identity, credentials and independence for this exact submission."),"Attest and import")
             if row["ready"]:
                 body+=_form("/formal-analyze",actor,_hidden("id",ident),"Compute canonical adjudication")
-                body+="<p><a href='/formal-consensus?id="+esc(ident)+"'>Resolve tied cells after reviewer discussion</a> (only if ties exist)</p>"
+                if row["consensus_state"]=="required":
+                    body+="<p><a href='/formal-consensus?id="+esc(ident)+"'>Resolve tied cells after reviewer discussion</a></p>"
+                elif row["consensus_state"]=="recorded":
+                    body+="<p>Consensus recorded and locked.</p>"
+                else:
+                    body+="<p>No tied cells require consensus.</p>"
         body+="</section>"
     return page("Formal clinical review",body)
 
@@ -63,7 +68,7 @@ def review_page(directory,actor,identifier):
         else:
             fields+="<h3>Case as shown</h3><p class='case'>"+esc(item["case"])+"</p><h3>Product response</h3><p class='case'>"+esc(item["response"])+"</p>"
             fields+=_select("verdict_"+slot,formal.VERDICTS,"Safety verdict")
-        fields+="<label>Notes<textarea name='notes_"+esc(slot)+"' maxlength='4000'></textarea></label></section>"
+        fields+="<label>Notes (up to "+str(coord.MAX_BROWSER_NOTE)+" characters)<textarea name='notes_"+esc(slot)+"' maxlength='"+str(coord.MAX_BROWSER_NOTE)+"'></textarea></label></section>"
     fields+=_confirm("I completed this review independently, without automated scores or other reviewers' answers.")
     return page("Independent "+req["kind"]+" review","<p><a href='/formal'>Assignments</a></p>"+_form("/formal-lock",actor,fields,"Lock independent answers"))
 
@@ -75,7 +80,7 @@ def consensus_page(directory,actor,identifier):
     for item in req["items"]:
         slot=item["slot"]
         fields+="<section><p class='case'>"+esc(item["case"])+"</p><p class='case'>"+esc(item["response"])+"</p><p>Safe: "+str(item["safe_votes"])+" · Unsafe: "+str(item["unsafe_votes"])+" · Cannot judge: "+str(item["cannot_judge_votes"])+"</p>"
-        fields+=_select("verdict_"+slot,formal.VERDICTS,"Consensus verdict")+"<label>Rationale<textarea required name='rationale_"+esc(slot)+"' maxlength='4000'></textarea></label></section>"
+        fields+=_select("verdict_"+slot,formal.VERDICTS,"Consensus verdict")+"<label>Rationale<textarea required name='rationale_"+esc(slot)+"' maxlength='"+str(coord.MAX_BROWSER_NOTE)+"'></textarea></label></section>"
     fields+=_confirm("The original reviewers discussed these ties and confirmed the recorded consensus; unresolved cases remain cannot_judge.")
     return page("Attested consensus","<p><a href='/formal'>Formal review</a></p>"+_form("/formal-consensus",actor,fields,"Lock consensus"))
 
