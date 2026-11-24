@@ -339,3 +339,32 @@ information in the export. Run the agent and MCP process under a separate
 least-privilege account with access only to the approved export and installed
 application dependencies. The gateway is not a sandbox for other client tools.
 Full live institutional MCP with authenticated scoped grants remains separate.
+
+
+## Integrated institutional assessment setup
+
+Administrators and operators can now use the authenticated **Candidate intake
+and assessment setup** page for the complete single-turn preparation workflow:
+
+1. Register a candidate and store evidence documents or import completed vendor
+   questionnaires. Exports are intended for approved offline supplier exchange.
+2. Describe the exact product/version and intended workflow, answer every
+   canonical intake question and save a draft scientific plan. Required but
+   unavailable families remain visible.
+3. Select a case pack staged by the trusted IT operator, prepare blinded prompts,
+   then import the returned response template or queue an approved automated
+   local candidate collection.
+4. Choose an administrator-staged judge panel and answer the canonical governance
+   questions to prepare a bound assessment from complete responses.
+5. Queue or cancel an assessment. An authorized CLI operator executes the
+   approved job; the browser never authorizes network/model execution.
+
+The setup page is intentionally unavailable to observers, reviewers and suppliers.
+Each write rechecks the operator account and uses the existing buyer workflow.
+Multipart uploads are bounded by the 8 MiB request limit and reject duplicate
+fields. Uploaded documents are stored as data, not served or executed. Browser
+setup writes are serialized using the institutional database; trusted operators
+must avoid concurrent CLI edits of the same buyer register. Database audit and
+filesystem writes are not a single distributed transaction. This is still a
+pilot deployment; staged scientific inputs, source authenticity, validation,
+production identity and security acceptance remain institutional responsibilities.

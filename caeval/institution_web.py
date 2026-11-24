@@ -66,6 +66,49 @@ def _form(env):
         raise access.AccessDenied("invalid form") from exc
 
 
+def _setup_upload(env):
+    """One bounded multipart document plus allowlisted scalar fields."""
+    from email import policy
+    from email.parser import BytesParser
+    ctype=env.get("CONTENT_TYPE","")
+    try:
+        size=int(env.get("CONTENT_LENGTH","0"))
+        if not 0<size<=MAX_BODY or not ctype.lower().startswith("multipart/form-data;") or any(c in ctype for c in ("\r","\n")):
+            raise ValueError()
+        raw=env["wsgi.input"].read(size)
+        if len(raw)!=size:
+            raise ValueError()
+        msg=BytesParser(policy=policy.default).parsebytes(("MIME-Version: 1.0\r\nContent-Type: "+ctype+"\r\n\r\n").encode("ascii")+raw)
+        if not msg.is_multipart() or msg.defects:
+            raise ValueError()
+        fields,seen={},set()
+        blob,filename=None,None
+        for part in msg.iter_parts():
+            if part.is_multipart() or part.defects or part.get_content_disposition()!="form-data":
+                raise ValueError()
+            name=part.get_param("name",header="content-disposition")
+            if name in seen or name not in ("csrf","vendor_id","kind","title","document"):
+                raise ValueError()
+            seen.add(name)
+            payload=part.get_payload(decode=True)
+            if not isinstance(payload,bytes):
+                raise ValueError()
+            if name=="document":
+                blob=payload
+                filename=(part.get_filename() or "").replace("\\","/").rsplit("/",1)[-1][:200]
+                if not filename or not blob:
+                    raise ValueError()
+            else:
+                if part.get_filename() or len(payload)>4096:
+                    raise ValueError()
+                fields[name]=payload.decode("utf-8")
+        if blob is None:
+            raise ValueError()
+        return fields,blob,filename
+    except (ValueError,TypeError,UnicodeError,RecursionError) as exc:
+        raise access.AccessDenied("invalid multipart document") from exc
+
+
 def _query(env):
     try:
         values = urllib.parse.parse_qs(env.get("QUERY_STRING", ""), max_num_fields=4,
@@ -109,6 +152,8 @@ def _dashboard(directory, actor):
         body += "<p><a href='/lifecycle'>Implementation and monitoring register</a></p>"
         body += "<p><a href='/evidence'>Scientific evidence overview</a></p>"
         body += "<p><a href='/committee'>Procurement committee</a></p>"
+        if role in ("admin","operator"):
+            body += "<p><a href='/setup'>Candidate intake and assessment setup</a></p>"
         body += "<p><a href='/collections'>Candidate response collections</a></p>"
         rows = access.summary(directory, actor)
         body += "<h2>Evaluation job overview</h2><table><tr><th>Job</th><th>Status</th><th>Mode</th><th>Packages</th></tr>"
@@ -199,6 +244,31 @@ class InstitutionApp:
                     body+="<tr>"+"".join("<td>"+esc(row[k])+"</td>" for k in ("seq","actor","action","object_id","outcome"))+"</tr>"
                 access.event(self.directory,actor["user_id"],"audit-opened")
                 return respond("200 OK",page("Access audit",body+"</table>"))
+            if path=="/setup" and method=="GET":
+                from . import institution_setup_web as setup
+                return respond("200 OK",setup.render(self.directory,actor))
+            if path=="/setup-download" and method=="GET":
+                import json
+                from . import institution_setup as setup
+                q=_query(env)
+                if set(q)!={"kind","id"}:
+                    raise access.AccessDenied("select one template")
+                payload=setup.download(self.directory,actor,q["kind"],q["id"])
+                raw=json.dumps(payload,ensure_ascii=False,indent=2).encode("utf-8")
+                return respond("200 OK",raw,extra=[("Content-Disposition",'attachment; filename="assessment-template.json"')],content_type="application/json; charset=utf-8")
+            if path.startswith("/setup-") and method=="POST":
+                from . import institution_setup as setup
+                access.require(actor,"admin","operator")
+                action=path[len("/setup-"):]
+                if action in ("document","questionnaire","responses"):
+                    fields,blob,filename=_setup_upload(env)
+                    _csrf(actor,fields)
+                    setup.dispatch(self.directory,actor,action,fields,blob,filename)
+                else:
+                    form=_form(env)
+                    _csrf(actor,form)
+                    setup.dispatch(self.directory,actor,action,form)
+                return respond("303 See Other",extra=[("Location","/setup")])
             if path=="/collections" and method=="GET":
                 from . import institution_connector_web as collection
                 return respond("200 OK",collection.render(self.directory,actor))
