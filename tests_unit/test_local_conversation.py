@@ -99,6 +99,27 @@ class LocalConversationTests(unittest.TestCase):
                 a([{"role":"patient","text":"Another fixture"}])
         self.assertEqual(len(self.requests),1)
 
+    def test_cli_rejects_non_conversational_local_only_scope_before_loading_panel(self):
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+        from caeval import cli, project
+        with tempfile.TemporaryDirectory() as temp:
+            config=project.template("Fixture","internal_regression")
+            config["target"]={"name":"Fixture","version":"1","vendor":"Fixture"}
+            config["target_profile"]["types"]=["clinician_decision_support"]
+            config["intake"]={q:"Synthetic fixture" for q in project.MANDATORY_INTAKE}
+            config["governance"]={"influences_diagnosis_or_treatment":"yes",
+                "clinician_reviews_every_response":"yes","regulated_medical_device":"unsure",
+                "deployment_jurisdictions":"SE"}
+            config["subject"]={"kind":"http","url":self.url,"local_only":True}
+            config["case_pack"]={"source":"builtin:demo_clinician"}
+            (Path(temp)/"project.yaml").write_text(json.dumps(config))
+            with patch.object(cli,"_panel_and_keys") as panel:
+                with self.assertRaisesRegex(SystemExit,"local_only"):
+                    cli._run_project_bound(SimpleNamespace(project=temp,workspace=None))
+                panel.assert_not_called()
+
     def test_failed_repeat_probe_is_not_a_live_connection(self):
         a=adapters.build_conversation_adapter(self.spec())
         with patch.object(adapters,"probe_liveness",return_value={"ok":True}), \
