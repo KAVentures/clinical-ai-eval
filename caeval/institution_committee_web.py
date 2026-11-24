@@ -29,6 +29,8 @@ def _evidence(payload):
         if family["status"]=="not_measured":
             body+="<p>Not measured.</p>"
             continue
+        for p in family["verified_packages"]:
+            body+="<p>"+esc(p["blinded_label"])+" — "+esc(p["target_name"])+" "+esc(p["target_version"])+" · manifest "+esc(p["manifest_hash"])+"</p>"
         result=family["comparison"]
         body+="<p>Comparability: "+esc(result["comparability"]["status"])+" — "+esc(result["comparability"]["note"])+"</p>"
         body+="<p>"+esc(result["claim_authority"]["reason"])+"</p>"
@@ -66,6 +68,7 @@ def render_snapshot(directory,actor,identifier):
     saved=committee.snapshot(directory,actor,identifier)
     body="<p><a href='/committee'>Current evidence</a></p><p>Snapshot "+esc(identifier)+"</p>"
     body+="<p>"+("Matches current evidence." if saved["current"] else "Historical snapshot — current evidence has changed.")+"</p>"
+    body+="<p><a href='/committee-export?id="+esc(identifier)+"'>Download frozen evidence JSON</a></p>"
     for row in saved["dispositions"]:
         body+="<section><p>"+esc(row["created_at"])+" · "+esc(row["disposition"])+"</p><p>"+esc(row["rationale"])+"</p></section>"
     if saved["current"] and actor["role"]=="admin":
