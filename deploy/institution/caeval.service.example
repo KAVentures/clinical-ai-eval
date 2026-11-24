@@ -1,0 +1,34 @@
+# Example only: reviewed by institutional IT before installation.
+# caeval-proxy group contains only the approved reverse proxy and service.
+[Unit]
+Description=Clinical AI Eval institutional browser pilot
+After=local-fs.target
+
+[Service]
+Type=simple
+User=caeval
+Group=caeval-proxy
+WorkingDirectory=/srv/caeval
+EnvironmentFile=/etc/caeval/institution.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+# Use pinned, independently approved application and Gunicorn wheels.
+ExecStartPre=/opt/caeval/venv/bin/python -m caeval.institution_deployment preflight
+ExecStart=/opt/caeval/venv/bin/gunicorn --bind unix:/run/caeval/app.sock --umask 7 --workers 2 --threads 2 --timeout 120 'caeval.institution_deployment:create_app()'
+RuntimeDirectory=caeval
+RuntimeDirectoryMode=0750
+UMask=0077
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=/srv/caeval/workspace /run/caeval
+RestrictAddressFamilies=AF_UNIX
+# Never run evaluation or collection workers in this service.
+# Do not configure access logging that records upstream identity headers.
+[Install]
+WantedBy=multi-user.target
