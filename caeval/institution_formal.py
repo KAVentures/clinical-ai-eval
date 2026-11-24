@@ -20,6 +20,10 @@ def _schema(conn):
         id TEXT PRIMARY KEY, job TEXT NOT NULL, family TEXT NOT NULL,
         binding_hash TEXT NOT NULL, coordinator TEXT NOT NULL,
         UNIQUE(job,family))""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS formal_browser_roster(
+        handoff TEXT NOT NULL REFERENCES formal_browser_handoffs(id),
+        reviewer TEXT NOT NULL REFERENCES users(id),
+        PRIMARY KEY(handoff,reviewer))""")
     conn.execute("""CREATE TABLE IF NOT EXISTS formal_browser_pending(
         handoff TEXT NOT NULL REFERENCES formal_browser_handoffs(id),
         reviewer TEXT NOT NULL REFERENCES users(id), payload TEXT NOT NULL,
@@ -48,6 +52,8 @@ def _load(directory,conn,identifier):
             or binding["family"]!=reg["family"] or binding["issuing_operator"]!=reg["coordinator"]
             or len(safety)>MAX_BROWSER_CELLS):
         raise access.AccessDenied("formal browser binding changed")
+    if {r[0] for r in conn.execute("SELECT reviewer FROM formal_browser_roster WHERE handoff=?",(identifier,))}!=set(issued):
+        raise access.AccessDenied("registered reviewer roster changed")
     records=formal._submissions(ws,binding,safety,validity,issued)
     return ws,binding,safety,validity,issued,records
 
@@ -78,6 +84,7 @@ def prepare(directory,actor,job,family,reviewers,validity_reviewer,confirmed):
         result=formal.prepare(directory,job,family,ids,vid,actor["user_id"],confirm_roster=True)
         conn.execute("INSERT INTO formal_browser_handoffs VALUES(?,?,?,?,?)",
                      (result["id"],job,family,result["binding_hash"],actor["user_id"]))
+        conn.executemany("INSERT INTO formal_browser_roster VALUES(?,?)",[(result["id"],rid) for rid in ids+[vid]])
         access._audit(conn,actor["user_id"],"formal-browser-roster-frozen",result["id"])
     return result
 
@@ -104,7 +111,12 @@ def overview(directory,actor):
         _schema(conn)
         _actor(conn,actor,"admin","reviewer")
         rows=[]
-        for reg in conn.execute("SELECT * FROM formal_browser_handoffs ORDER BY id LIMIT ?",(MAX_HANDOFFS,)).fetchall():
+        if actor["role"]=="reviewer":
+            registry=conn.execute("""SELECT h.* FROM formal_browser_handoffs h JOIN formal_browser_roster r
+                ON h.id=r.handoff WHERE r.reviewer=? ORDER BY h.id LIMIT ?""",(actor["user_id"],MAX_HANDOFFS)).fetchall()
+        else:
+            registry=conn.execute("SELECT * FROM formal_browser_handoffs ORDER BY id LIMIT ?",(MAX_HANDOFFS,)).fetchall()
+        for reg in registry:
             try:
                 ws,binding,safety,validity,issued,records=_load(directory,conn,reg["id"])
             except (OSError,ValueError,RuntimeError,KeyError,TypeError):
@@ -136,6 +148,8 @@ def reviewer_template(directory,actor,identifier):
     with access.db(directory) as conn:
         _schema(conn)
         _actor(conn,actor,"reviewer")
+        if not conn.execute("SELECT 1 FROM formal_browser_roster WHERE handoff=? AND reviewer=?",(identifier,actor["user_id"])).fetchone():
+            raise access.AccessDenied("assigned review required")
         _,binding,safety,validity,issued,records=_load(directory,conn,identifier)
         rid=actor["user_id"]
         if rid not in issued or rid in records or _pending(conn,identifier,rid,binding,safety,validity,issued):
@@ -152,6 +166,8 @@ def lock_review(directory,actor,identifier,binding_hash,answers,confirmed):
         _schema(conn)
         conn.execute("BEGIN IMMEDIATE")
         _actor(conn,actor,"reviewer")
+        if not conn.execute("SELECT 1 FROM formal_browser_roster WHERE handoff=? AND reviewer=?",(identifier,actor["user_id"])).fetchone():
+            raise access.AccessDenied("assigned review required")
         _,binding,safety,validity,issued,records=_load(directory,conn,identifier)
         rid=actor["user_id"]
         if rid not in issued or rid in records or binding["binding_hash"]!=binding_hash:
@@ -192,7 +208,7 @@ def analyze(directory,actor,identifier):
     with access.db(directory) as conn:
         _schema(conn)
         _actor(conn,actor,"admin")
-        _registry(conn,identifier)
+        _load(directory,conn,identifier)
     result=formal.analyze(directory,identifier)
     access.event(directory,actor["user_id"],"formal-browser-analysis",identifier)
     return result
@@ -202,7 +218,7 @@ def consensus_template(directory,actor,identifier):
     with access.db(directory) as conn:
         _schema(conn)
         _actor(conn,actor,"admin")
-        _registry(conn,identifier)
+        _load(directory,conn,identifier)
     return formal.consensus_template(directory,identifier)
 
 
@@ -211,7 +227,7 @@ def consensus(directory,actor,identifier,request_digest,answers,confirmed):
         _schema(conn)
         conn.execute("BEGIN IMMEDIATE")
         _actor(conn,actor,"admin")
-        _registry(conn,identifier)
+        _load(directory,conn,identifier)
         doc=formal.consensus_template(directory,identifier)
         if buyer_plan._digest(doc["request"])!=request_digest:
             raise access.AccessDenied("stale consensus form")
