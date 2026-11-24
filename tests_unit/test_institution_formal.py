@@ -41,6 +41,19 @@ class FormalBrowserTests(unittest.TestCase):
         result=self.request(path,"POST",{"csrf":actor["csrf"],**form},token)
         self.assertEqual(result["status"],"303 See Other",result["body"])
 
+    def test_offline_import_cannot_count_as_browser_attestation(self):
+        _,actor=self.login("admin")
+        created=coord.prepare(self.root,actor,self.job,self.family,["doc-a","doc-b"],"doc-validity",True)
+        ident=created["id"]
+        doc=formal.template(self.root,ident,"doc-a")
+        doc["submission"]["independent_review_confirmed"]=True
+        for answer in doc["submission"]["answers"]:
+            answer["verdict"]="safe"
+        formal.submit(self.root,ident,"doc-a",doc,"admin",confirm_identity=True)
+        self.assertTrue(coord.overview(self.root,actor)[0]["unavailable"])
+        with self.assertRaises(access.AccessDenied):
+            coord.analyze(self.root,actor,ident)
+
     def test_complete_formal_browser_workflow(self):
         admin,actor=self.login("admin")
         form={"job":self.job,"family":self.family,"reviewers":"doc-a,doc-b","validity_reviewer":"doc-validity","confirmed":"yes"}
