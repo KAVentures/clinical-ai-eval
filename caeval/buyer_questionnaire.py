@@ -136,7 +136,7 @@ def import_response(directory, vendor_id: str, raw: bytes) -> dict:
         source.write_bytes(raw)
         result = buyer.add_evidence(root, vendor_id, KIND, str(source),
                                     title="Vendor disclosure (self-reported, unverified)",
-                                    source_filename=source.name)
+                                    source_filename=source.name, _validated_questionnaire=True)
     return {**summary, "evidence_id": result["evidence_id"],
             "sha256": result["sha256"], "network_calls": 0}
 
