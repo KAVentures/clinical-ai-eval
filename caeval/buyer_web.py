@@ -143,7 +143,7 @@ def render_page(data: dict, message: str = "", error: str = "") -> bytes:
 <div class='kicker'>Clinical AI Eval · Local workspace</div>
 <h1>{esc(data["project_name"])}</h1>
 <div class='muted'>On-device procurement evidence register · No cloud connection</div>
-</div><div><a href='/research'>Research workspace</a> · <a href='/plan'>Plan evaluation</a> · <span class='tag'>Local session</span></div></header>
+</div><div><a href='/research'>Research workspace</a> · <a href='/plan'>Plan evaluation</a> · <a href='/jobs'>Evaluation jobs</a> · <span class='tag'>Local session</span></div></header>
 {notices}
 <div class='notice'><b>Administrative screening only.</b> Uploaded documents are not
 automatically verified for accuracy, and this view is not a clinical validation,
@@ -605,7 +605,7 @@ class BuyerHandler(BaseHTTPRequestHandler):
         if parts.path not in ("/", "/dossier", "/questionnaire", "/research", "/plan", "/rehearsal", "/manual-submission", "/manual-template", "/manual-responses", "/assessment-prepared", "/jobs", "/job", "/physician-review", "/physician-review-template"):
             return self._error(HTTPStatus.NOT_FOUND, "unknown route")
         supplied = urllib.parse.parse_qs(parts.query).get("token", [""])[0]
-        if parts.path == "/" and supplied and hmac.compare_digest(supplied, self.server.session_token):
+        if parts.path == "/" and supplied and supplied.isascii() and hmac.compare_digest(supplied, self.server.session_token):
             self._headers(HTTPStatus.SEE_OTHER, extra={
                 "Location": "/", "Set-Cookie":
                     f"caeval_local={self.server.session_token}; HttpOnly; SameSite=Strict; Path=/",
