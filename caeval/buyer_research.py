@@ -8,7 +8,6 @@ visible. This is not an authentication boundary for a multi-user deployment.
 from __future__ import annotations
 
 import json
-import hashlib
 from pathlib import Path
 
 from . import buyer_agent as buyer, capabilities, manifest
@@ -94,10 +93,10 @@ def _preflight(ws: Path):
 
 
 def verified_bytes(ws: Path, metadata: dict, key: str) -> bytes:
-    """Read the exact bytes bound to a preflighted manifest, not mutable paths.
+    """Read a single byte snapshot with the canonical manifest content hash.
 
-    Callers must still verify the complete package. This additionally prevents
-    a concurrent file replacement from changing the bytes being interpreted.
+    Callers must still verify the complete package. This prevents a concurrent replacement from changing the semantic content
+    being interpreted. Equivalent JSON formatting is intentionally accepted.
     """
     if metadata.get("manifest_hash") != manifest.fingerprint(metadata):
         raise buyer.BuyerError("manifest fingerprint mismatch")
@@ -112,7 +111,7 @@ def verified_bytes(ws: Path, metadata: dict, key: str) -> bytes:
         raise buyer.BuyerError("invalid analysis artifact")
     with path.open("rb") as handle:
         raw = handle.read(MAX_BYTES + 1)
-    if len(raw) > MAX_BYTES or hashlib.sha256(raw).hexdigest() != entry["sha256"]:
+    if len(raw) > MAX_BYTES or manifest.hash_content(raw, path.suffix) != entry["sha256"]:
         raise buyer.BuyerError("analysis artifact changed since verification")
     return raw
 
