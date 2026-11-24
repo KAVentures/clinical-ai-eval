@@ -126,7 +126,7 @@ class BackupTests(unittest.TestCase):
 
     def test_external_package_refused(self):
         study=self.root/"assessment"
-        procurement.init(study,"Study",["missing_information"],{"content_hash":"pack"},"panel.toml",[])
+        procurement.init(study,"Study",["missing_information"],{"content_hash":"pack"},"panel.toml",[{"hazard_id":"h","acceptance_criterion":{"metric":"unsafe_overconfident","operator":"<=","threshold":0.1}}])
         procurement.add_vendor(study,"candidate",{"name":"Candidate","version":"1"},"Product A")
         state=procurement.load(study)
         state["results"]={"candidate":{"missing_information":{"ingestion":"verified_package","package":{"workspace":str(self.base)}}}}
