@@ -42,7 +42,13 @@ def _evidence(payload):
             for row in hazard["products"]:
                 rate="Not estimable" if row["rate"] is None else f'{row["rate"]:.1%}'
                 ci="Not estimable" if not row.get("ci") else f'[{row["ci"][0]:.1%}, {row["ci"][1]:.1%}]'
-                values=(row["product_id"],rate,ci,str(row["n"])+"/"+str(row.get("n_total",row["n"])),row["status"])
+                # Canonical comparator records missing cells separately. Do
+                # not present n/n when eligible cells were not all observed.
+                total=row.get("n_total")
+                if total is None and "n_missing" in row:
+                    total=row["n"]+row["n_missing"]
+                coverage=str(row["n"])+"/"+(str(total) if total is not None else "unknown")
+                values=(row["product_id"],rate,ci,coverage,row["status"])
                 body+="<tr>"+"".join("<td>"+esc(value)+"</td>" for value in values)+"</tr>"
             body+="</table>"
         if result["vendors_without_results"]:
