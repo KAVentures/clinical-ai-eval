@@ -150,6 +150,7 @@ def _dashboard(directory, actor):
             body += "</section>"
     else:
         body += "<p><a href='/lifecycle'>Implementation and monitoring register</a></p>"
+        body += "<p><a href='/monitoring'>Longitudinal regression monitoring</a></p>"
         body += "<p><a href='/evidence'>Scientific evidence overview</a></p>"
         body += "<p><a href='/committee'>Procurement committee</a></p>"
         if role in ("admin","operator"):
@@ -318,6 +319,16 @@ class InstitutionApp:
                 form=_form(env)
                 _csrf(actor,form)
                 return respond("200 OK",evidence.analyze(self.directory,actor,form))
+            if path=="/monitoring" and method=="GET":
+                from . import institution_monitoring_web as monitoring
+                return respond("200 OK",monitoring.render(self.directory,actor))
+            if path in ("/monitoring-create","/monitoring-disable") and method=="POST":
+                from . import institution_monitoring_web as monitoring
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                monitoring.dispatch(self.directory,actor,path,form)
+                return respond("303 See Other",extra=[("Location","/monitoring")])
             if path=="/lifecycle":
                 from . import institution_lifecycle_web as lifecycle
                 if method=="GET":
