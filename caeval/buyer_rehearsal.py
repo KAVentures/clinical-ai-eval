@@ -13,7 +13,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from . import buyer_agent as buyer, buyer_plan, manifest, pipeline, project, selection
+from . import buyer_agent as buyer, buyer_plan, manifest, pipeline, project, selection, buyer_research, claim
 from .util import repo_root
 
 PROFILES = {"clinician_decision_support", "medication_assistant"}
@@ -27,6 +27,31 @@ def _folder(directory) -> Path:
     if root.is_symlink():
         raise buyer.BuyerError("rehearsal directory must not be a symbolic link")
     return root
+
+
+def _package(job: Path, family: str) -> dict:
+    if family not in FAMILIES:
+        raise buyer.BuyerError("unexpected rehearsal family")
+    ws = job / "out" / ("run_" + family)
+    if (job / "out").is_symlink() or ws.is_symlink() or not ws.is_dir():
+        raise buyer.BuyerError("invalid rehearsal package path")
+    meta = buyer_research._preflight(ws)
+    verdict = manifest.verify_manifest(ws).get("verdict")
+    analysis = json.loads((ws / "analysis.json").read_text(encoding="utf-8"))
+    authority = analysis.get("claim_authority", {})
+    derived = claim.compute(authority.get("project_mode"), authority.get("run_conformance"),
+                            authority.get("family_maturity"), authority.get("case_pack_authority"),
+                            authority.get("target_provenance"))
+    if (verdict != manifest.VALID or meta.get("family_id") != family
+            or analysis.get("family_id") != family
+            or derived.project_mode != "demonstration"
+            or derived.target_provenance != "mock"
+            or derived.case_pack_authority != "demonstration_fixture"
+            or derived.effective_claim not in ("demonstration", "none")
+            or derived.effective_claim != authority.get("effective_claim")):
+        raise buyer.BuyerError("rehearsal package failed integrity or demonstration-mode check")
+    return {"family_id": family, "verdict": verdict,
+            "manifest_hash": meta["manifest_hash"], "effective_claim": derived.effective_claim}
 
 
 def run(directory, plan_id: str) -> dict:
@@ -106,23 +131,11 @@ def run(directory, plan_id: str) -> dict:
         if proc.returncode != 0:
             record.update(status="failed", reason="canonical evaluation process failed")
         else:
-            packages = []
-            for family in expected:
-                ws = job / "out" / ("run_" + family)
-                verdict = manifest.verify_manifest(ws).get("verdict")
-                meta = json.loads((ws / manifest.MANIFEST_FILE).read_text(encoding="utf-8"))
-                analysis = json.loads((ws / "analysis.json").read_text(encoding="utf-8"))
-                authority = analysis.get("claim_authority", {})
-                if (verdict != manifest.VALID or meta.get("family_id") != family
-                        or authority.get("project_mode") != "demonstration"):
-                    raise buyer.BuyerError("rehearsal package failed integrity or demonstration-mode check")
-                packages.append({"family_id": family, "verdict": verdict,
-                                 "manifest_hash": meta["manifest_hash"],
-                                 "effective_claim": authority.get("effective_claim")})
+            packages = [_package(job, family) for family in expected]
             record.update(status="completed", packages=packages)
     except subprocess.TimeoutExpired:
         record.update(status="failed", reason="canonical evaluation timed out")
-    except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError, AttributeError, RecursionError):
         record.update(status="failed", reason="evaluation or package verification failed")
     buyer._write_json(result_file, record)
     return record
@@ -151,14 +164,9 @@ def load(directory, job_id: str) -> dict:
             if not expected or not set(expected) <= FAMILIES or {p["family_id"] for p in packages} != set(expected):
                 raise buyer.BuyerError("incomplete rehearsal inventory")
             for p in packages:
-                ws = path.parent / "out" / ("run_" + p["family_id"])
-                if ws.is_symlink():
-                    raise buyer.BuyerError("invalid rehearsal package path")
-                meta = json.loads((ws / manifest.MANIFEST_FILE).read_text(encoding="utf-8"))
-                if (meta.get("manifest_hash") != p["manifest_hash"]
-                        or manifest.verify_manifest(ws).get("verdict") != manifest.VALID):
+                if _package(path.parent, p["family_id"]) != p:
                     raise buyer.BuyerError("changed rehearsal package")
-        except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError, AttributeError, RecursionError):
             return {**record, "status": "invalid", "packages": [],
                     "candidate_evaluated": False, "decision_grade": False}
     return {**record, "candidate_evaluated": False, "decision_grade": False}
