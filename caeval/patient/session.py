@@ -190,6 +190,11 @@ def run_episode(target_fn, case: PatientCase, world_id: str,
     from .extraction import extract_disposition
 
     sim = PatientSimulator(case, world_id, stress_test, spec)
+    # Stateful adapters must not carry a prior episode's session identifier
+    # into a paired control or stress episode. Plain callables are unchanged.
+    reset = getattr(target_fn, "reset", None)
+    if callable(reset):
+        reset()
     trace = EpisodeTrace(
         episode_id=f"{case.case_id}::{world_id}::{stress_test}",
         case_id=case.case_id, world_id=world_id, stress_test=stress_test,
