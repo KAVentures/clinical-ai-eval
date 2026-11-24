@@ -425,6 +425,10 @@ Use synthetic, de-identified, or explicitly approved data with cloud agents.
 For protected information, keep both the tools and inference in an authorised
 private environment.
 
+## Institutional browser access
+
+For managed hospital workstations, use the separate [institutional deployment pilot](INSTITUTIONAL_DEPLOYMENT.md), not the single-user buyer console. It provides role-scoped job visibility and assigned blinded reviewer sessions; broader browser procurement controls and production security acceptance remain outstanding.
+
 ## Planned next buyer features
 
 1. Approval-ready buyer intake with risk-sensitive checklists and pre-frozen
