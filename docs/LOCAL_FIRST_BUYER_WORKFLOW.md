@@ -274,6 +274,63 @@ definitions and pack content each time; changed prompts, stale plans, mismatched
 versions and incomplete answers block handoff. Unsupported multi-turn and RAG
 plans are refused rather than partially executed.
 
+## Prepare a bound research assessment
+
+After all candidate answers have been collected, select a judge panel staged by
+the authorised operator under `<buyer>/approved-panels/<panel-id>.toml`.
+Use environment-variable references for credentials, never literal secrets.
+The browser never uploads judge configurations or accepts arbitrary paths.
+Answer the four canonical governance questions explicitly. The preparation
+creates a private content-addressed directory:
+
+```text
+prepared-assessments/<assessment-id>/
+  project.yaml
+  responses.json
+  panel.toml
+  pack/
+  binding.json
+```
+
+The configuration is validated by the existing research project validator.
+The exact response mapping, case pack bytes, panel and scientific definitions
+are bound to the source plan and submission. The case content hash is also
+checked against the copied pack. No execution occurs. Mixed or mock panels
+are capped at demonstration mode; all-real panels are capped at internal
+regression. Neither mode makes a procurement claim. Imported responses are
+operator-attested, not authenticated vendor outputs.
+
+Agents can prepare the same assessment using a JSON specification with
+`submission_id`, `panel_id` and a `governance` object containing the four
+canonical governance fields. Use:
+
+```bash
+clinical-ai-eval buyer assessment-panels ./hospital-assessment
+clinical-ai-eval buyer assessment-prepare ./hospital-assessment --file preparation.json
+clinical-ai-eval buyer assessment-check ./hospital-assessment --assessment-id ASSESSMENT_ID
+```
+
+An approved scientific operator must run the integrity check immediately
+before execution. After checking the panel's actual endpoints, cost and data
+handling, and explicitly authorising any model calls, the operator may enter
+the prepared directory and use the existing CLI:
+
+```bash
+cd hospital-assessment/prepared-assessments/ASSESSMENT_ID
+clinical-ai-eval target validate --project .
+clinical-ai-eval run --project .
+```
+
+Run from this directory because the canonical pack resolver interprets its
+relative source against the working directory. The check is not a cryptographic
+execution lock: the operator must keep input files unchanged and protected
+between verification and execution. Never share the private panel or response
+files with an unapproved service. A local application does not by itself make a
+real judge panel offline; the configured endpoints determine data egress.
+A prepared assessment is not an executed evaluation, completed review or
+clinical decision. The shared hospital deployment and permission-checked
+execution queue remain separate roadmap work.
+
 ## Running clinical evaluations locally
 
 The existing model provider interface accepts local OpenAI-compatible inference
