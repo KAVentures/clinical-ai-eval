@@ -284,8 +284,19 @@ def render_plan(state: dict, record=None) -> bytes:
             "</p><table><thead><tr><th>Family</th><th>Availability</th><th>Rationale</th>"
             "<th>Limitation</th></tr></thead><tbody>" + rows + "</tbody></table><p>"
             "<a href='/plan?id=" + esc(record["plan_id"]) + "&amp;format=json'>Download draft JSON</a></p>"
-            "<p class='small'>Snapshot SHA-256: " + esc(record["plan_id"]) + "</p></section>"
+            "<p class='small'>Snapshot SHA-256: " + esc(record["plan_id"]) + "</p>"
         )
+        from . import buyer_rehearsal
+        if (record.get("definitions_current") and
+                set(record["plan"]["target_profile"]["types"]) <= buyer_rehearsal.PROFILES):
+            result += (
+                "<form action='/rehearsal-run' method='post'>"
+                "<input type='hidden' name='plan_id' value='" + esc(record["plan_id"]) + "'>"
+                "<p class='small'>Run the shipped synthetic fixtures and mock judges. "
+                "This tests the evaluation software, NOT the named candidate. No network calls.</p>"
+                "<button type='submit'>Run offline software rehearsal</button></form>"
+            )
+        result += "</section>"
     return f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>Clinical AI Eval — Evaluation planning</title><style>{STYLE}</style></head>
@@ -304,6 +315,29 @@ scientific intake questions. Do not enter identifiable patient records.</div>
 <h3 style='margin-top:18px'>Intended-use questions</h3>{fields}
 <button type='submit' {'disabled' if not state["vendors"] else ''}>Generate and save draft scope</button>
 </form></section></main></body></html>""".encode("utf-8")
+
+
+def render_rehearsal(record: dict) -> bytes:
+    rows = "".join("<tr><td>" + esc(p["family_id"]) + "</td><td>" +
+                   esc(p["verdict"]) + "</td><td>" + esc(p.get("effective_claim")) +
+                   "</td><td>" + esc(p["manifest_hash"]) + "</td></tr>"
+                   for p in record.get("packages", []))
+    return f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Clinical AI Eval — Software rehearsal</title><style>{STYLE}</style></head>
+<body><main class='shell'><header><div><div class='kicker'>Research · Synthetic only</div>
+<h1>Offline software rehearsal</h1></div><a href='/'>Procurement workspace</a></header>
+<div class='notice'><b>Demonstration only. No candidate was evaluated.</b>
+These are deterministic mock responses and mock judges on shipped fixtures.
+Integrity verification is not clinical validation, an independent finding or procurement approval.</div>
+<section class='panel'><h2>Status: {esc(record["status"])}</h2>
+<p>{esc(record.get("reason", ""))}</p>
+<p>Planned runnable families: {esc(", ".join(record["expected_families"]))}</p>
+<table><thead><tr><th>Family</th><th>Integrity</th><th>Effective claim</th><th>Manifest</th></tr></thead>
+<tbody>{rows}</tbody></table>
+<p class='small'>Rehearsal ID: {esc(record["job_id"])}</p>
+<p><a href='/plan?id={esc(record["source_plan_id"])}'>Return to saved scope</a></p>
+</section></main></body></html>""".encode("utf-8")
 
 
 def render_setup() -> bytes:
@@ -436,7 +470,7 @@ class BuyerHandler(BaseHTTPRequestHandler):
         if not self._host_ok():
             return self._error(HTTPStatus.BAD_REQUEST, "invalid local Host")
         parts = urllib.parse.urlsplit(self.path)
-        if parts.path not in ("/", "/dossier", "/questionnaire", "/research", "/plan"):
+        if parts.path not in ("/", "/dossier", "/questionnaire", "/research", "/plan", "/rehearsal"):
             return self._error(HTTPStatus.NOT_FOUND, "unknown route")
         supplied = urllib.parse.parse_qs(parts.query).get("token", [""])[0]
         if parts.path == "/" and supplied and hmac.compare_digest(supplied, self.server.session_token):
@@ -451,6 +485,16 @@ class BuyerHandler(BaseHTTPRequestHandler):
                                "Launch with the private URL shown in your terminal.")
         query = urllib.parse.parse_qs(parts.query)
         try:
+            if parts.path == "/rehearsal":
+                from . import buyer_rehearsal
+                ids = query.get("id", [])
+                if len(ids) != 1:
+                    raise buyer.BuyerError("select one rehearsal")
+                with self.server.mutation_lock:
+                    content = render_rehearsal(buyer_rehearsal.load(self.server.directory, ids[0]))
+                self._headers(extra={"Content-Length": str(len(content))})
+                self.wfile.write(content)
+                return
             if parts.path == "/plan":
                 from . import buyer_plan
                 with self.server.mutation_lock:
@@ -526,7 +570,7 @@ class BuyerHandler(BaseHTTPRequestHandler):
             return self._error(HTTPStatus.FORBIDDEN,
                                "cross-origin local writes are not permitted")
         path = urllib.parse.urlsplit(self.path).path
-        if path not in ("/project-init", "/vendor-add", "/evidence-add", "/questionnaire-import", "/plan-preview"):
+        if path not in ("/project-init", "/vendor-add", "/evidence-add", "/questionnaire-import", "/plan-preview", "/rehearsal-run"):
             return self._error(HTTPStatus.NOT_FOUND, "unknown route")
         try:
             n = int(self.headers.get("Content-Length", "-1"))
@@ -536,6 +580,18 @@ class BuyerHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(n)
             if len(body) != n:
                 raise buyer.BuyerError("incomplete request body")
+            if path == "/rehearsal-run":
+                from . import buyer_rehearsal
+                if not ctype.startswith("application/x-www-form-urlencoded") or n > 1024:
+                    raise buyer.BuyerError("invalid rehearsal form")
+                fields = urllib.parse.parse_qs(body.decode("utf-8"), max_num_fields=2)
+                if set(fields) != {"plan_id"} or len(fields["plan_id"]) != 1:
+                    raise buyer.BuyerError("one saved plan is required")
+                with self.server.mutation_lock:
+                    record = buyer_rehearsal.run(self.server.directory, fields["plan_id"][0])
+                self._headers(HTTPStatus.SEE_OTHER, extra={
+                    "Location": "/rehearsal?id=" + record["job_id"], "Content-Length": "0"})
+                return
             if path == "/plan-preview":
                 from . import buyer_plan, intake
                 if not ctype.startswith("application/x-www-form-urlencoded") or n > buyer_plan.MAX_INPUT:

@@ -206,6 +206,40 @@ The input is a JSON object with `vendor_id`, `target_name`, `target_version`,
 `answers` (an object answering each scientific intake question). The browser
 shows the questions directly. Do not include patient identifiers.
 
+## Browser rehearsal of the scientific engine
+
+From a saved, current draft scope for clinician decision support or medication
+assistance, choose **Run offline software rehearsal**. The browser launches
+the existing project-bound research CLI in a bounded subprocess. The target
+is explicitly a synthetic mock, the cases are the shipped demonstration
+fixtures, and the judge panel must contain only mock judges. The candidate's
+name and intended-use free text are not passed into the synthetic runner.
+Other profiles are refused rather than silently dropping selected families.
+
+```bash
+clinical-ai-eval buyer rehearsal-run ./hospital-assessment --plan-id PLAN_ID
+clinical-ai-eval buyer rehearsal-show ./hospital-assessment --job-id JOB_ID
+```
+
+Each execution creates a separate local rehearsal folder containing the
+generated research project, judge panel, canonical research evidence packages
+and a status record. All expected packages must pass the existing manifest
+verification and research preflight before completion is reported. Later reads
+reverify package integrity and claim authority. A failed or timed-out process
+does not become a completed evaluation. Stale planning definitions block
+execution. The current single-user prototype bounds an execution to 120
+seconds and at most 100 retained rehearsals per workspace. It uses a
+synchronous browser request; a durable job queue is required before shared
+hospital use.
+
+**A rehearsal never evaluates the named vendor.** It does not update the
+clinical procurement study, produce a purchasing verdict, or establish
+clinical validity. No real model or external service is called. Actual
+candidate testing, approved connector configuration, clinician-reviewed
+packs, independent review and authorised server-side execution are separate
+next steps. The canonical research CLI and raw research artifacts remain
+available to researchers.
+
 ## Running clinical evaluations locally
 
 The existing model provider interface accepts local OpenAI-compatible inference

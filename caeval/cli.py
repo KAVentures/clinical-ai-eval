@@ -1259,6 +1259,19 @@ def cmd_buyer(args):
                 if not args.plan_id:
                     raise buyer.BuyerError("--plan-id is required for plan-show")
                 result = buyer_plan.load(args.path, args.plan_id)
+        elif args.action in ("rehearsal-run", "rehearsal-show"):
+            from . import buyer_rehearsal
+            if args.action == "rehearsal-run":
+                if not args.plan_id:
+                    raise buyer.BuyerError("--plan-id is required for rehearsal-run")
+                result = buyer_rehearsal.run(args.path, args.plan_id)
+            else:
+                if not args.job_id:
+                    raise buyer.BuyerError("--job-id is required for rehearsal-show")
+                result = buyer_rehearsal.load(args.path, args.job_id)
+            if result["status"] in ("failed", "invalid"):
+                print(_json.dumps({"ok": False, "result": result}, indent=2))
+                raise SystemExit(1)
         elif args.action == "research":
             from . import buyer_research
             result = buyer_research.overview(args.path)
@@ -1579,8 +1592,9 @@ def main(argv=None):
     pproc.set_defaults(func=cmd_procurement)
 
     pb = sub.add_parser("buyer", help="local-only buyer workspace (JSON for CLI agents)")
-    pb.add_argument("action", choices=["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research", "plan-preview", "plan-show"])
+    pb.add_argument("action", choices=["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research", "plan-preview", "plan-show", "rehearsal-run", "rehearsal-show"])
     pb.add_argument("--plan-id", help="content-addressed draft scope plan identifier")
+    pb.add_argument("--job-id", help="saved synthetic rehearsal identifier")
     pb.add_argument("path", nargs="?", help="local buyer workspace directory (except contract)")
     pb.add_argument("--name", help="project name on init, vendor name on vendor-add")
     pb.add_argument("--intended-use", default="", help="planned clinical/administrative use")

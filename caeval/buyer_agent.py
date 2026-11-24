@@ -406,7 +406,7 @@ def contract() -> dict:
         "schema_version": SCHEMA_VERSION, "transport": "local_subprocess_json",
         "network_calls": 0, "data_storage": "local_only",
         "entrypoint": "clinical-ai-eval buyer",
-        "actions": ["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research", "plan-preview", "plan-show"],
+        "actions": ["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research", "plan-preview", "plan-show", "rehearsal-run", "rehearsal-show"],
         "action_schemas": {
             "contract": {"required": [], "writes": False},
             "init": {"required": ["path", "--name"],
@@ -420,6 +420,8 @@ def contract() -> dict:
             "research": {"required": ["path"], "writes": False},
             "plan-preview": {"required": ["path", "--file"], "writes": True},
             "plan-show": {"required": ["path", "--plan-id"], "writes": False},
+            "rehearsal-run": {"required": ["path", "--plan-id"], "writes": True, "synthetic_only": True},
+            "rehearsal-show": {"required": ["path", "--job-id"], "writes": False},
             "questionnaire-import": {"required": ["path", "--vendor-id", "--file"], "writes": True},
             "dossier": {"required": ["path", "--out"], "writes": True},
             "serve": {"required": ["path"], "optional": ["--port", "--no-browser"],
