@@ -188,7 +188,7 @@ def _verify(directory, row):
         # a missing baseline shared by two suites), prompt text and responses.
         expected_rows = pipeline.generate_responses(lambda rec: responses[rec["cell_id"]],family_def,cases)
         actual_rows = [json.loads(line) for line in buyer_research.verified_bytes(ws,meta,"responses").splitlines() if line.strip()]
-        if actual_rows != expected_rows:
+        if assessment.buyer_plan._canonical(actual_rows) != assessment.buyer_plan._canonical(expected_rows):
             raise buyer.BuyerError("family prompts or responses differ from canonical collected cells")
         ids = {r["cell_id"] for r in actual_rows}
         if len(ids)!=len(actual_rows):
