@@ -1247,7 +1247,18 @@ def cmd_institution(args):
                 raise access.AccessDenied("--origin must be the exact HTTPS origin")
             institution_web.serve(args.path, args.origin, args.port)
             return
-        if args.action == "account-create":
+        if args.action in ("backup-create","backup-check","backup-restore"):
+            from . import institution_backup as backup
+            if args.action == "backup-check":
+                result = backup.check(args.path)
+            else:
+                if not args.destination:
+                    raise access.AccessDenied("--destination is required")
+                if args.action == "backup-create":
+                    result = backup.create(args.path,args.destination,services_stopped=args.confirm_services_stopped)
+                else:
+                    result = backup.restore(args.path,args.destination,services_stopped=args.confirm_services_stopped)
+        elif args.action == "account-create":
             if not args.user_id or not args.role:
                 raise access.AccessDenied("--user-id and --role are required")
             pw = getpass.getpass("New account password: ")
@@ -1266,7 +1277,7 @@ def cmd_institution(args):
         else:
             raise access.AccessDenied("unknown institutional action")
         print(json.dumps({"ok":True,"result":result},indent=2))
-    except (access.AccessDenied,OSError,ValueError,RuntimeError,KeyError) as exc:
+    except (access.AccessDenied,OSError,ValueError,RuntimeError,KeyError,TypeError,RecursionError) as exc:
         print(json.dumps({"ok":False,"error":str(exc)},indent=2))
         raise SystemExit(1)
 
@@ -1754,7 +1765,7 @@ def main(argv=None):
     pag.set_defaults(func=cmd_agent)
 
     pin = sub.add_parser("institution", help="trusted administrator: isolated institutional browser and account provisioning")
-    pin.add_argument("action", choices=["serve","account-create","account-disable","review-assign"])
+    pin.add_argument("action", choices=["serve","account-create","account-disable","review-assign","backup-create","backup-check","backup-restore"])
     pin.add_argument("path", help="one organisation-owned buyer workspace")
     pin.add_argument("--user-id")
     pin.add_argument("--role", choices=["admin","operator","observer","reviewer","vendor"])
@@ -1762,6 +1773,8 @@ def main(argv=None):
     pin.add_argument("--family-id")
     pin.add_argument("--origin", help="exact HTTPS origin, TLS handled by approved proxy")
     pin.add_argument("--port", type=int, default=8767)
+    pin.add_argument("--destination", help="new approved local backup or restored workspace directory")
+    pin.add_argument("--confirm-services-stopped", action="store_true", help="confirm gateway and all evaluation workers are stopped before backup or restore")
     pin.set_defaults(func=cmd_institution)
 
     pra = sub.add_parser(
