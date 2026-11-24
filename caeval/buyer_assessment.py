@@ -11,7 +11,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from . import buyer_agent as buyer, buyer_manual as manual, buyer_plan, project, pipeline, manifest
+from . import buyer_agent as buyer, buyer_manual as manual, buyer_plan, project, pipeline, manifest, packsource
 from .util import repo_root
 
 MAX_PANEL_BYTES = 256 * 1024
@@ -146,12 +146,17 @@ def prepare(directory, submission_id, panel_id, governance):
                 path.chmod(0o600)
                 handle.write(raw)
         project.load(stage).require_valid()
+        # Validate the exact copied case content, not just the mutable original.
+        _, desc = packsource.resolve({"source": str(stage / "pack")}, "clinician_vignette")
+        if desc["content_hash"] != record["pack_content_hash"]:
+            raise buyer.BuyerError("case content changed during staging")
         buyer._write_json(stage / "binding.json", record, create=True)
         try:
             stage.rename(dest)
         except OSError:
             if not dest.is_dir() or dest.is_symlink():
                 raise
+            # Concurrent identical publication is permitted only after check().
     return check(directory, record["assessment_id"])
 
 
