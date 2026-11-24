@@ -157,7 +157,10 @@ It does not verify that the document's assertions are true.</p></section>
 <p class='small'>Clinical testing and verified comparative results remain in the
 existing evaluation engine.</p>
 <div class='row'><span>Evaluation workspace</span>
-<span class='tag'>{assessment_status}</span></div></section>
+<span class='tag'>{assessment_status}</span></div>
+<p><a href='/dossier' download='clinical-ai-procurement.md'>Download combined evidence dossier</a></p>
+<p class='small'>Export rechecks recorded clinical packages locally and lists missing or invalid evidence.
+No clinical approval is implied.</p></section>
 <section class='panel'><h2>Add a vendor</h2>
 <form action='/vendor-add' method='post'>
 <label>Vendor identifier<input type='text' name='vendor_id' required
@@ -316,10 +319,10 @@ class BuyerHandler(BaseHTTPRequestHandler):
         if not self._host_ok():
             return self._error(HTTPStatus.BAD_REQUEST, "invalid local Host")
         parts = urllib.parse.urlsplit(self.path)
-        if parts.path != "/":
+        if parts.path not in ("/", "/dossier"):
             return self._error(HTTPStatus.NOT_FOUND, "unknown route")
         supplied = urllib.parse.parse_qs(parts.query).get("token", [""])[0]
-        if supplied and hmac.compare_digest(supplied, self.server.session_token):
+        if parts.path == "/" and supplied and hmac.compare_digest(supplied, self.server.session_token):
             self._headers(HTTPStatus.SEE_OTHER, extra={
                 "Location": "/", "Set-Cookie":
                     f"caeval_local={self.server.session_token}; HttpOnly; SameSite=Strict; Path=/",
@@ -331,6 +334,17 @@ class BuyerHandler(BaseHTTPRequestHandler):
                                "Launch with the private URL shown in your terminal.")
         query = urllib.parse.parse_qs(parts.query)
         try:
+            if parts.path == "/dossier":
+                if not (self.server.directory / buyer.STATE_FILE).is_file():
+                    return self._error(HTTPStatus.NOT_FOUND, "create a buyer project first")
+                with self.server.mutation_lock:
+                    document = buyer.render_dossier(self.server.directory).encode("utf-8")
+                self._headers(content_type="text/plain; charset=utf-8", extra={
+                    "Content-Disposition": 'attachment; filename="clinical-ai-procurement.md"',
+                    "Content-Length": str(len(document)),
+                })
+                self.wfile.write(document)
+                return
             if not (self.server.directory / buyer.STATE_FILE).exists():
                 content = render_setup()
             else:
