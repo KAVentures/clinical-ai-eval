@@ -50,6 +50,41 @@ class InstitutionTests(unittest.TestCase):
         self.assertIn("Secure; HttpOnly; SameSite=Strict",cookie)
         return cookie.split(";",1)[0].split("=",1)[1]
 
+    def test_setup_permissions_and_browser_vendor_registration(self):
+        token=self.login("admin")
+        actor=access.session(self.root,token)
+        observer=self.login("observer")
+        reviewer=self.login("doc-a")
+        form={"csrf":actor["csrf"],"vendor_id":"candidate","name":"Candidate"}
+        self.assertEqual(self.request("/setup",token=observer)["status"],"403 Forbidden")
+        self.assertEqual(self.request("/setup",token=reviewer)["status"],"403 Forbidden")
+        self.assertEqual(self.request("/setup-vendor","POST",form,token,origin="https://evil.example")["status"],"403 Forbidden")
+        self.assertEqual(self.request("/setup-vendor","POST",{**form,"csrf":"wrong"},token)["status"],"403 Forbidden")
+        self.assertEqual(self.request("/setup-vendor","POST",form,token)["status"],"303 See Other")
+        self.assertEqual(self.request("/setup-vendor","POST",form,token)["status"],"403 Forbidden")
+        self.assertIn("Candidate",self.request("/setup",token=token)["body"])
+        download=self.request("/setup-download?kind=questionnaire&id=candidate",token=token)
+        self.assertEqual(download["status"],"200 OK")
+        self.assertIn("attachment",download["headers"]["Content-Disposition"])
+        self.assertEqual(self.request("/setup-download?kind=questionnaire&id=candidate",token=reviewer)["status"],"403 Forbidden")
+        self.assertEqual(self.request("/setup-download?kind=filesystem&id=candidate",token=token)["status"],"403 Forbidden")
+
+    def test_setup_multipart_upload_duplicate_fields_rejected(self):
+        def env(parts):
+            raw=b"".join(parts)+b"--fixture--\r\n"
+            return {"CONTENT_TYPE":"multipart/form-data; boundary=fixture",
+                    "CONTENT_LENGTH":str(len(raw)),"wsgi.input":io.BytesIO(raw)}
+        csrf=b'--fixture\r\nContent-Disposition: form-data; name="csrf"\r\n\r\nTOKEN\r\n'
+        doc=b'--fixture\r\nContent-Disposition: form-data; name="document"; filename="test.txt"\r\nContent-Type: text/plain\r\n\r\nEvidence\r\n'
+        fields,blob,name=web._setup_upload(env([csrf,doc]))
+        self.assertEqual(fields,{"csrf":"TOKEN"})
+        self.assertEqual(blob,b"Evidence")
+        self.assertEqual(name,"test.txt")
+        with self.assertRaises(access.AccessDenied):
+            web._setup_upload(env([csrf,csrf,doc]))
+        with self.assertRaises(access.AccessDenied):
+            web._setup_upload(env([csrf,doc,doc]))
+
     def test_login_and_vendor_boundary(self):
         self.assertEqual(self.request("/")["headers"]["Location"],"/login")
         self.assertEqual(self.request("/login","POST",{"user_id":"supplier","password":self.password})["status"],"403 Forbidden")
