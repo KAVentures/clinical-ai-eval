@@ -1249,6 +1249,16 @@ def cmd_buyer(args):
                 if not args.file:
                     raise buyer.BuyerError("--file is required for questionnaire-import")
                 result = questionnaire.import_file(args.path, args.vendor_id, args.file)
+        elif args.action in ("plan-preview", "plan-show"):
+            from . import buyer_plan
+            if args.action == "plan-preview":
+                if not args.file:
+                    raise buyer.BuyerError("--file is required for plan-preview")
+                result = buyer_plan.preview_file(args.path, args.file)
+            else:
+                if not args.plan_id:
+                    raise buyer.BuyerError("--plan-id is required for plan-show")
+                result = buyer_plan.load(args.path, args.plan_id)
         elif args.action == "research":
             from . import buyer_research
             result = buyer_research.overview(args.path)
@@ -1555,7 +1565,8 @@ def main(argv=None):
     pproc.set_defaults(func=cmd_procurement)
 
     pb = sub.add_parser("buyer", help="local-only buyer workspace (JSON for CLI agents)")
-    pb.add_argument("action", choices=["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research"])
+    pb.add_argument("action", choices=["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research", "plan-preview", "plan-show"])
+    pb.add_argument("--plan-id", help="content-addressed draft scope plan identifier")
     pb.add_argument("path", nargs="?", help="local buyer workspace directory (except contract)")
     pb.add_argument("--name", help="project name on init, vendor name on vendor-add")
     pb.add_argument("--intended-use", default="", help="planned clinical/administrative use")
