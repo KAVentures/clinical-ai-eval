@@ -129,7 +129,7 @@ def _verify_document(root: Path, evidence: dict) -> str:
         return "missing"
     try:
         with path.open("rb") as f:
-            h = hashlib.file_digest(f, "sha256").hexdigest() if hasattr(hashlib, "file_digest") else _digest_stream(f)
+            h = _digest_stream(f).hexdigest()
     except OSError:
         return "unreadable"
     return "intact" if h == digest else "changed"
