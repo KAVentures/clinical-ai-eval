@@ -108,6 +108,41 @@ class LocalBuyerBrowserTests(unittest.TestCase):
             self.assertIn(b"self-reported and unverified", response.read())
         self.assertEqual(buyer.status(self.root)["vendors"][0]["questionnaires"][0]["schema_status"], "valid")
 
+    def test_research_and_plan_views_require_local_session(self):
+        for route in ("/research", "/plan"):
+            with self.assertRaises(urllib.error.HTTPError) as exc:
+                self._request(route)
+            self.assertEqual(exc.exception.code, 401)
+        self._login()
+        with self._request("/research") as response:
+            self.assertIn(b"Scientific evaluation workspace", response.read())
+        with self._request("/plan") as response:
+            self.assertIn(b"Plan an evaluation", response.read())
+
+    def test_browser_scientific_plan_roundtrip(self):
+        from caeval import intake, selection
+        self._login()
+        buyer.add_vendor(self.root, "v1", "Vendor One")
+        fields = {"vendor_id": "v1", "target_name": "Synthetic assistant",
+                  "target_version": "1.2", "profiles": "clinician_decision_support",
+                  **{q: "Explicit synthetic answer for " + q for q in intake.INTAKE_QUESTIONS}}
+        with self.assertRaises(urllib.error.HTTPError) as exc:
+            self._form_post("/plan-preview", fields, origin="https://untrusted.example")
+        self.assertEqual(exc.exception.code, 403)
+        self.assertFalse((self.root / "plans").exists())
+        with self._form_post("/plan-preview", fields, origin=self.base) as response:
+            self.assertIn(b"Saved draft scope preview", response.read())
+            url = response.geturl()
+        self.assertIn("/plan?id=", url)
+        identifier = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)["id"][0]
+        with self._request("/plan?id=" + identifier + "&format=json") as response:
+            self.assertIn("attachment", response.headers["Content-Disposition"])
+            record = json.loads(response.read())
+        self.assertEqual(record["plan"]["selection"],
+                         selection.select_suites(["clinician_decision_support"]))
+        self.assertFalse(record["execution_authorized"])
+        self.assertFalse(record["decision_grade"])
+
     def test_reject_cross_origin_vendor_write(self):
         self._login()
         with self.assertRaises(urllib.error.HTTPError) as exc:
