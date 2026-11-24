@@ -96,7 +96,7 @@ already delivered or in-flight response. Disabling the owner blocks access.
 A metadata-only audit records grant issuance, revocation and authorized read
 requests/outcomes, not bearer tokens or clinical content.
 
-A restored workspace at a different path rejects original grants. For EVERY
+The integrated restore command revokes copied grants and a restored workspace at a different path also rejects original grants. For EVERY
 restore or rollback, including a restoration to the same path, stop the
 broker, rotate its external generation file to a newly generated value, and
 restart it with the new file before granting access. Existing tokens then
