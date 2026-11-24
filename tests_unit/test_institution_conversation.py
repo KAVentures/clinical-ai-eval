@@ -93,6 +93,24 @@ class ConversationJobTests(unittest.TestCase):
         (ws/"episodes.jsonl").write_text("{}")
         self.assertEqual(conversation.overview(self.root,actor)[0]["status"],"invalid")
 
+    def test_missing_stress_or_mismatched_scored_trace_rejected(self):
+        from caeval.util import stable_hash_text
+        cases,_,_,_=conversation._pack(self.root,"fixture")
+        expected,coverage=conversation._expected_episodes(cases)
+        self.assertGreater(len(expected),1)
+        episodes=[]
+        for i,(case,world,stress) in enumerate(sorted(expected)):
+            episodes.append({"case_id":case,"world_id":world,"stress_test":stress,
+                             "episode_id":str(i),"turns":[{"speaker":"patient","text":"fixture"}],
+                             "trace_hash":stable_hash_text("patient:fixture")})
+        cells=[{"patient":{"episode_id":e["episode_id"],"trace_hash":e["trace_hash"]}} for e in episodes]
+        conversation._verify_episode_inventory(cases,episodes,cells,coverage)
+        with self.assertRaises(buyer.BuyerError):
+            conversation._verify_episode_inventory(cases,episodes[:-1],cells[:-1],coverage)
+        cells[0]["patient"]["trace_hash"]="0"*64
+        with self.assertRaises(buyer.BuyerError):
+            conversation._verify_episode_inventory(cases,episodes,cells,coverage)
+
     def test_drift_and_invalid_endpoint_block_execution(self):
         queued=conversation.prepare(self.root,self.actor,self.spec)
         cfg=json.loads(self.config.read_text())
