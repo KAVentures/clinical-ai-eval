@@ -62,12 +62,23 @@ def _preflight(ws: Path):
         if (not isinstance(rec, dict) or rec.get("path") != rel
                 or rec.get("required") is not required):
             raise buyer.BuyerError("manifest artifact mapping differs from this build")
+        if rec.get("present") is not (rec.get("sha256") is not None):
+            raise buyer.BuyerError("inconsistent manifest artifact presence")
+        if rec.get("present") and not (ws / rel).is_file():
+            raise buyer.BuyerError("previously recorded artifact is missing")
+        if rec.get("sha256") is not None and (
+                not isinstance(rec["sha256"], str) or len(rec["sha256"]) != 64
+                or any(ch not in "0123456789abcdef" for ch in rec["sha256"])):
+            raise buyer.BuyerError("invalid artifact digest")
     family = obj.get("family_id")
     if not isinstance(family, str) or not buyer.IDENTIFIER.fullmatch(family):
         raise buyer.BuyerError("invalid research family identifier")
-    if family not in {r["family_id"] for r in capabilities.table()}:
+    known = {r["family_id"]: r for r in capabilities.table()}
+    if family not in known:
         raise buyer.BuyerError("unknown research family")
     executor = obj.get("executor") or "generic_paired_text"
+    if known[family].get("executor") != executor:
+        raise buyer.BuyerError("research family and executor mismatch")
     if not isinstance(executor, str) or executor not in manifest.EXECUTOR_DEFINITION_SOURCES:
         raise buyer.BuyerError("unknown research executor")
     expected = set(manifest.DEFINITION_SOURCES)
