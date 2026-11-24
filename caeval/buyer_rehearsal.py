@@ -37,7 +37,7 @@ def _package(job: Path, family: str) -> dict:
         raise buyer.BuyerError("invalid rehearsal package path")
     meta = buyer_research._preflight(ws)
     verdict = manifest.verify_manifest(ws).get("verdict")
-    analysis = json.loads((ws / "analysis.json").read_text(encoding="utf-8"))
+    analysis = json.loads(buyer_research.verified_bytes(ws, meta, "analysis"))
     authority = analysis.get("claim_authority", {})
     derived = claim.compute(authority.get("project_mode"), authority.get("run_conformance"),
                             authority.get("family_maturity"), authority.get("case_pack_authority"),
