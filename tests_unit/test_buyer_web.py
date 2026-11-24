@@ -143,6 +143,35 @@ class LocalBuyerBrowserTests(unittest.TestCase):
         self.assertFalse(record["execution_authorized"])
         self.assertFalse(record["decision_grade"])
 
+    def test_rehearsal_browser_routes_require_explicit_authenticated_post(self):
+        from unittest.mock import patch
+        from caeval import buyer_plan, buyer_rehearsal, intake
+        self._login()
+        buyer.add_vendor(self.root, "v1", "Vendor One")
+        plan = buyer_plan.preview(self.root, {
+            "vendor_id": "v1", "target_name": "Candidate", "target_version": "1",
+            "profiles": ["clinician_decision_support"],
+            "answers": {q: "Synthetic answer " + q for q in intake.INTAKE_QUESTIONS},
+        })
+        with self._request("/plan?id=" + plan["plan_id"]) as response:
+            self.assertIn(b"Run offline software rehearsal", response.read())
+        record = {"job_id": "demo-test", "source_plan_id": plan["plan_id"],
+                  "status": "failed", "expected_families": [], "packages": [],
+                  "reason": "fixture"}
+        with patch.object(buyer_rehearsal, "run", return_value=record) as run:
+            with patch.object(buyer_rehearsal, "load", return_value=record):
+                with self.assertRaises(urllib.error.HTTPError) as exc:
+                    self._form_post("/rehearsal-run", {"plan_id": plan["plan_id"]},
+                                    origin="https://untrusted.example")
+                self.assertEqual(exc.exception.code, 403)
+                run.assert_not_called()
+                with self._form_post("/rehearsal-run", {"plan_id": plan["plan_id"]},
+                                     origin=self.base) as response:
+                    page = response.read()
+                run.assert_called_once_with(self.root, plan["plan_id"])
+                self.assertIn(b"No candidate was evaluated", page)
+                self.assertIn(b"Status: failed", page)
+
     def test_reject_cross_origin_vendor_write(self):
         self._login()
         with self.assertRaises(urllib.error.HTTPError) as exc:
