@@ -28,6 +28,10 @@ def _schema(conn):
       kind TEXT NOT NULL, severity TEXT NOT NULL, title TEXT NOT NULL,
       action TEXT NOT NULL, owner TEXT NOT NULL, due TEXT NOT NULL,
       state TEXT NOT NULL, revision INTEGER NOT NULL)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS lifecycle_evidence(
+      pilot_id TEXT NOT NULL REFERENCES lifecycle_pilots(id), job_id TEXT NOT NULL,
+      purpose TEXT NOT NULL, package_hashes TEXT NOT NULL,
+      PRIMARY KEY(pilot_id,job_id))""")
     conn.execute("""CREATE TABLE IF NOT EXISTS lifecycle_events(
       seq INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT DEFAULT CURRENT_TIMESTAMP,
       actor TEXT NOT NULL, object_id TEXT NOT NULL, action TEXT NOT NULL,
@@ -187,6 +191,44 @@ def transition(directory,actor,pilot_id,expected_revision,state,reason):
     return pilot
 
 
+def _evidence(directory, job_id, pilot):
+    row=buyer_jobs.status(directory,job_id)
+    if row["status"]!="completed" or not row["result"].get("packages"):
+        raise access.AccessDenied("completed verified assessment required")
+    bound=buyer_manual._read(buyer_jobs._job_path(directory,job_id)/"binding.json")
+    exchange=buyer_manual._load(directory,bound["exchange_id"])
+    if exchange["vendor_id"]!=pilot["vendor_id"] or exchange["target"]["version"]!=pilot["product_version"]:
+        raise access.AccessDenied("assessment vendor or version differs from pilot")
+    hashes={p["family_id"]:p["manifest_hash"] for p in row["result"]["packages"]}
+    return hashes
+
+
+def link_evidence(directory,actor,pilot_id,expected_revision,job_id,purpose):
+    if purpose not in ("baseline","retest"):
+        raise access.AccessDenied("select baseline or retest")
+    with access.db(directory) as conn:
+        _schema(conn)
+        _actor(conn,actor,True)
+        pilot=_get(conn,"lifecycle_pilots",pilot_id)
+    _revision(pilot,expected_revision)
+    hashes=_evidence(directory,job_id,pilot)
+    with access.db(directory) as conn:
+        _schema(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        _actor(conn,actor,True)
+        pilot=_get(conn,"lifecycle_pilots",pilot_id)
+        _revision(pilot,expected_revision)
+        if pilot["state"]=="closed":
+            raise access.AccessDenied("closed pilot is immutable")
+        if conn.execute("SELECT 1 FROM lifecycle_evidence WHERE pilot_id=? AND job_id=?",(pilot_id,job_id)).fetchone():
+            raise access.AccessDenied("job is already linked")
+        conn.execute("INSERT INTO lifecycle_evidence VALUES(?,?,?,?)",(pilot_id,job_id,purpose,json.dumps(hashes,sort_keys=True)))
+        pilot["revision"]+=1
+        conn.execute("UPDATE lifecycle_pilots SET revision=? WHERE id=?",(pilot["revision"],pilot_id))
+        _event(conn,actor,{**pilot,"job_id":job_id,"purpose":purpose,"package_hashes":hashes},"evidence-linked")
+    return {"job_id":job_id,"package_hashes":hashes,"decision_grade":False}
+
+
 def overview(directory,actor):
     with access.db(directory) as conn:
         _schema(conn)
@@ -195,6 +237,14 @@ def overview(directory,actor):
         for r in rows:
             items=[dict(i) for i in conn.execute("SELECT * FROM lifecycle_items WHERE pilot_id=? ORDER BY due,id",(r["id"],))]
             r["items"]=items
+            r["evidence"]=[dict(e) for e in conn.execute("SELECT * FROM lifecycle_evidence WHERE pilot_id=? ORDER BY job_id",(r["id"],))]
+            for e in r["evidence"]:
+                recorded=json.loads(e.pop("package_hashes"))
+                try:
+                    e["integrity"]="matches" if _evidence(directory,e["job_id"],r)==recorded else "changed"
+                except (OSError,ValueError,RuntimeError,KeyError,TypeError):
+                    e["integrity"]="unavailable"
+                e["family_count"]=len(recorded)
             today=dt.date.today().isoformat()
             r["overdue"]=r["state"]!="closed" and (r["review_date"]<today or any(i["state"]=="open" and i["due"]<today for i in items))
             r["blocking_open"]=sum(i["state"]=="open" and (i["severity"] in ("high","critical") or i["kind"]=="version_change") for i in items)
