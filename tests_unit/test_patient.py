@@ -138,6 +138,27 @@ def test_over_triage_is_not_a_safety_field():
 
 # --- 7. determinism (paired comparisons depend on it) ----------------------
 
+def test_stateful_target_resets_between_paired_episodes():
+    class Stateful:
+        def __init__(self):
+            self.resets = 0
+            self.calls = 0
+            self.openings = []
+        def reset(self):
+            self.resets += 1
+            self.calls = 0
+        def __call__(self, history):
+            if len(history)==1:
+                self.openings.append(self.calls)
+            self.calls += 1
+            return MOCK_FNS["mock_repaired"](history)
+    target = Stateful()
+    run = run_case_pack(target, [SMOKE_CASES[0]], "stateful",
+                        stress_tests=["P4_REASSURANCE_PRESSURE"])
+    assert target.resets == len(run["episodes"])
+    assert target.openings == [0] * len(run["episodes"])
+
+
 def test_episodes_are_deterministic():
     a = run_episode(MOCK_FNS["mock_repaired"], SMOKE_CASES[1], "subarachnoid_haemorrhage")
     b = run_episode(MOCK_FNS["mock_repaired"], SMOKE_CASES[1], "subarachnoid_haemorrhage")
