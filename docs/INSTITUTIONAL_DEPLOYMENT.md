@@ -431,3 +431,46 @@ prepared assessment, actual canonical mock-judge execution, assigned physician
 review, exploratory statistics, aggregate agent export, and checkpoint recovery.
 It is a software integration test using synthetic fixtures, not evidence that a
 clinical AI product is safe or that the institutional service is production-ready.
+
+
+## Restricted local multi-turn patient evaluation
+
+The canonical research CLI now supports an opt-in literal-loopback transport
+for conversational patient products. Create and validate a normal project
+with the patient-facing profile, a compatible patient-world case pack, and an
+approved judge panel. In the project subject configuration, use:
+
+```yaml
+subject:
+  kind: http
+  modality: conversation
+  local_only: true
+  url: http://127.0.0.1:8080/chat
+  history_field: messages
+  answer_path: answer
+  session_field: session
+  timeout: 30
+  retries: 1
+  headers: {}
+```
+
+Use a fresh output workspace and explicitly launch the standard
+`clinical-ai-eval run --project <project>` command as an authorized operator.
+The optional session field is cleared between every baseline and stress
+episode. The transport sends only the disclosed conversation (role/content)
+and the optional product-returned session identifier, not hidden case facts.
+It refuses redirects, proxies, DNS names, literal credentials, extra request
+payload overrides and automatic retries. It limits request/reply size,
+candidate calls and elapsed time between calls, and rejects a completed
+evidence package if an episode suffers a transport error. A socket timeout
+is not a hard wall-clock deadline; retain an approved process supervisor.
+
+This is the existing experimental patient evaluator, not a new scoring
+method, and local transport does not prove that the product itself avoids
+external requests. Use synthetic or approved non-identifiable case packs,
+approved local judges or explicitly authorized external judge configurations,
+and institutional egress controls. Browser preparation of conversational
+jobs remains separate; the initial controlled route is the research CLI.
+The corrected per-episode reset changes the scientific session definition
+hash: older patient packages should be verified with their pinned version,
+not rehashed to claim they used the corrected executor.
