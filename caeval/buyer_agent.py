@@ -143,12 +143,13 @@ def _digest_stream(handle):
 
 
 def add_evidence(directory, vendor_id: str, kind: str, source_file: str,
-                 title: str = "", source_filename: str | None = None) -> dict:
+                 title: str = "", source_filename: str | None = None,
+                 *, _validated_questionnaire: bool = False) -> dict:
     root = _root(directory)
     data = load(root)
     if vendor_id not in {v["vendor_id"] for v in data["vendors"]}:
         raise BuyerError(f"vendor {vendor_id!r} is not registered")
-    if kind not in EVIDENCE_KINDS:
+    if kind not in EVIDENCE_KINDS and not (kind == "vendor_questionnaire" and _validated_questionnaire):
         raise BuyerError(f"kind must be one of: {', '.join(EVIDENCE_KINDS)}")
     source = Path(source_file).expanduser()
     # A local copy is required: referenced external paths are not durable and
@@ -230,8 +231,23 @@ def status(directory) -> dict:
         docs = [{**{k: e.get(k) for k in ("evidence_id", "kind", "title", "sha256", "review_status")},
                  "integrity": _verify_document(root, e)} for e in rows]
         supplied = {d["kind"] for d in docs if d["integrity"] == "intact"}
+        from . import buyer_questionnaire as questionnaire
+        questionnaires = []
+        for doc in docs:
+            if doc["kind"] != questionnaire.KIND:
+                continue
+            summary = {"evidence_id": doc["evidence_id"], "integrity": doc["integrity"],
+                       "claim_authority": "vendor_self_reported_unverified", "decision_grade": False}
+            if doc["integrity"] == "intact":
+                try:
+                    with (root / "evidence" / doc["sha256"]).open("rb") as handle:
+                        summary.update(questionnaire.validate(root, v["vendor_id"], handle.read(questionnaire.MAX_BYTES + 1)))
+                    summary["schema_status"] = "valid"
+                except (OSError, BuyerError):
+                    summary["schema_status"] = "invalid_or_stale"
+            questionnaires.append(summary)
         vendors.append({"vendor_id": v["vendor_id"], "name": v["name"],
-                        "documents": docs, "missing_evidence_kinds": sorted(set(EVIDENCE_KINDS) - supplied),
+                        "documents": docs, "questionnaires": questionnaires, "missing_evidence_kinds": sorted(set(EVIDENCE_KINDS) - supplied),
                         "all_documents_intact": all(d["integrity"] == "intact" for d in docs)})
     assessment = _assessment_status(root)
     for v in vendors:
@@ -300,6 +316,13 @@ def render_dossier(directory) -> str:
         for e in v["documents"]:
             L.append(f"| {_md(e['kind'])} | {_md(e['title'])} | {_md(e['integrity'])} | {_md(e['review_status'])} |")
         L.extend(["", f"Missing evidence types: {_md(', '.join(v['missing_evidence_kinds']) or 'none')}", ""])
+        for q in v.get("questionnaires", []):
+            L.append(f"- Vendor disclosure {_md(q['evidence_id'])}: self-reported, unverified; "
+                     f"integrity={_md(q['integrity'])}; schema={_md(q.get('schema_status', 'not_checked'))}.")
+            if q.get("schema_status") == "valid":
+                L.append(f"  Product version: {_md(q['product_version_self_reported'])}; "
+                         f"responses: {_md(q['counts'])}. No independent corroboration implied.")
+        L.append("")
     L.extend(["## Clinical assessment", "",
               f"Status: {_md(report['assessment']['status'])}", ""])
     if report["assessment"]["status"] == "configured":
@@ -383,7 +406,7 @@ def contract() -> dict:
         "schema_version": SCHEMA_VERSION, "transport": "local_subprocess_json",
         "network_calls": 0, "data_storage": "local_only",
         "entrypoint": "clinical-ai-eval buyer",
-        "actions": ["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve"],
+        "actions": ["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import"],
         "action_schemas": {
             "contract": {"required": [], "writes": False},
             "init": {"required": ["path", "--name"],
@@ -393,6 +416,8 @@ def contract() -> dict:
             "evidence-add": {"required": ["path", "--vendor-id", "--kind", "--file"],
                              "optional": ["--title"], "writes": True},
             "status": {"required": ["path"], "writes": False},
+            "questionnaire-template": {"required": ["path", "--vendor-id"], "writes": False},
+            "questionnaire-import": {"required": ["path", "--vendor-id", "--file"], "writes": True},
             "dossier": {"required": ["path", "--out"], "writes": True},
             "serve": {"required": ["path"], "optional": ["--port", "--no-browser"],
                       "writes": True, "interactive": True,

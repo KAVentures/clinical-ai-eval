@@ -121,6 +121,39 @@ locally; if moved or missing, the report will disclose the gap. The downloaded
 report may contain confidential assessment metadata; share only with approved
 recipients.
 
+## Offline vendor disclosure exchange
+
+In the buyer dashboard, download a candidate-specific questionnaire, transfer it
+through an approved procurement channel, and upload the completed JSON. No vendor
+account, internet access or third-party API is required for this exchange.
+The request contains the buyer's intended use, setting, jurisdiction and candidate
+identity. It excludes competing vendors, evaluation case packs, hazard thresholds,
+documents, clinical results and local paths. Review the template before sharing.
+
+The same workflow is callable by local agents:
+
+```bash
+clinical-ai-eval buyer questionnaire-template ./hospital-assessment --vendor-id vendor_a
+clinical-ai-eval buyer questionnaire-import ./hospital-assessment --vendor-id vendor_a --file completed.json
+```
+
+The template command returns the standard CLI JSON envelope; the questionnaire
+file for exchange is the object in its `result` field. A vendor completes the
+submission while preserving the request exactly. Each question needs an explicit
+`provided`, `not_available`, or `not_applicable` response and an answer/explanation;
+references are optional strings. The exact request schema and buyer scope are
+hash-bound. Imports reject a different candidate, altered scope, changed question,
+missing/duplicate answer or oversized/malformed JSON. The original response bytes
+are stored in the content-addressed evidence register and rechecked on status/export.
+
+All statements, respondent identities and product versions are **vendor self-reported,
+unverified claims**. The hash binds the questionnaire to the local scope, not the
+sender's identity; no signature or independent corroboration is implied. A supplied
+answer never closes clinical, security or regulatory evidence requirements, and
+references are never automatically fetched. The questionnaire is an administrative
+intake aid, not a validated regulatory checklist or a clinical test. Its provenance
+and limitations are shown separately in the combined report.
+
 ## Running clinical evaluations locally
 
 The existing model provider interface accepts local OpenAI-compatible inference
