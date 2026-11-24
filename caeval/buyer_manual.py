@@ -137,6 +137,10 @@ def _build(directory, plan_id, pack_id):
 def _write_once(path, record):
     if path.is_symlink():
         raise buyer.BuyerError("exchange file may not be a symbolic link")
+    # _write_json stores indented JSON; check that representation too so a
+    # successful write can always be read back under the same byte ceiling.
+    if len((json.dumps(record, indent=2, ensure_ascii=False, allow_nan=False)+"\n").encode("utf-8")) > MAX_REQUEST_BYTES:
+        raise buyer.BuyerError("stored exchange exceeds size limit")
     try:
         buyer._write_json(path, record, create=True)
     except FileExistsError:
@@ -162,8 +166,10 @@ def _parse(raw):
                 raise buyer.BuyerError("duplicate JSON key")
             obj[k] = v
         return obj
+    def nonfinite(_):
+        raise buyer.BuyerError("non-finite JSON value")
     try:
-        return json.loads(raw.decode("utf-8"), object_pairs_hook=unique)
+        return json.loads(raw.decode("utf-8"), object_pairs_hook=unique, parse_constant=nonfinite)
     except (ValueError, UnicodeError, RecursionError) as exc:
         raise buyer.BuyerError("invalid exchange JSON") from exc
 
@@ -208,15 +214,7 @@ def template(directory, exchange_id):
     return _template(_load(directory, exchange_id))
 
 
-def import_response(directory, raw):
-    obj = _parse(raw)
-    if not isinstance(obj, dict) or set(obj) != {"request", "submission"} or not isinstance(obj["request"], dict):
-        raise buyer.BuyerError("invalid exchange response")
-    record = _load(directory, obj["request"].get("exchange_id"))
-    expected = _template(record)
-    if obj["request"] != expected["request"]:
-        raise buyer.BuyerError("prompt template changed or belongs to another exchange")
-    sub = obj["submission"]
+def _submission_content(record, sub):
     if not isinstance(sub, dict) or set(sub) != {"operator", "tested_product_version", "answers"}:
         raise buyer.BuyerError("invalid submission fields")
     for key in ("operator", "tested_product_version"):
@@ -250,6 +248,17 @@ def import_response(directory, raw):
         "claim_authority": "operator_attested_unverified_responses",
         "decision_grade": False,
     }
+    return content
+
+
+def import_response(directory, raw):
+    obj = _parse(raw)
+    if not isinstance(obj, dict) or set(obj) != {"request", "submission"} or not isinstance(obj["request"], dict):
+        raise buyer.BuyerError("invalid exchange response")
+    record = _load(directory, obj["request"].get("exchange_id"))
+    if obj["request"] != _template(record)["request"]:
+        raise buyer.BuyerError("prompt template changed or belongs to another exchange")
+    content = _submission_content(record, obj["submission"])
     digest = buyer_plan._digest(content)
     content["submission_id"] = digest
     if len(buyer_plan._canonical(content)) > MAX_REQUEST_BYTES:
@@ -267,13 +276,9 @@ def _submission(directory, submission_id):
             or buyer_plan._digest({k: v for k, v in content.items() if k != "submission_id"}) != identifier):
         raise buyer.BuyerError("response submission integrity mismatch")
     record = _load(directory, content["exchange_id"])
-    mapping = content.get("mapping")
-    if (not isinstance(mapping, dict) or not set(mapping) <= set(record["slots"])
-            or any(not isinstance(v, str) or not v.strip() for v in mapping.values())
-            or content.get("n_expected") != len(record["slots"])
-            or content.get("n_provided") != len(mapping)
-            or content.get("status") != ("complete_unscored" if len(mapping) == len(record["slots"]) else "incomplete")):
-        raise buyer.BuyerError("submission coverage mismatch")
+    expected = _submission_content(record, content.get("submission"))
+    if {k:v for k,v in content.items() if k!="submission_id"} != expected:
+        raise buyer.BuyerError("stored submission does not reproduce the original answer mapping")
     return content
 
 
