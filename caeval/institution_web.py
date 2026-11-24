@@ -186,7 +186,8 @@ def _review_page(doc, actor):
 
 
 class InstitutionApp:
-    def __init__(self, directory, origin):
+    def __init__(self, directory, origin, *, identity=None):
+        self.identity = identity
         self.directory = Path(directory).resolve()
         buyer.load(self.directory)
         parsed = urllib.parse.urlsplit(origin)
@@ -216,16 +217,31 @@ class InstitutionApp:
             if method=="POST" and env.get("HTTP_ORIGIN")!=self.origin:
                 return respond("403 Forbidden",page("Request denied","Invalid origin."))
             token=_cookie(env)
+            if self.identity is not None:
+                # Check gateway identity on every request, including reads and
+                # login. Never fall back to the local password route.
+                self.identity.principal(env)
             if path=="/login":
-                if method=="GET":
-                    return respond("200 OK",_login_page())
-                form=_form(env)
-                if set(form)!={"user_id","password"}:
-                    raise access.AccessDenied("invalid credentials")
-                token=access.login(self.directory,form["user_id"],form["password"])
+                if self.identity is None:
+                    if method=="GET":
+                        return respond("200 OK",_login_page())
+                    form=_form(env)
+                    if set(form)!={"user_id","password"}:
+                        raise access.AccessDenied("invalid credentials")
+                    token=access.login(self.directory,form["user_id"],form["password"])
+                else:
+                    if method=="GET":
+                        return respond("200 OK",page("Institutional single sign-on",
+                            "<p>Continue using your institution-authenticated identity.</p>"
+                            "<form method='post' action='/login'>"+_hidden("continue","yes")
+                            +"<button>Continue</button></form>"))
+                    if _form(env)!={"continue":"yes"}:
+                        raise access.AccessDenied("invalid federated login")
+                    token=self.identity.login(self.directory,env,previous=token)
                 return respond("303 See Other",extra=[("Location","/"),("Set-Cookie",COOKIE+"="+token+"; Secure; HttpOnly; SameSite=Strict; Path=/")])
             try:
-                actor=access.session(self.directory,token)
+                actor=(access.session(self.directory,token) if self.identity is None
+                       else self.identity.session(self.directory,env,token))
             except access.AccessDenied:
                 return respond("303 See Other",extra=[("Location","/login")])
             if path=="/" and method=="GET":
@@ -235,7 +251,10 @@ class InstitutionApp:
                 _csrf(actor,form)
                 if form:
                     raise access.AccessDenied("invalid logout form")
-                access.logout(self.directory,token)
+                if self.identity is None:
+                    access.logout(self.directory,token)
+                else:
+                    self.identity.logout(self.directory,env,token)
                 return respond("303 See Other",extra=[("Location","/login"),("Set-Cookie",COOKIE+"=; Max-Age=0; Secure; HttpOnly; SameSite=Strict; Path=/")])
             if path=="/audit" and method=="GET":
                 rows=access.audit(self.directory,actor)
