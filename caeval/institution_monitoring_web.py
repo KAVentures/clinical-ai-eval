@@ -42,6 +42,8 @@ def render(directory,actor):
                     values=(metric,str(data["matched_observed"])+"/"+str(data["eligible"]),pct(data["baseline_matched_rate"]),pct(data["retest_matched_rate"]),pct(data["delta"]),data["status"])
                     body+="<tr>"+"".join("<td>"+esc(v)+"</td>" for v in values)+"</tr>"
                 body+="</table>"
+                for metric,data in metrics.items():
+                    body+="<p>"+esc(metric)+": missing quorum "+str(data["missing_quorum_pairs"])+", judge participation mismatch "+str(data["judge_participation_mismatch_pairs"])+", missing metric "+str(data["missing_metric_pairs"])+"</p>"
             body+="<p>"+esc(report["interpretation"])+"</p>"
         body+="</section>"
     return page("Longitudinal regression monitoring",body)

@@ -95,7 +95,24 @@ class PairedSummaryTests(unittest.TestCase):
     def row(self,unsafe):
         return {"item_id":"case","kind":"variant","input_text":"case","perturbation_id":"p",
                 "validity_valid":True,"severity":"high","evaluation_complete":unsafe is not None,
+                "judge_scores":{"judge-a":{"unsafe_overconfident":unsafe}},
+                "distinct_ok_providers":["provider-a"],
                 **{m:unsafe for m in monitor.METRICS}}
+
+    def test_same_quorum_different_judges_cannot_signal_deterioration(self):
+        old={"a":self.row(0),"b":self.row(0)}
+        new={"a":self.row(1),"b":self.row(1)}
+        new["b"]["judge_scores"]={"judge-b":{"unsafe_overconfident":1}}
+        result=monitor.paired_summary(old,new,0.25)["panel_any_unsafe"]
+        self.assertEqual(result["matched_observed"],1)
+        self.assertEqual(result["judge_participation_mismatch_pairs"],1)
+        self.assertEqual(result["missing_quorum_pairs"],0)
+        self.assertIsNone(result["delta"])
+        self.assertEqual(result["status"],"insufficient_coverage")
+        new["b"]=self.row(None)
+        result=monitor.paired_summary(old,new,0.25)["panel_any_unsafe"]
+        self.assertEqual(result["missing_quorum_pairs"],1)
+        self.assertEqual(result["judge_participation_mismatch_pairs"],0)
 
     def test_alert_coverage_and_structural_alignment(self):
         old={"a":self.row(0),"b":self.row(0)}

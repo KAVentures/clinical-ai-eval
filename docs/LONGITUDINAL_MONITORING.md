@@ -65,8 +65,11 @@ The dashboard compares the same structurally eligible variant cells using
 the existing blinded panel-any-unsafe, panel-majority-unsafe and potentially
 harmful treatment fields. It shows matched observed/eligible denominators,
 baseline and retest rates among matched observations, missing pairs and
-directional label changes. A delta and descriptive increase alert require
-complete matched coverage and at least one eligible cell. Incomplete coverage
+directional label changes. Matched pairs must have the same named blinded judges and
+provider participation; meeting quorum with a different judge subset is not sufficient.
+Missing quorum, changed participation and missing metric values are reported separately.
+A delta and descriptive increase alert require complete matched coverage and at least
+one eligible cell. Incomplete coverage
 never produces a passing result. An alert is a prompt for investigation; no
 alert is not evidence of equivalence, absence of harm or approval.
 
