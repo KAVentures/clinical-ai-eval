@@ -38,6 +38,9 @@ Use an approved, version-pinned release artifact and a locally provisioned Pytho
 environment. For offline deployment, obtain the wheel and all pinned dependency
 wheels through approved channels and verify their hashes. Install with
 pip --no-index --find-links /approved/wheelhouse clinical-ai-eval==VERSION.
+For the preferred independently approved wheelhouse workflow, exact target
+checks, side-by-side installation and rollback, see
+[Offline installation and upgrades](OFFLINE_RELEASE.md).
 The institution feature itself uses the standard library and existing engine
 dependencies. No third-party cloud identity or model service is required.
 
