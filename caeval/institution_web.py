@@ -152,8 +152,8 @@ class InstitutionApp:
         self.origin = "https://" + self.host
 
     def __call__(self, env, start_response):
-        def respond(status, body=b"", extra=()):
-            headers = [("Content-Type","text/html; charset=utf-8"),("Content-Length",str(len(body))),
+        def respond(status, body=b"", extra=(), content_type="text/html; charset=utf-8"):
+            headers = [("Content-Type",content_type),("Content-Length",str(len(body))),
                        ("Cache-Control","no-store"),("Referrer-Policy","no-referrer"),
                        ("X-Content-Type-Options","nosniff"),("X-Frame-Options","DENY"),
                        ("Strict-Transport-Security","max-age=31536000"),
@@ -201,6 +201,16 @@ class InstitutionApp:
             if path=="/committee" and method=="GET":
                 from . import institution_committee_web as committee
                 return respond("200 OK",committee.render(self.directory,actor))
+            if path=="/committee-export" and method=="GET":
+                import json
+                from . import institution_committee as committee
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("select one snapshot")
+                result=committee.snapshot(self.directory,actor,q["id"])
+                access.event(self.directory,actor["user_id"],"committee-snapshot-exported",q["id"])
+                raw=json.dumps(result,ensure_ascii=False,indent=2).encode("utf-8")
+                return respond("200 OK",raw,extra=[("Content-Disposition",'attachment; filename="committee-evidence.json"')],content_type="application/json; charset=utf-8")
             if path=="/committee-snapshot" and method=="GET":
                 from . import institution_committee_web as committee
                 q=_query(env)
