@@ -92,6 +92,30 @@ def _preflight(ws: Path):
     return obj
 
 
+def verified_bytes(ws: Path, metadata: dict, key: str) -> bytes:
+    """Read a single byte snapshot with the canonical manifest content hash.
+
+    Callers must still verify the complete package. This prevents a concurrent replacement from changing the semantic content
+    being interpreted. Equivalent JSON formatting is intentionally accepted.
+    """
+    if metadata.get("manifest_hash") != manifest.fingerprint(metadata):
+        raise buyer.BuyerError("manifest fingerprint mismatch")
+    if key not in manifest.ARTIFACTS:
+        raise buyer.BuyerError("unknown package artifact")
+    relative, _ = manifest.ARTIFACTS[key]
+    entry = metadata["artifacts"][key]
+    if entry.get("path") != relative or not entry.get("present") or not entry.get("sha256"):
+        raise buyer.BuyerError("required analysis artifact was absent")
+    path = ws / relative
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_BYTES:
+        raise buyer.BuyerError("invalid analysis artifact")
+    with path.open("rb") as handle:
+        raw = handle.read(MAX_BYTES + 1)
+    if len(raw) > MAX_BYTES or manifest.hash_content(raw, path.suffix) != entry["sha256"]:
+        raise buyer.BuyerError("analysis artifact changed since verification")
+    return raw
+
+
 def inspect_run(root, run_id: str) -> dict:
     if not buyer.IDENTIFIER.fullmatch(run_id or ""):
         raise buyer.BuyerError("invalid research run identifier")
@@ -115,7 +139,7 @@ def inspect_run(root, run_id: str) -> dict:
         # Raw clinical content and verifier diagnostics (which may contain paths)
         # never appear in this read-only dashboard.
         if verdict == manifest.VALID:
-            analysis = json.loads((ws / "analysis.json").read_text(encoding="utf-8"))
+            analysis = json.loads(verified_bytes(ws, obj, "analysis"))
             from . import claim
             recorded = analysis.get("claim_authority") or {}
             derived = claim.compute(

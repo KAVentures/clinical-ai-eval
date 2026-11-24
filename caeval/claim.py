@@ -170,6 +170,9 @@ def build_binding(project, family_id: str, panel_names: list, case_pack_hash: st
     """Derive the bound plan from the VALIDATED project — not from CLI flags."""
     meta = project.target_meta
     subject = project.subject
+    fingerprint_fields = {"kind", "model", "url", "prompt_field", "answer_path", "arm"}
+    if subject.get("local_only") is True:
+        fingerprint_fields.update({"local_only", "history_field", "session_field", "timeout", "retries", "modality"})
     bound = {
         "target_name": meta.get("name"),
         "target_version": meta.get("version"),
@@ -180,7 +183,7 @@ def build_binding(project, family_id: str, panel_names: list, case_pack_hash: st
         # identity of the connector WITHOUT secrets (headers/tokens excluded)
         "subject_fingerprint": stable_hash_text(json.dumps(
             {k: v for k, v in sorted(subject.items())
-             if k in ("kind", "model", "url", "prompt_field", "answer_path", "arm")},
+             if k in fingerprint_fields},
             sort_keys=True, default=str))[:16],
         "case_pack_hash": case_pack_hash,
         "panel_names": sorted(panel_names),

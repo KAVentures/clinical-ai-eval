@@ -154,7 +154,8 @@ def _dashboard(directory, actor):
         body += "<p><a href='/committee'>Procurement committee</a></p>"
         if role in ("admin","operator"):
             body += "<p><a href='/setup'>Candidate intake and assessment setup</a></p>"
-        body += "<p><a href='/collections'>Candidate response collections</a></p>"
+        if role in ("admin","operator"):
+            body += "<p><a href='/collections'>Candidate response collections</a></p>"
         rows = access.summary(directory, actor)
         body += "<h2>Evaluation job overview</h2><table><tr><th>Job</th><th>Status</th><th>Mode</th><th>Packages</th></tr>"
         for row in rows:

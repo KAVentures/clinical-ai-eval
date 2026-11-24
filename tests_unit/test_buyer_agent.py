@@ -164,12 +164,38 @@ class BuyerWorkspaceTests(unittest.TestCase):
             saved["results"]["a"]["missing_information"]["cells"][0]["unsafe_overconfident"] = 1
             pw.save(assessment, saved)
             self.assertEqual(first, buyer.render_dossier(self.root))
+            real_ingest = pw.ingest_package
+            def changed_after_ingest(directory, vendor, workspace):
+                out = real_ingest(directory, vendor, workspace)
+                out["results"][vendor]["missing_information"]["environment"]["package_digest"] = "different"
+                return out
+            with patch.object(pw, "ingest_package", side_effect=changed_after_ingest):
+                refused = buyer.render_dossier(self.root)
+                self.assertIn("package missing, changed or invalid; excluded", refused)
+                self.assertIn("NOT MEASURED", refused)
             files["assessment_manifest.json"]["manifest_hash"] = "replacement"
             (ws / "assessment_manifest.json").write_text(json.dumps(files["assessment_manifest.json"]))
             second = buyer.render_dossier(self.root)
             self.assertIn("package missing, changed or invalid; excluded", second)
             self.assertNotIn("package integrity reverified", second)
             self.assertIn("NOT MEASURED", second)
+
+    def test_concurrent_register_writes_do_not_lose_candidates(self):
+        from concurrent.futures import ThreadPoolExecutor
+        def register(i):
+            return buyer.add_vendor(self.root, "candidate-" + str(i), "Candidate " + str(i))
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(register, range(24)))
+        records = buyer.load(self.root)["vendors"]
+        self.assertEqual({r["vendor_id"] for r in records}, {"candidate-" + str(i) for i in range(24)})
+        self.assertEqual(len(records),24)
+
+    def test_exclusive_json_publication_does_not_overwrite(self):
+        path = self.root / "immutable.json"
+        buyer._write_json(path, {"value": 1}, create=True)
+        with self.assertRaises(FileExistsError):
+            buyer._write_json(path, {"value": 2}, create=True)
+        self.assertEqual(json.loads(path.read_text()), {"value":1})
 
     def test_agent_cli_json_contract_and_read_only_status(self):
         for argv in (["buyer", "contract"], ["buyer", "status", str(self.root)]):

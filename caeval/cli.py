@@ -248,6 +248,24 @@ def _run_project_bound(args):
 
     from . import executors, packsource
 
+    local_only = proj.subject.get("local_only", False)
+    if type(local_only) is not bool:
+        raise SystemExit("subject.local_only must be a boolean")
+    if local_only:
+        if (proj.subject.get("kind")!="http" or proj.subject.get("modality")!="conversation"
+                or any(executors.resolve(f).executor_id!=executors.PATIENT_EPISODE for f in runnable)):
+            raise SystemExit("local_only is currently supported only for patient conversational HTTP projects")
+        # Refuse reuse, so a failed local run cannot leave a previous completed
+        # manifest in the same workspace. No credential loading or calls yet.
+        root = Path(args.workspace) if args.workspace else Path(proj.path)/"out"
+        for family_id in runnable:
+            dest=root/("run_"+family_id)
+            if dest.exists() or dest.is_symlink():
+                raise SystemExit("local_only requires a fresh output workspace")
+        if root.is_symlink():
+            raise SystemExit("local_only refuses a linked output workspace")
+        _conversation_spec(proj.subject)
+
     panel, keys = _panel_and_keys(proj.data.get("panel", {}).get("config"), proj.path)
 
     subject_spec = dict(proj.subject)
@@ -313,6 +331,9 @@ def _conversation_spec(subject_spec: dict):
         raise SystemExit(
             f"a conversational subject must be kind: http (got {subject_spec.get('kind')!r}); "
             "set modality: conversation on an http subject")
+    local_only = subject_spec.get("local_only", False)
+    if type(local_only) is not bool:
+        raise adapters.AdapterError("subject.local_only must be boolean")
     extra = dict(subject_spec.get("extra", {}))
     if subject_spec.get("retries") is not None:
         extra["_retries"] = int(subject_spec["retries"])
@@ -326,7 +347,8 @@ def _conversation_spec(subject_spec: dict):
         history_field=subject_spec.get("history_field", "messages"),
         answer_path=subject_spec.get("answer_path", "answer"),
         session_field=subject_spec.get("session_field", ""),
-        timeout=int(subject_spec.get("timeout", 120)),
+        timeout=subject_spec.get("timeout", 30) if local_only else int(subject_spec.get("timeout", 120)),
+        local_only=local_only,
     )
 
 
@@ -359,6 +381,11 @@ def _run_patient_family(ws, proj, family_id, cases, pack_desc, subject_spec,
         target_fn = MOCKS[arm]
     else:
         aspec = _conversation_spec(subject_spec)
+        if aspec.local_only:
+            from .patient.session import MAX_TURNS, STRESS_TESTS
+            # Budget for every possible stress episode plus connection probes.
+            if sum(len(case.worlds) for case in cases)*len(STRESS_TESTS)*MAX_TURNS+4 > adapters.LOCAL_MAX_CALLS:
+                raise adapters.AdapterError("local-only case pack exceeds candidate call budget")
         adapter, probe = adapters.connect(aspec)
         (Path(ws.path) / "adapter_probe.json").write_text(json.dumps(probe, indent=2))
         target_fn = adapter
@@ -367,6 +394,14 @@ def _run_patient_family(ws, proj, family_id, cases, pack_desc, subject_spec,
 
     run = run_case_pack(target_fn, cases, spec.target_id, spec.version,
                         pack_descriptor=pack_desc, target_spec=spec)
+    if kind != "mock" and aspec.local_only and any(ep.get("errors") for ep in run["episodes"]):
+        # An interrupted conversation is not an observed safe or unsafe answer.
+        # Preserve a bounded diagnostic, but do not publish a completed package.
+        (Path(ws.path)/"local_transport_failure.json").write_text(json.dumps({
+            "status":"incomplete","episodes_with_transport_errors":sum(bool(ep.get("errors")) for ep in run["episodes"]),
+            "decision_grade":False
+        }))
+        raise adapters.AdapterError("local candidate episode failed; no completed evidence package")
     from .patient.judging import SAFETY_FIELDS as PATIENT_SAFETY_FIELDS
 
     cells = interop.to_records(run)
@@ -1247,7 +1282,18 @@ def cmd_institution(args):
                 raise access.AccessDenied("--origin must be the exact HTTPS origin")
             institution_web.serve(args.path, args.origin, args.port)
             return
-        if args.action == "account-create":
+        if args.action in ("backup-create","backup-check","backup-restore"):
+            from . import institution_backup as backup
+            if args.action == "backup-check":
+                result = backup.check(args.path)
+            else:
+                if not args.destination:
+                    raise access.AccessDenied("--destination is required")
+                if args.action == "backup-create":
+                    result = backup.create(args.path,args.destination,services_stopped=args.confirm_services_stopped)
+                else:
+                    result = backup.restore(args.path,args.destination,services_stopped=args.confirm_services_stopped)
+        elif args.action == "account-create":
             if not args.user_id or not args.role:
                 raise access.AccessDenied("--user-id and --role are required")
             pw = getpass.getpass("New account password: ")
@@ -1266,7 +1312,7 @@ def cmd_institution(args):
         else:
             raise access.AccessDenied("unknown institutional action")
         print(json.dumps({"ok":True,"result":result},indent=2))
-    except (access.AccessDenied,OSError,ValueError,RuntimeError,KeyError) as exc:
+    except (access.AccessDenied,OSError,ValueError,RuntimeError,KeyError,TypeError,RecursionError) as exc:
         print(json.dumps({"ok":False,"error":str(exc)},indent=2))
         raise SystemExit(1)
 
@@ -1754,7 +1800,7 @@ def main(argv=None):
     pag.set_defaults(func=cmd_agent)
 
     pin = sub.add_parser("institution", help="trusted administrator: isolated institutional browser and account provisioning")
-    pin.add_argument("action", choices=["serve","account-create","account-disable","review-assign"])
+    pin.add_argument("action", choices=["serve","account-create","account-disable","review-assign","backup-create","backup-check","backup-restore"])
     pin.add_argument("path", help="one organisation-owned buyer workspace")
     pin.add_argument("--user-id")
     pin.add_argument("--role", choices=["admin","operator","observer","reviewer","vendor"])
@@ -1762,6 +1808,8 @@ def main(argv=None):
     pin.add_argument("--family-id")
     pin.add_argument("--origin", help="exact HTTPS origin, TLS handled by approved proxy")
     pin.add_argument("--port", type=int, default=8767)
+    pin.add_argument("--destination", help="new approved local backup or restored workspace directory")
+    pin.add_argument("--confirm-services-stopped", action="store_true", help="confirm gateway and all evaluation workers are stopped before backup or restore")
     pin.set_defaults(func=cmd_institution)
 
     pra = sub.add_parser(

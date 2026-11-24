@@ -45,6 +45,17 @@ class ResearchBrowserTests(unittest.TestCase):
         self.assertNotIn(str(self.root), json.dumps(data))
         self.assertEqual((self.ws / manifest.MANIFEST_FILE).read_bytes(), before)
 
+    def test_verified_read_preserves_canonical_manifest_hash_contract(self):
+        metadata = research._preflight(self.ws)
+        original = json.loads((self.ws / "analysis.json").read_text())
+        (self.ws / "analysis.json").write_text(json.dumps(original, indent=4, sort_keys=True))
+        self.assertEqual(json.loads(research.verified_bytes(self.ws, metadata, "analysis")), original)
+        self.assertEqual(research.inspect_run(self.root, "run_a")["verdict"], "VALID")
+        original["family_id"] = "conflicting_evidence"
+        (self.ws / "analysis.json").write_text(json.dumps(original))
+        with self.assertRaises(buyer.BuyerError):
+            research.verified_bytes(self.ws, metadata, "analysis")
+
     def test_tampered_run_invalid(self):
         (self.ws / "responses.jsonl").write_text("{}\n")
         self.assertEqual(research.inspect_run(self.root, "run_a")["verdict"], "INVALID")
