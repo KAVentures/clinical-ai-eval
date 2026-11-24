@@ -240,6 +240,40 @@ packs, independent review and authorised server-side execution are separate
 next steps. The canonical research CLI and raw research artifacts remain
 available to researchers.
 
+## Offline candidate response collection
+
+For single-turn text profiles, an approved local operator can stage a non-identifiable
+clinician-vignette pack under `<buyer>/approved-packs/<pack-id>/` using the canonical
+`cases.json` or `cases.jsonl` format and optional `pack.json`. Staging is an
+administrative action, not a clinical validation or authenticity guarantee.
+
+From a saved draft plan, select the staged pack and download the candidate prompt
+template. Only case-as-shown text and opaque identifiers are exported; reference
+labels and perturbation metadata remain local. The operator uses the approved
+candidate system, fills in the exact tested version, and marks every answer
+`provided` with nonblank text or `not_available` with empty text. Import the
+completed JSON in the browser. The result reports coverage; only complete
+submissions can export the canonical manual-subject mapping. No scores are computed.
+
+```bash
+clinical-ai-eval buyer manual-packs ./hospital-assessment
+clinical-ai-eval buyer manual-prepare ./hospital-assessment --plan-id PLAN_ID --pack-id PACK_ID
+clinical-ai-eval buyer manual-template ./hospital-assessment --exchange-id EXCHANGE_ID
+clinical-ai-eval buyer manual-import ./hospital-assessment --file completed.json
+clinical-ai-eval buyer manual-responses ./hospital-assessment --submission-id SUBMISSION_ID
+```
+
+For file exchange, extract the CLI JSON envelope's `result` object. The final
+mapping is compatible with the existing `subject.kind: manual` connector.
+Keep the original plan, pack and submission together. An authorised scientific
+operator must configure and validate the actual evaluation project and judge panel,
+and ensure the same pack and scope are used. The mapping alone is not an evidence
+package, verified vendor identity, or authority to run remote inference. No
+automatic scoring or clinical claim is made. The exchange checks current
+definitions and pack content each time; changed prompts, stale plans, mismatched
+versions and incomplete answers block handoff. Unsupported multi-turn and RAG
+plans are refused rather than partially executed.
+
 ## Running clinical evaluations locally
 
 The existing model provider interface accepts local OpenAI-compatible inference
