@@ -1259,6 +1259,26 @@ def cmd_buyer(args):
                 if not args.plan_id:
                     raise buyer.BuyerError("--plan-id is required for plan-show")
                 result = buyer_plan.load(args.path, args.plan_id)
+        elif args.action in ("manual-packs", "manual-prepare", "manual-template", "manual-import", "manual-responses"):
+            from . import buyer_manual
+            if args.action == "manual-packs":
+                result = {"pack_ids": buyer_manual.packs(args.path)}
+            elif args.action == "manual-prepare":
+                if not args.plan_id or not args.pack_id:
+                    raise buyer.BuyerError("--plan-id and --pack-id are required")
+                result = buyer_manual.prepare(args.path, args.plan_id, args.pack_id)
+            elif args.action == "manual-template":
+                if not args.exchange_id:
+                    raise buyer.BuyerError("--exchange-id is required")
+                result = buyer_manual.template(args.path, args.exchange_id)
+            elif args.action == "manual-import":
+                if not args.file:
+                    raise buyer.BuyerError("--file is required")
+                result = buyer_manual.import_file(args.path, args.file)
+            else:
+                if not args.submission_id:
+                    raise buyer.BuyerError("--submission-id is required")
+                result = buyer_manual.responses(args.path, args.submission_id)
         elif args.action in ("rehearsal-run", "rehearsal-show"):
             from . import buyer_rehearsal
             if args.action == "rehearsal-run":
@@ -1592,9 +1612,12 @@ def main(argv=None):
     pproc.set_defaults(func=cmd_procurement)
 
     pb = sub.add_parser("buyer", help="local-only buyer workspace (JSON for CLI agents)")
-    pb.add_argument("action", choices=["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research", "plan-preview", "plan-show", "rehearsal-run", "rehearsal-show"])
+    pb.add_argument("action", choices=["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research", "plan-preview", "plan-show", "rehearsal-run", "rehearsal-show", "manual-packs", "manual-prepare", "manual-template", "manual-import", "manual-responses"])
     pb.add_argument("--plan-id", help="content-addressed draft scope plan identifier")
     pb.add_argument("--job-id", help="saved synthetic rehearsal identifier")
+    pb.add_argument("--pack-id", help="operator-staged approved-packs directory identifier")
+    pb.add_argument("--exchange-id", help="manual prompt exchange digest")
+    pb.add_argument("--submission-id", help="manual response submission digest")
     pb.add_argument("path", nargs="?", help="local buyer workspace directory (except contract)")
     pb.add_argument("--name", help="project name on init, vendor name on vendor-add")
     pb.add_argument("--intended-use", default="", help="planned clinical/administrative use")
