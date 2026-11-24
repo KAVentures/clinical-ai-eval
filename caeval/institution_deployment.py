@@ -63,7 +63,7 @@ def preflight(env=None):
     root,origin,identity,mode=settings(os.environ if env is None else env)
     web.InstitutionApp(root,origin,identity=identity)
     with access.db(root) as conn:
-        if conn.execute("PRAGMA quick_check").fetchall()[0][0]!="ok":
+        if [r[0] for r in conn.execute("PRAGMA quick_check").fetchall()]!=["ok"]:
             raise access.AccessDenied("access database integrity check failed")
         if identity is None:
             admins=conn.execute("""SELECT count(*) FROM users u WHERE role='admin'
