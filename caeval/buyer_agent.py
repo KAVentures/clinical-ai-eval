@@ -11,6 +11,8 @@ import json
 import os
 import re
 import stat
+import sqlite3
+from contextlib import contextmanager
 import tempfile
 import uuid
 from datetime import datetime, timezone
@@ -43,20 +45,20 @@ def _root(directory) -> Path:
 def _write_json(path: Path, data: dict, *, create: bool = False) -> None:
     """Write owner-only local state without exposing partial JSON."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    if create:
-        # 'x' prevents clobbering an existing buyer project.
-        with path.open("x", encoding="utf-8") as f:
-            os.chmod(path, 0o600)
-            json.dump(data, f, indent=2, ensure_ascii=False)
-            f.write("\n")
-        return
     fd, temporary = tempfile.mkstemp(prefix=".buyer-", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             os.chmod(temporary, 0o600)
             json.dump(data, f, indent=2, ensure_ascii=False)
             f.write("\n")
-        os.replace(temporary, path)
+            f.flush()
+            os.fsync(f.fileno())
+        if create:
+            # Publish fully written data exclusively. No reader can observe a
+            # half-written immutable record; an existing target is untouched.
+            os.link(temporary, path)
+        else:
+            os.replace(temporary, path)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
@@ -94,18 +96,49 @@ def load(directory) -> dict:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (ValueError, OSError) as exc:
         raise BuyerError("buyer workspace JSON is invalid") from exc
-    if data.get("schema_version") != SCHEMA_VERSION:
+    if not isinstance(data, dict) or data.get("schema_version") != SCHEMA_VERSION:
         raise BuyerError("unsupported buyer workspace schema version")
     if not isinstance(data.get("vendors"), list) or not isinstance(data.get("evidence"), list):
         raise BuyerError("buyer workspace vendors/evidence must be arrays")
     return data
 
 
+@contextmanager
+def _register_write(directory):
+    """Cross-process serialization for the mutable JSON buyer register.
+
+    All supported API/CLI/browser register writers use this lock. It does not
+    protect against a trusted administrator editing files directly.
+    """
+    root = _root(directory)
+    load(root)
+    lock = root / ".buyer-write.sqlite3"
+    if lock.is_symlink() or (lock.exists() and not lock.is_file()):
+        raise BuyerError("invalid buyer register lock")
+    fd = os.open(str(lock), os.O_CREAT | os.O_RDWR, 0o600)
+    os.close(fd)
+    conn = sqlite3.connect(lock, timeout=15)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        yield
+        conn.commit()
+    except sqlite3.OperationalError as exc:
+        conn.rollback()
+        raise BuyerError("buyer register busy or unavailable; retry") from exc
+    finally:
+        conn.close()
+
+
 def add_vendor(directory, vendor_id: str, name: str) -> dict:
-    if not IDENTIFIER.fullmatch(vendor_id or ""):
+    with _register_write(directory):
+        return _add_vendor(directory, vendor_id, name)
+
+
+def _add_vendor(directory, vendor_id: str, name: str) -> dict:
+    if not isinstance(vendor_id, str) or not IDENTIFIER.fullmatch(vendor_id):
         raise BuyerError("vendor-id must be 1-64 lowercase letters, digits, '-' or '_'")
-    if not str(name).strip():
-        raise BuyerError("vendor name is required")
+    if not isinstance(name, str) or not name.strip() or len(name) > 1000:
+        raise BuyerError("vendor name is required and must be at most 1000 characters")
     root = _root(directory)
     data = load(root)
     if any(v["vendor_id"] == vendor_id for v in data["vendors"]):
@@ -119,17 +152,22 @@ def add_vendor(directory, vendor_id: str, name: str) -> dict:
 def _verify_document(root: Path, evidence: dict) -> str:
     """Do not trust a path in edited state: only our content-addressed store."""
     digest = evidence.get("sha256", "")
-    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
         return "invalid_record"
     relative = evidence.get("relative_path", "")
     if relative != f"evidence/{digest}":
         return "invalid_record"
     path = root / "evidence" / digest
-    if path.is_symlink() or not path.is_file():
+    if path.parent.is_symlink() or path.is_symlink() or not path.is_file():
         return "missing"
     try:
+        if path.stat().st_size > MAX_DOCUMENT_BYTES:
+            return "changed"
         with path.open("rb") as f:
-            h = _digest_stream(f).hexdigest()
+            blob = f.read(MAX_DOCUMENT_BYTES + 1)
+        if len(blob) > MAX_DOCUMENT_BYTES:
+            return "changed"
+        h = hashlib.sha256(blob).hexdigest()
     except OSError:
         return "unreadable"
     return "intact" if h == digest else "changed"
@@ -145,6 +183,14 @@ def _digest_stream(handle):
 def add_evidence(directory, vendor_id: str, kind: str, source_file: str,
                  title: str = "", source_filename: str | None = None,
                  *, _validated_questionnaire: bool = False) -> dict:
+    with _register_write(directory):
+        return _add_evidence(directory, vendor_id, kind, source_file, title, source_filename,
+                             _validated_questionnaire=_validated_questionnaire)
+
+
+def _add_evidence(directory, vendor_id: str, kind: str, source_file: str,
+                  title: str, source_filename: str | None,
+                  *, _validated_questionnaire: bool) -> dict:
     root = _root(directory)
     data = load(root)
     if vendor_id not in {v["vendor_id"] for v in data["vendors"]}:
@@ -160,11 +206,14 @@ def add_evidence(directory, vendor_id: str, kind: str, source_file: str,
         raise BuyerError("source must be a regular file")
     if source.stat().st_size > MAX_DOCUMENT_BYTES:
         raise BuyerError("file exceeds 20 MiB limit; use a smaller evidence artifact")
-    blob = source.read_bytes()
+    with source.open("rb") as handle:
+        blob = handle.read(MAX_DOCUMENT_BYTES + 1)
     if len(blob) > MAX_DOCUMENT_BYTES:
         raise BuyerError("file exceeds 20 MiB limit")
     digest = hashlib.sha256(blob).hexdigest()
     store = root / "evidence"
+    if store.is_symlink():
+        raise BuyerError("evidence store must not be a symlink")
     store.mkdir(mode=0o700, parents=True, exist_ok=True)
     target = store / digest
     if target.is_symlink():
@@ -355,7 +404,7 @@ def _clinical_dossier_lines(root: Path, report: dict) -> list[str]:
     rebuilt["vendors"] = [v for v in rebuilt["vendors"] if v["vendor_id"] in buyer_ids]
     # Private scratch state; do not change the original frozen procurement or
     # silently trust modified cached cells. Re-ingestion enforces the same gates.
-    with tempfile.TemporaryDirectory(prefix="caeval-reverify-") as tmp:
+    with tempfile.TemporaryDirectory(prefix=".caeval-reverify-", dir=root) as tmp:
         pw.save(tmp, rebuilt)
         for vendor_id in sorted(buyer_ids & study_ids):
             recorded = original.get("results", {}).get(vendor_id, {})
@@ -371,19 +420,37 @@ def _clinical_dossier_lines(root: Path, report: dict) -> list[str]:
                     # Refuse changed manifests even if the replacement is internally
                     # valid. A frozen study cannot silently substitute new evidence.
                     ws = Path(package["workspace"])
+                    if not ws.is_absolute():
+                        ws = root / ws
                     from . import manifest
                     current = json.loads((ws / manifest.MANIFEST_FILE).read_text(encoding="utf-8"))
                     if current.get("manifest_hash") != package["package_digest"]:
                         raise BuyerError("package digest changed")
                     if current.get("family_id") != family:
                         raise BuyerError("package family mismatch")
-                    pw.ingest_package(tmp, vendor_id, ws)
+                    # An unsuccessful post-ingestion check must not leave a
+                    # result in the comparison. Rebuild into a separate scratch
+                    # state, then publish only the exact recorded package.
+                    with tempfile.TemporaryDirectory(prefix=".ingest-", dir=root) as one:
+                        pw.save(one, deepcopy(rebuilt))
+                        ingested = pw.ingest_package(one, vendor_id, ws)
+                        result = ingested["results"][vendor_id][family]
+                        if result["environment"]["package_digest"] != package["package_digest"]:
+                            raise BuyerError("package changed during ingestion")
+                        after = json.loads((ws / manifest.MANIFEST_FILE).read_text(encoding="utf-8"))
+                        if after.get("manifest_hash") != package["package_digest"]:
+                            raise BuyerError("package changed during ingestion")
+                        state = pw.load(tmp)
+                        state["results"].setdefault(vendor_id, {})[family] = result
+                        pw.save(tmp, state)
                 except (OSError, ValueError, RuntimeError, KeyError, TypeError):
                     lines.append(f"- {_md(vendor_id)} / {_md(family)}: package missing, changed or invalid; excluded.")
                     continue
                 lines.append(f"- {_md(vendor_id)} / {_md(family)}: package integrity reverified.")
         lines += ["", "### Clinical evaluation report", "",
                   pw.export_dossier(tmp), ""]
+    if pw.load(root / "assessment") != original:
+        raise BuyerError("frozen assessment changed during dossier export")
     return lines
 
 

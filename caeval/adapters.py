@@ -23,6 +23,8 @@ import json
 import re
 import urllib.error
 import urllib.request
+import urllib.parse
+import time
 from dataclasses import dataclass, field
 
 from .util import stable_hash_text
@@ -32,6 +34,11 @@ SECRET_KEYS = {"api_key", "token", "authorization", "auth", "password", "secret"
                "bearer", "cookie", "session_token", "client_secret"}
 
 REDACTED = "<redacted>"
+LOCAL_MAX_REPLY = 256 * 1024
+LOCAL_MAX_REQUEST = 256 * 1024
+LOCAL_MAX_TEXT = 6000
+LOCAL_MAX_CALLS = 1500
+LOCAL_MAX_SECONDS = 900
 
 
 class AdapterError(RuntimeError):
@@ -142,6 +149,52 @@ def post_json(url: str, payload: dict, headers: dict, *, timeout: float, retries
     raise AdapterError(f"{adapter_id}: {last} from {host} after {retries} attempt(s)")
 
 
+def validate_local_endpoint(url):
+    """Literal loopback only; no DNS, credentials, fragments or redirects."""
+    try:
+        if not isinstance(url,str) or not url.isascii() or len(url)>512 or any(c.isspace() for c in url):
+            raise ValueError()
+        p=urllib.parse.urlsplit(url)
+        if (p.scheme!="http" or p.hostname not in ("127.0.0.1","::1")
+                or not p.port or p.username is not None or p.password is not None
+                or p.query or p.fragment or not re.fullmatch(r"/[A-Za-z0-9_./-]*",p.path)
+                or any(x in (".","..") for x in p.path.split("/"))
+                or p.netloc not in ("127.0.0.1:"+str(p.port),"[::1]:"+str(p.port))):
+            raise ValueError()
+    except (ValueError,TypeError):
+        raise AdapterError("local-only transport requires literal loopback HTTP with explicit port") from None
+    return url
+
+
+class _RefuseRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise AdapterError("local candidate redirect refused")
+
+
+def post_local_json(url, payload, headers, *, timeout):
+    """Bounded single-attempt loopback transport. Never echoes response bodies."""
+    validate_local_endpoint(url)
+    if (type(timeout) is not int or not 1<=timeout<=60 or not isinstance(headers,dict)
+            or set(headers)-{"Authorization","X-API-Key"}
+            or any(not isinstance(v,str) or len(v)>8192 or "\r" in v or "\n" in v for v in headers.values())):
+        raise AdapterError("invalid local transport options")
+    try:
+        raw=json.dumps(payload,ensure_ascii=False,allow_nan=False).encode("utf-8")
+        if len(raw)>LOCAL_MAX_REQUEST:
+            raise AdapterError("local candidate request exceeds limit")
+        opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),_RefuseRedirect())
+        req=urllib.request.Request(url,data=raw,headers={"Content-Type":"application/json",**headers},method="POST")
+        with opener.open(req,timeout=timeout) as response:
+            raw=response.read(LOCAL_MAX_REPLY+1)
+        if len(raw)>LOCAL_MAX_REPLY:
+            raise AdapterError("local candidate reply exceeds limit")
+        return json.loads(raw.decode("utf-8"))
+    except AdapterError:
+        raise
+    except (OSError,ValueError,TypeError,UnicodeError,RecursionError):
+        raise AdapterError("local candidate transport or JSON response failed") from None
+
+
 def redact(obj):
     """Deep-redact secrets. Applied to everything that leaves this module."""
     if isinstance(obj, dict):
@@ -166,6 +219,7 @@ class AdapterSpec:
     extra: dict = field(default_factory=dict)
     timeout: int = 120
     modality: str = "single_turn"   # single_turn | conversation
+    local_only: bool = False        # opt-in restricted institutional transport
 
     def __post_init__(self):
         if self.kind not in ("mock", "http_single_turn", "http_conversation", "callable"):
@@ -174,6 +228,27 @@ class AdapterSpec:
             raise AdapterError(f"adapter {self.adapter_id!r}: kind {self.kind!r} requires a url")
         if self.kind == "http_conversation":
             self.modality = "conversation"
+        if type(self.local_only) is not bool:
+            raise AdapterError("local_only must be a boolean")
+        if self.local_only:
+            if self.kind!="http_conversation":
+                raise AdapterError("local-only adapter requires conversational HTTP")
+            validate_local_endpoint(self.url)
+            if type(self.timeout) is not int or not 1<=self.timeout<=60:
+                raise AdapterError("local-only timeout must be 1–60 seconds")
+            fields=(self.history_field,self.session_field)
+            if (not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}",fields[0])
+                    or fields[1] and (fields[1]==fields[0] or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}",fields[1]))
+                    or not re.fullmatch(r"[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*",self.answer_path)
+                    or len(self.answer_path)>200):
+                raise AdapterError("invalid local-only response/history mapping")
+            if (not isinstance(self.extra,dict) or set(self.extra)-{"_retries"}
+                    or self.extra.get("_retries",1)!=1):
+                raise AdapterError("local-only transport permits no extra payload fields or retries")
+            if (not isinstance(self.headers,dict) or set(self.headers)-{"Authorization","X-API-Key"}
+                    or any(not isinstance(v,str) or not re.fullmatch(r"(?:Bearer )?\$\{[A-Za-z_][A-Za-z0-9_]*\}",v)
+                           for v in self.headers.values())):
+                raise AdapterError("local-only credentials must be approved environment references")
 
     def describe(self) -> dict:
         """The ONLY view of this spec that may be written to an artifact.
@@ -190,6 +265,7 @@ class AdapterSpec:
             "endpoint_host": _host_of(self.url),
             "headers": redact(self.headers),
             "extra": redact(self.extra),
+            **({"local_only": True} if self.local_only else {}),
         }
 
     def identity_hash(self) -> str:
@@ -263,6 +339,8 @@ class HttpConversationAdapter(ConversationAdapter):
     def __init__(self, spec: AdapterSpec):
         super().__init__(spec)
         self._session_id = None
+        self._total_calls = 0
+        self._deadline = time.monotonic()+LOCAL_MAX_SECONDS
 
     def _reset(self):
         self._session_id = None
@@ -273,12 +351,24 @@ class HttpConversationAdapter(ConversationAdapter):
                    **expand_env({k: v for k, v in s.extra.items() if not str(k).startswith("_")})}
         if s.session_field and self._session_id:
             payload[s.session_field] = self._session_id
-        data = post_json(expand_env(s.url), payload, expand_env(s.headers), timeout=s.timeout,
-                         retries=int(s.extra.get("_retries", 3)) if isinstance(s.extra, dict) else 3,
-                         adapter_id=s.adapter_id)
+        if s.local_only:
+            if self._total_calls>=LOCAL_MAX_CALLS or time.monotonic()>=self._deadline:
+                raise AdapterError("local candidate run budget exhausted")
+            self._total_calls+=1
+            data=post_local_json(s.url,payload,expand_env(s.headers),timeout=s.timeout)
+        else:
+            data = post_json(expand_env(s.url), payload, expand_env(s.headers), timeout=s.timeout,
+                             retries=int(s.extra.get("_retries", 3)) if isinstance(s.extra, dict) else 3,
+                             adapter_id=s.adapter_id)
         if s.session_field and isinstance(data, dict) and s.session_field in data:
-            self._session_id = data[s.session_field]
-        return str(resolve_answer_path(data, s.answer_path, s.adapter_id))
+            sid=data[s.session_field]
+            if s.local_only and (not isinstance(sid,str) or not sid.strip() or len(sid)>512):
+                raise AdapterError("invalid local candidate session identifier")
+            self._session_id = sid
+        reply=resolve_answer_path(data,s.answer_path,s.adapter_id)
+        if s.local_only and (not isinstance(reply,str) or not reply.strip() or len(reply.encode("utf-8"))>LOCAL_MAX_TEXT):
+            raise AdapterError("invalid local candidate reply text")
+        return str(reply)
 
 
 def build_conversation_adapter(spec: AdapterSpec, fn=None) -> ConversationAdapter:
@@ -352,6 +442,8 @@ def probe_capabilities(adapter: ConversationAdapter) -> dict:
     if not live["ok"]:
         return {"ok": False, "reason": live["reason"], "capabilities": []}
     det = probe_determinism(adapter)
+    if not det.get("ok"):
+        return {"ok": False, "reason": det.get("reason", "repeat probe failed"), "capabilities": []}
     caps = ["conversation", "multi_turn_history"]
     if det.get("deterministic"):
         caps.append("deterministic_or_repeated")

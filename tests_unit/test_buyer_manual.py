@@ -111,6 +111,17 @@ class ManualExchangeTests(unittest.TestCase):
         with self.assertRaises(buyer.BuyerError):
             manual.prepare(self.root, other["plan_id"], "fixture")
 
+    def test_rehashed_mapping_cannot_disagree_with_original_answers(self):
+        result = self.submit(self.fill(self.prepare()))
+        path = self.root / "manual-submissions" / (result["submission_id"] + ".json")
+        record = json.loads(path.read_text())
+        record["mapping"][next(iter(record["mapping"]))] = "Different answer"
+        ident = buyer_plan._digest({k:v for k,v in record.items() if k!="submission_id"})
+        record["submission_id"] = ident
+        (path.parent / (ident + ".json")).write_text(json.dumps(record))
+        with self.assertRaises(buyer.BuyerError):
+            manual.responses(self.root, ident)
+
     def test_duplicate_json_keys_rejected(self):
         with self.assertRaises(buyer.BuyerError):
             manual.import_response(self.root, b'{"request":{},"request":{}}')
