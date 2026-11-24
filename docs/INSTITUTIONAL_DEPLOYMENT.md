@@ -141,3 +141,33 @@ procurement write permissions, retention/deletion tooling, independently
 reviewed audit integrity, backup/restore automation, deployment hardening,
 concurrency/load testing and independent security assessment. The current
 pilot is deliberately not presented as hospital-ready or clinically validated.
+
+
+## Implementation and lifecycle register
+
+Administrators and operators can create a version-specific implementation pilot
+for a registered candidate, designate an accountable owner, specify intended
+scope, a review date and a rollback plan. They can record risks, incidents,
+version changes and monitoring actions. Observers have read-only register
+access. Reviewers and suppliers cannot access the register.
+
+Each write checks the current revision within a SQLite transaction; stale
+browser forms are refused. Serious open risks and any open version change
+pause the administrative record and block return to review. Administrators
+must record their resolution and reasons; closure requires all items resolved.
+The state is a human-recorded administrative status, NOT a live deployment
+control, an automated incident detector or evidence of clinical safety.
+
+Completed baseline/retest jobs can be linked only if the verified candidate
+and exact product version match the pilot. Linked package digests are checked
+again on viewing. Changed or unavailable evidence is displayed explicitly.
+A version change requires a separate version-specific pilot for the new
+version; do not treat earlier results as evidence of the updated version.
+No result automatically authorizes implementation or releases a product.
+
+The register retains transactionally recorded snapshots and resolution reasons.
+Administrators can inspect the event history; access metadata appears in the
+existing audit log. Keep patient identifiers and confidential clinical records
+out of free-text fields. Retention, incident escalation, actual rollback,
+prospective outcome monitoring and production approval remain organisational
+responsibilities. The register is not a substitute for clinical governance.
