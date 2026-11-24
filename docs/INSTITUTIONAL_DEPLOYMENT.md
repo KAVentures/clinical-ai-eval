@@ -200,3 +200,38 @@ clinical packets, adjudicate perturbation validity, grant L2 conformance,
 or make a procurement or deployment recommendation. The original scientific
 clinical review and validation requirements still apply. Metrics from a selected
 review queue are not population performance estimates.
+
+
+## Institutional procurement committee
+
+The committee browser presents the existing buyer register, missing documents,
+vendor disclosures (explicitly self-reported), and frozen clinical comparisons.
+Operators prepare the shortlist and freeze the scientific study using the
+existing research/procurement CLI. Only administrator-staged packages below
+`assessment/packages/` in this organisation's workspace may be reconstructed
+in the institutional view. Register the exact subject name and version in the
+frozen study before ingesting a candidate's package. The institutional
+comparison excludes missing, altered, externally located, misattributed or
+unverified packages, and reuses the canonical procurement comparator rather
+than independently calculating thresholds.
+
+Operators and administrators can freeze content-addressed evidence snapshots.
+Each snapshot includes the exact manifest hashes, product versions, criteria,
+rates, uncertainty, gaps and limitations. Observers can view and download
+committee evidence. Reviewer and vendor roles cannot access it. The JSON
+export is an administrative committee artifact, not a scientific evidence
+package or clinical approval. Treat it as confidential organisation data.
+
+Administrators may record a request for more evidence, deferral, referral for
+governance review or closure of committee review, with an explicit rationale.
+These append-only administrative dispositions are linked to the exact snapshot;
+no purchase, clinical use or deployment can be authorized from this feature.
+Changed current evidence requires a new snapshot. Historical snapshots remain
+visible, labeled as historical. Underlying files are controlled by trusted IT
+and research operators; hashes are not digital signatures, and the current
+implementation is not a cross-process filesystem transaction.
+
+No composite score or ranking is produced. All scientific comparisons remain
+experimental and subject to independent clinical validation. A procurement
+committee must make its own risk-proportionate decision using the full
+institutional governance process.
