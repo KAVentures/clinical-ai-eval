@@ -22,25 +22,27 @@ def main(argv=None):
     p.add_argument("--validity-reviewer",required=True)
     p.add_argument("--operator",required=True)
     p.add_argument("--confirm-roster",action="store_true")
-    for name in ("export","submit","status","analyze"):
+    for name in ("export","submit","status","analyze","consensus-export","consensus-submit"):
         p=commands.add_parser(name)
         p.add_argument("workspace")
         p.add_argument("--handoff",required=True)
         if name in ("export","submit"):
             p.add_argument("--reviewer",required=True)
-        if name=="export":
+        if name in ("export","consensus-export"):
             p.add_argument("--out",required=True)
-        if name=="submit":
+        if name in ("submit","consensus-submit"):
             p.add_argument("--file",required=True)
             p.add_argument("--operator",required=True)
             p.add_argument("--confirm-identity",action="store_true")
+            p.add_argument("--confirm-consensus",action="store_true")
     args=parser.parse_args(argv)
     try:
         if args.action=="prepare":
             result=review.prepare(args.workspace,args.job,args.family,args.reviewer,
                                   args.validity_reviewer,args.operator,confirm_roster=args.confirm_roster)
-        elif args.action=="export":
-            document=review.template(args.workspace,args.handoff,args.reviewer)
+        elif args.action in ("export","consensus-export"):
+            document=(review.template(args.workspace,args.handoff,args.reviewer) if args.action=="export"
+                      else review.consensus_template(args.workspace,args.handoff))
             raw=(json.dumps(document,ensure_ascii=False,indent=2)+"\n").encode("utf-8")
             if len(raw)>manual.MAX_REQUEST_BYTES:
                 raise buyer.BuyerError("packet exceeds supported import size")
@@ -49,11 +51,15 @@ def main(argv=None):
             fd=os.open(args.out,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
             with os.fdopen(fd,"wb") as f:
                 f.write(raw)
-            result={"exported":True,"reviewer":args.reviewer}
+            result={"exported":True,"kind":args.action}
         elif args.action=="submit":
             document=manual._parse(review._read(Path(args.file),manual.MAX_REQUEST_BYTES))
             result=review.submit(args.workspace,args.handoff,args.reviewer,document,
                                  args.operator,confirm_identity=args.confirm_identity)
+        elif args.action=="consensus-submit":
+            document=manual._parse(review._read(Path(args.file),manual.MAX_REQUEST_BYTES))
+            result=review.submit_consensus(args.workspace,args.handoff,document,args.operator,
+                                           confirm_consensus=args.confirm_consensus)
         elif args.action=="status":
             result=review.status(args.workspace,args.handoff)
         else:
