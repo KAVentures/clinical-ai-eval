@@ -399,7 +399,8 @@ Checkpoints and recovery destinations are never overwritten. Verify the backup
 identifier through an independently trusted channel when moving it between
 approved systems.
 
-Restore checks the checkpoint, stages a fresh workspace, revokes copied sessions,
+Restore checks the checkpoint, stages a fresh workspace, revokes copied sessions and agent grants,
+disables copied recurring monitoring schedules (fresh approval is required),
 and normalizes internally stored procurement package paths for the new location
 without modifying source evidence. External procurement package locations must
 be staged within the workspace before checkpointing. Other external operator
