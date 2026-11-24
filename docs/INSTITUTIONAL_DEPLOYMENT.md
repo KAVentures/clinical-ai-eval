@@ -368,3 +368,15 @@ must avoid concurrent CLI edits of the same buyer register. Database audit and
 filesystem writes are not a single distributed transaction. This is still a
 pilot deployment; staged scientific inputs, source authenticity, validation,
 production identity and security acceptance remain institutional responsibilities.
+
+
+## Managed institutional identity and deployment
+
+For an institution with an approved OIDC/SAML authentication gateway, see
+[Institutional federation](INSTITUTIONAL_FEDERATION.md) for explicit upstream
+subject mapping, per-request identity checks, local role provisioning,
+session isolation and the protected proxy contract. The application does not
+itself implement OIDC/SAML token validation or MFA; the upstream gateway must
+enforce those policies. A managed WSGI app factory and sample Linux/systemd
+deployment configuration are included under deploy/institution. Actual IdP
+interoperability, security and production acceptance remain mandatory.
