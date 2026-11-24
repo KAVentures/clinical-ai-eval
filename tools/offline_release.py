@@ -73,7 +73,7 @@ def root(path):
 def _open_regular(path):
     if path.is_symlink():
         raise ReleaseError("linked release files refused")
-    fd=os.open(str(path),os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_BINARY",0))
+    fd=os.open(str(path),os.O_RDONLY|getattr(os,"O_NOFOLLOW",0)|getattr(os,"O_NONBLOCK",0)|getattr(os,"O_BINARY",0))
     handle=os.fdopen(fd,"rb")
     if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
         handle.close()
@@ -116,7 +116,9 @@ def _metadata(path):
         matches=[i for i in entries if re.fullmatch(r"[^/]+\.dist-info/METADATA",i.filename)]
         if len(matches)!=1 or matches[0].file_size>MAX_METADATA:
             raise ReleaseError("invalid wheel metadata")
-        if len({i.filename for i in entries})!=len(entries):
+        if len(entries)>100000 or sum(i.file_size for i in entries)>MAX_TOTAL:
+        raise ReleaseError("wheel expansion exceeds limits")
+    if len({i.filename for i in entries})!=len(entries):
             raise ReleaseError("duplicate wheel members")
         for i in entries:
             parts=i.filename.rstrip("/").split("/")
@@ -263,6 +265,7 @@ def install(directory,expected,destination,*,confirmed=False):
     dest=Path(destination).absolute()
     if dest.exists() or dest.is_symlink() or not dest.parent.is_dir() or dest.parent.is_symlink():
         raise ReleaseError("fresh side-by-side installation directory required")
+    dest=dest.parent.resolve()/dest.name
     if directory==dest or directory in dest.parents or dest in directory.parents:
         raise ReleaseError("installation must be separate from release bundle")
     # Destination parent must be controlled by IT. venvs are not relocatable.
