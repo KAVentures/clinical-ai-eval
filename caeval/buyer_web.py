@@ -332,13 +332,29 @@ scientific intake questions. Do not enter identifiable patient records.</div>
 </form></section></main></body></html>""".encode("utf-8")
 
 
-def render_manual_submission(record: dict) -> bytes:
+def render_manual_submission(record: dict, panel_ids=()) -> bytes:
     handoff = ""
     if record["status"] == "complete_unscored":
         handoff = ("<p><a href='/manual-responses?id=" + esc(record["submission_id"]) +
                    "'>Download canonical manual response mapping</a></p>"
                    "<p class='small'>Use only with the same bound pack and scope. A scientific operator must "
                    "configure the real evaluation and judges; this is not an executed assessment.</p>")
+        options = "".join("<option value='" + esc(p) + "'>" + esc(p) + "</option>" for p in panel_ids)
+        handoff += (
+            "<h3>Prepare a bound scientific assessment</h3>"
+            "<p>Choose an administrator-staged judge panel. No model calls will be made.</p>"
+            "<form action='/assessment-prepare' method='post'>"
+            "<input type='hidden' name='submission_id' value='" + esc(record["submission_id"]) + "'>"
+            "<label>Approved panel<select required name='panel_id'>" + options + "</select></label>"
+            "<label>Influences diagnosis or treatment?<select required name='influences_diagnosis_or_treatment'>"
+            "<option value=''>Choose</option><option>yes</option><option>no</option></select></label>"
+            "<label>Clinician reviews every response?<select required name='clinician_reviews_every_response'>"
+            "<option value=''>Choose</option><option>yes</option><option>no</option></select></label>"
+            "<label>Regulated medical device?<select required name='regulated_medical_device'>"
+            "<option value=''>Choose</option><option>yes</option><option>no</option><option>unsure</option></select></label>"
+            "<label>Deployment jurisdictions<input name='deployment_jurisdictions' required maxlength='500'></label>"
+            "<button type='submit'" + ("" if panel_ids else " disabled") + ">Prepare assessment project</button></form>"
+        )
     return f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>Clinical AI Eval — Candidate responses</title><style>{STYLE}</style></head>
@@ -347,6 +363,20 @@ def render_manual_submission(record: dict) -> bytes:
 <section class='panel'><h2>{esc(record["status"])}</h2>
 <p>Provided answers: {esc(record["n_provided"])} of {esc(record["n_expected"])}</p>
 {handoff}<p class='small'>Submission ID: {esc(record["submission_id"])}</p>
+</section></main></body></html>""".encode("utf-8")
+
+
+def render_prepared_assessment(record: dict) -> bytes:
+    return f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Clinical AI Eval — Prepared assessment</title><style>{STYLE}</style></head>
+<body><main class='shell'><header><h1>Prepared scientific assessment</h1><a href='/'>Workspace</a></header>
+<div class='notice'>Prepared, not executed. Operator-attested candidate responses; no clinical findings.
+No model calls authorized. An approved scientific operator must verify data handling and execute the research CLI.</div>
+<section class='panel'><p>Mode: {esc(record["mode"])}</p><p>Responses: {esc(record["n_responses"])}</p>
+<p>Panel: {esc(record["panel_id"])}</p><p>Pack hash: {esc(record["pack_content_hash"])}</p>
+<p>Assessment ID: {esc(record["assessment_id"])}</p>
+<p><a href='/manual-submission?id={esc(record["submission_id"])}'>Return to responses</a></p>
 </section></main></body></html>""".encode("utf-8")
 
 
@@ -503,7 +533,7 @@ class BuyerHandler(BaseHTTPRequestHandler):
         if not self._host_ok():
             return self._error(HTTPStatus.BAD_REQUEST, "invalid local Host")
         parts = urllib.parse.urlsplit(self.path)
-        if parts.path not in ("/", "/dossier", "/questionnaire", "/research", "/plan", "/rehearsal", "/manual-submission", "/manual-template", "/manual-responses"):
+        if parts.path not in ("/", "/dossier", "/questionnaire", "/research", "/plan", "/rehearsal", "/manual-submission", "/manual-template", "/manual-responses", "/assessment-prepared"):
             return self._error(HTTPStatus.NOT_FOUND, "unknown route")
         supplied = urllib.parse.parse_qs(parts.query).get("token", [""])[0]
         if parts.path == "/" and supplied and hmac.compare_digest(supplied, self.server.session_token):
@@ -518,6 +548,16 @@ class BuyerHandler(BaseHTTPRequestHandler):
                                "Launch with the private URL shown in your terminal.")
         query = urllib.parse.parse_qs(parts.query)
         try:
+            if parts.path == "/assessment-prepared":
+                from . import buyer_assessment
+                ids = query.get("id", [])
+                if len(ids) != 1:
+                    raise buyer.BuyerError("select exactly one prepared assessment")
+                with self.server.mutation_lock:
+                    content = render_prepared_assessment(buyer_assessment.check(self.server.directory, ids[0]))
+                self._headers(extra={"Content-Length": str(len(content))})
+                self.wfile.write(content)
+                return
             if parts.path in ("/manual-template", "/manual-responses", "/manual-submission"):
                 from . import buyer_manual
                 ids = query.get("id", [])
@@ -532,7 +572,8 @@ class BuyerHandler(BaseHTTPRequestHandler):
                         filename = "manual-responses.json"
                     else:
                         payload = buyer_manual.submission_status(self.server.directory, ids[0])
-                        content = render_manual_submission(payload)
+                        from . import buyer_assessment
+                        content = render_manual_submission(payload, buyer_assessment.panels(self.server.directory))
                         self._headers(extra={"Content-Length": str(len(content))})
                         self.wfile.write(content)
                         return
@@ -629,7 +670,7 @@ class BuyerHandler(BaseHTTPRequestHandler):
             return self._error(HTTPStatus.FORBIDDEN,
                                "cross-origin local writes are not permitted")
         path = urllib.parse.urlsplit(self.path).path
-        if path not in ("/project-init", "/vendor-add", "/evidence-add", "/questionnaire-import", "/plan-preview", "/rehearsal-run", "/manual-prepare", "/manual-import"):
+        if path not in ("/project-init", "/vendor-add", "/evidence-add", "/questionnaire-import", "/plan-preview", "/rehearsal-run", "/manual-prepare", "/manual-import", "/assessment-prepare"):
             return self._error(HTTPStatus.NOT_FOUND, "unknown route")
         try:
             n = int(self.headers.get("Content-Length", "-1"))
@@ -639,6 +680,21 @@ class BuyerHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(n)
             if len(body) != n:
                 raise buyer.BuyerError("incomplete request body")
+            if path == "/assessment-prepare":
+                from . import buyer_assessment, project
+                if not ctype.startswith("application/x-www-form-urlencoded") or n > 8192:
+                    raise buyer.BuyerError("invalid assessment preparation form")
+                fields = urllib.parse.parse_qs(body.decode("utf-8"), keep_blank_values=True, max_num_fields=8)
+                required = {"submission_id", "panel_id", *project.MANDATORY_GOVERNANCE}
+                if set(fields) != required or any(len(v) != 1 for v in fields.values()):
+                    raise buyer.BuyerError("complete each assessment field once")
+                answers = {q: fields[q][0] for q in project.MANDATORY_GOVERNANCE}
+                with self.server.mutation_lock:
+                    record = buyer_assessment.prepare(self.server.directory,
+                        fields["submission_id"][0], fields["panel_id"][0], answers)
+                self._headers(HTTPStatus.SEE_OTHER, extra={
+                    "Location": "/assessment-prepared?id=" + record["assessment_id"], "Content-Length": "0"})
+                return
             if path == "/manual-prepare":
                 from . import buyer_manual
                 if not ctype.startswith("application/x-www-form-urlencoded") or n > 1024:
