@@ -105,9 +105,21 @@ perform blinded physician review, verify the evidence package and ingest it via
 produces the **clinical comparison dossier**, with its own provenance,
 comparability, missing-data and nonvalidated-family warnings.
 
-The new `buyer dossier` command produces **only the administrative evidence
-register**. It does not silently incorporate missing analyses or claim that a
-verified procurement dossier exists.
+The `buyer dossier` command and browser's **Download combined evidence dossier**
+link now produce a single local Markdown report, separating the administrative
+inventory from the clinical assessment. The report reconstructs clinical
+comparisons from the originally ingested packages in a private temporary
+workspace: it checks the original manifest digest and re-runs package
+verification and ingestion. It excludes missing, changed, caller-supplied or
+out-of-scope evidence, identifies shortlist candidates without testing, and
+does not trust editable cached result cells. It does not mutate the frozen study.
+
+The report is exploratory. A reverified package does not establish that a
+vendor actually produced its responses, that its claims are true, or that the
+clinical evaluation method is validated. Keep original run workspaces available
+locally; if moved or missing, the report will disclose the gap. The downloaded
+report may contain confidential assessment metadata; share only with approved
+recipients.
 
 ## Running clinical evaluations locally
 
@@ -165,8 +177,8 @@ private environment.
    extracted document claims.
 3. Secured local browser UI with roles and auditable reviewers (the current
    unauthenticated loopback console is **not** safe as a shared hospital server).
-4. Fully automated, integrity-checked handoff from this register into the
-   procurement evaluator and back into a committee-ready single dossier.
+4. Guided clinical run configuration, execution and review in the browser;
+   the combined report already reconstructs results from reverified packages.
 5. Optional stdio MCP adapter with read-only defaults, bounded calls, and
    explicit approvals before sensitive writes or external inference.
 
