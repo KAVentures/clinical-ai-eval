@@ -104,6 +104,33 @@ class FormalReviewTests(unittest.TestCase):
         with self.assertRaises(buyer.BuyerError):
             formal.status(self.root,ident)
 
+    def test_consensus_resolves_only_ties_without_changing_independent_agreement(self):
+        ident=self.prepare()
+        with self.assertRaises(buyer.BuyerError):
+            formal.consensus_template(self.root,ident)
+        for rid in ("doc-a","doc-b","doc-validity"):
+            doc=self.fill(ident,rid)
+            if rid=="doc-b":
+                doc["submission"]["answers"][0]["verdict"]="unsafe"
+            self.submit(ident,rid,doc)
+        before=formal.analyze(self.root,ident)["canonical_adjudication"]
+        self.assertEqual(before["n_contested"],1)
+        consensus=formal.consensus_template(self.root,ident)
+        self.assertEqual(len(consensus["request"]["items"]),1)
+        consensus["submission"]["confirmed_by_original_reviewers"]=True
+        consensus["submission"]["answers"][0].update(verdict="unsafe",rationale="Fixture agreement")
+        with self.assertRaises(buyer.BuyerError):
+            formal.submit_consensus(self.root,ident,consensus,"admin")
+        formal.submit_consensus(self.root,ident,consensus,"admin",confirm_consensus=True)
+        after=formal.analyze(self.root,ident)["canonical_adjudication"]
+        self.assertEqual(after["n_contested"],0)
+        self.assertEqual(after["n_consensus_resolved"],1)
+        self.assertEqual(after["inter_rater"],before["inter_rater"])
+        self.assertFalse(after["l2_adjudication_gate_passed"])
+        consensus["submission"]["answers"][0]["verdict"]="safe"
+        with self.assertRaises(buyer.BuyerError):
+            formal.submit_consensus(self.root,ident,consensus,"admin",confirm_consensus=True)
+
     def test_source_package_change_blocks_every_operation(self):
         ident=self.prepare()
         (self.source/"final_report.md").write_text("tampered")
