@@ -106,6 +106,7 @@ def _dashboard(directory, actor):
                 body += " · <a href='" + esc(link) + "'>Open assigned review</a>"
             body += "</section>"
     else:
+        body += "<p><a href='/lifecycle'>Implementation and monitoring register</a></p>"
         rows = access.summary(directory, actor)
         body += "<h2>Evaluation job overview</h2><table><tr><th>Job</th><th>Status</th><th>Mode</th><th>Packages</th></tr>"
         for row in rows:
@@ -195,6 +196,20 @@ class InstitutionApp:
                     body+="<tr>"+"".join("<td>"+esc(row[k])+"</td>" for k in ("seq","actor","action","object_id","outcome"))+"</tr>"
                 access.event(self.directory,actor["user_id"],"audit-opened")
                 return respond("200 OK",page("Access audit",body+"</table>"))
+            if path=="/lifecycle":
+                from . import institution_lifecycle_web as lifecycle
+                if method=="GET":
+                    return respond("200 OK",lifecycle.render(self.directory,actor))
+                form=_form(env)
+                _csrf(actor,form)
+                lifecycle.dispatch(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/lifecycle")])
+            if path=="/lifecycle-history" and method=="GET":
+                from . import institution_lifecycle_web as lifecycle
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("select a pilot")
+                return respond("200 OK",lifecycle.render_history(self.directory,actor,q["id"]))
             if path=="/review":
                 access.require(actor,"reviewer")
                 if method=="GET":
