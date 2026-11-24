@@ -368,3 +368,66 @@ must avoid concurrent CLI edits of the same buyer register. Database audit and
 filesystem writes are not a single distributed transaction. This is still a
 pilot deployment; staged scientific inputs, source authenticity, validation,
 production identity and security acceptance remain institutional responsibilities.
+
+
+## Offline backup and new-workspace recovery
+
+The trusted server operator can create a bounded, self-contained checkpoint
+after stopping the institutional gateway, the standalone console, every
+evaluation/collection worker and all other workspace writers. Use approved
+encrypted storage with enough free capacity. The checkpoint contains private
+evidence and account databases; its file hashes do not encrypt it or establish
+its authenticity. The current limit is 20 GiB and 20,000 filesystem entries.
+
+```bash
+clinical-ai-eval institution backup-create /srv/caeval/workspace \
+  --destination /approved-backup/checkpoint-001 --confirm-services-stopped
+clinical-ai-eval institution backup-check /approved-backup/checkpoint-001
+clinical-ai-eval institution backup-restore /approved-backup/checkpoint-001 \
+  --destination /srv/caeval/recovered --confirm-services-stopped
+```
+
+The checkpoint records the complete relative inventory and SHA-256 file hashes,
+and verifies SQLite databases read-only. Running jobs, transient staging data,
+SQLite journal/WAL sidecars, symlinks, hardlinks and special files block the
+operation; investigate rather than deleting unresolved evidence. The command
+requires operator confirmation but cannot prove the service is actually stopped.
+Checkpoints and recovery destinations are never overwritten. Verify the backup
+identifier through an independently trusted channel when moving it between
+approved systems.
+
+Restore checks the checkpoint, stages a fresh workspace, revokes copied sessions,
+and normalizes internally stored procurement package paths for the new location
+without modifying source evidence. External procurement package locations must
+be staged within the workspace before checkpointing. Other external operator
+configuration and environment credentials are provisioned independently.
+The original workspace and checkpoint remain unchanged. Use a compatible pinned
+software build, recheck research packages and job state, then test role boundaries
+and service configuration before switching the approved proxy to the recovered
+workspace. File verification alone does not establish clinical validity.
+
+## Integrated acceptance and storage guarantees
+
+The combined product uses a shared SQLite write lock for supported buyer
+register operations (candidate registration and evidence insertion), including
+the institutional setup workflow and existing CLI. Immutable JSON records are
+published from fully written private temporary files without overwriting an
+existing destination. Use a local filesystem supporting SQLite locks and
+hardlinks; direct out-of-band editing and unsupported shared filesystems are
+not covered. Audit writes and filesystem operations are not a distributed
+transaction.
+
+Run the full existing test suite and the synthetic integrated acceptance test
+before any deployment:
+
+```bash
+python -m pytest tests_unit -q
+python -m pytest tests_unit/test_institution_acceptance.py tests_unit/test_institution_backup.py -q
+```
+
+The acceptance test exercises authenticated browser intake, disclosure exchange,
+scientific planning, blinded prompt exchange, candidate response import,
+prepared assessment, actual canonical mock-judge execution, assigned physician
+review, exploratory statistics, aggregate agent export, and checkpoint recovery.
+It is a software integration test using synthetic fixtures, not evidence that a
+clinical AI product is safe or that the institutional service is production-ready.
