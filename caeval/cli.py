@@ -1219,6 +1219,24 @@ def cmd_procurement(args):
 
 
 
+def cmd_agent(args):
+    """Export explicitly approved aggregate metadata or serve it via local stdio."""
+    import sys
+    from . import agent_snapshot, agent_mcp, buyer_agent
+    try:
+        if args.action == "export":
+            if not args.out:
+                raise buyer_agent.BuyerError("--out is required")
+            print(json.dumps(agent_snapshot.export(args.path,args.out),indent=2))
+        else:
+            if args.out:
+                raise buyer_agent.BuyerError("--out is only supported for export")
+            agent_mcp.serve(args.path)
+    except (buyer_agent.BuyerError,OSError,ValueError,RuntimeError,KeyError,TypeError):
+        print("Agent export or server failed; verify the approved local input.",file=sys.stderr)
+        raise SystemExit(1)
+
+
 def cmd_institution(args):
     """Trusted server administrator commands; credentials never appear in argv."""
     import getpass
@@ -1714,6 +1732,12 @@ def main(argv=None):
     pb.add_argument("--port", type=int, default=0, help="local browser port; 0 picks a free port")
     pb.add_argument("--no-browser", action="store_true", help="do not automatically open the browser")
     pb.set_defaults(func=cmd_buyer)
+
+    pag = sub.add_parser("agent",help="explicit aggregate snapshot export and read-only local MCP")
+    pag.add_argument("action",choices=["export","mcp"])
+    pag.add_argument("path",help="buyer workspace for export; approved snapshot file for MCP")
+    pag.add_argument("--out",help="new aggregate snapshot JSON file; export only")
+    pag.set_defaults(func=cmd_agent)
 
     pin = sub.add_parser("institution", help="trusted administrator: isolated institutional browser and account provisioning")
     pin.add_argument("action", choices=["serve","account-create","account-disable","review-assign"])
