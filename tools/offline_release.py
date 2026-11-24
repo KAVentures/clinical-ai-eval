@@ -117,8 +117,8 @@ def _metadata(path):
         if len(matches)!=1 or matches[0].file_size>MAX_METADATA:
             raise ReleaseError("invalid wheel metadata")
         if len(entries)>100000 or sum(i.file_size for i in entries)>MAX_TOTAL:
-        raise ReleaseError("wheel expansion exceeds limits")
-    if len({i.filename for i in entries})!=len(entries):
+            raise ReleaseError("wheel expansion exceeds limits")
+        if len({i.filename for i in entries})!=len(entries):
             raise ReleaseError("duplicate wheel members")
         for i in entries:
             parts=i.filename.rstrip("/").split("/")

@@ -69,6 +69,19 @@ class OfflineReleaseTests(unittest.TestCase):
         with self.assertRaises(release.ReleaseError):
             self.prepare()
 
+    def test_archive_expansion_and_duplicate_members(self):
+        import warnings
+        with patch.object(release,"MAX_TOTAL",1):
+            with self.assertRaisesRegex(release.ReleaseError,"wheel expansion"):
+                release._metadata(self.app)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore",UserWarning)
+            with zipfile.ZipFile(self.app,"a") as z:
+                z.writestr("payload.txt","first")
+                z.writestr("payload.txt","second")
+        with self.assertRaisesRegex(release.ReleaseError,"duplicate wheel members"):
+            release._metadata(self.app)
+
     def test_duplicate_distributions_and_metadata_mismatch(self):
         self.wheel("fixture_dependency","2.0")
         with self.assertRaises(release.ReleaseError):
