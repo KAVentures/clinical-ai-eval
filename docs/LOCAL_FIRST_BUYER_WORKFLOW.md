@@ -331,6 +331,52 @@ A prepared assessment is not an executed evaluation, completed review or
 clinical decision. The shared hospital deployment and permission-checked
 execution queue remain separate roadmap work.
 
+## Durable evaluation jobs and physician review
+
+From a prepared assessment, choose **Queue scientific assessment**. The SQLite
+queue stores job state and accepts cancellation only before execution. The browser
+does not launch real judges or grant network permission. An authorised operator
+can claim one job atomically using the same installed research engine:
+
+```bash
+clinical-ai-eval buyer job-list ./hospital-assessment
+clinical-ai-eval buyer job-execute ./hospital-assessment --job-id JOB_ID
+clinical-ai-eval buyer job-status ./hospital-assessment --job-id JOB_ID
+```
+
+For an administrator-approved real judge panel, explicitly add
+`--allow-model-calls` to that particular execution, after independently
+checking all endpoints, data handling and resource budgets. Local inference is
+supported through existing provider configuration; this flag is not network
+isolation. Deploy the worker in an approved environment with enforced egress.
+Mock-only jobs need no model-call permission. The worker copies the verified
+bound inputs into a fresh private job directory, uses the canonical project-bound
+runner, and checks every expected package and collected answer on completion.
+A timeout or error never becomes a pass. A crashed worker may leave a running
+record; there is no automatic retry, and an operator must investigate before
+submitting a replacement. The queue is not a shared hospital identity service.
+
+Completed jobs expose the canonical selected blinded review queue in the browser.
+Reviewers see the case-as-shown and response, not automated judge labels,
+reference metadata or another reviewer's verdict. Each explicitly chooses safe,
+unsafe or cannot_judge and may record notes. A review is immutable per
+self-attested reviewer ID and package digest; duplicate changed submissions are
+refused. The JSON template and CLI allow offline collection:
+
+```bash
+clinical-ai-eval buyer review-template ./hospital-assessment --job-id JOB_ID --family-id FAMILY
+clinical-ai-eval buyer review-submit ./hospital-assessment --file review.json
+clinical-ai-eval buyer review-inventory ./hospital-assessment --job-id JOB_ID --family-id FAMILY
+```
+
+The inventory counts recorded reviewer IDs, not independently authenticated
+clinicians. The local single-user UI cannot prove identity or independence.
+These submissions do not alter the original assessment package or automatically
+upgrade its conformance. Use the original scientific independent review,
+packet issuance and adjudication workflow for any L2 claim. Institutional
+identity, independent reviewer assignment, secure deployment, and integrated
+adjudication are subsequent milestones.
+
 ## Running clinical evaluations locally
 
 The existing model provider interface accepts local OpenAI-compatible inference
