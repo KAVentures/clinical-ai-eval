@@ -108,7 +108,7 @@ class OfflineReleaseTests(unittest.TestCase):
     def test_install_only_staged_local_wheels_and_no_service_activation(self):
         ident=self.prepare()
         dest=self.base/"new"
-        with patch.object(release.venv.EnvBuilder,"create"),patch.object(release,"_run",return_value=b"") as run:
+        with patch.object(release.venv.EnvBuilder,"create"),patch.object(release,"_run",return_value=b"") as run,patch.object(release,"_check_environment"):
             receipt=release.install(self.house,ident,dest,confirmed=True)
         install=run.call_args_list[0].args[0]
         self.assertIn("--no-index",install)
@@ -120,6 +120,19 @@ class OfflineReleaseTests(unittest.TestCase):
         self.assertFalse(receipt["service_activated"])
         self.assertFalse(receipt["production_approved"])
         self.assertEqual(json.loads((dest/"installed-release.json").read_text()),receipt)
+
+    def test_retained_installation_recheck_rejects_mismatched_receipt(self):
+        ident=self.prepare()
+        dest=self.base/"new"
+        with patch.object(release.venv.EnvBuilder,"create"),patch.object(release,"_run"),patch.object(release,"_check_environment"):
+            release.install(self.house,ident,dest,confirmed=True)
+            self.assertTrue(release.check_install(self.house,ident,dest)["rechecked"])
+            path=dest/"installed-release.json"
+            obj=json.loads(path.read_text())
+            obj["source_commit"]="b"*40
+            path.write_text(json.dumps(obj))
+            with self.assertRaises(release.ReleaseError):
+                release.check_install(self.house,ident,dest)
 
     def test_environment_does_not_inherit_network_or_data_overrides(self):
         with patch.dict(release.os.environ,{"PIP_INDEX_URL":"https://bad.example",
