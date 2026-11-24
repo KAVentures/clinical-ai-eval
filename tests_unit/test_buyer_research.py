@@ -69,6 +69,12 @@ class ResearchBrowserTests(unittest.TestCase):
         with patch.object(manifest, "verify_manifest", side_effect=AssertionError("unsafe read")):
             self.assertEqual(research.inspect_run(self.root, "run_a")["verdict"], "INVALID")
 
+    def test_removed_previously_present_optional_artifact_invalid(self):
+        (self.ws / "human_review.csv").write_text("cell_id,review\nc1,unsafe\n")
+        manifest.build_manifest(self.ws)
+        (self.ws / "human_review.csv").unlink()
+        self.assertEqual(research.inspect_run(self.root, "run_a")["verdict"], "INVALID")
+
     def test_symlink_rejected(self):
         try:
             (self.ws / "escape").symlink_to(self.root / "buyer.json")
