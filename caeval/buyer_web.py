@@ -143,7 +143,7 @@ def render_page(data: dict, message: str = "", error: str = "") -> bytes:
 <div class='kicker'>Clinical AI Eval · Local workspace</div>
 <h1>{esc(data["project_name"])}</h1>
 <div class='muted'>On-device procurement evidence register · No cloud connection</div>
-</div><div><a href='/research'>Research workspace</a> · <span class='tag'>Local session</span></div></header>
+</div><div><a href='/research'>Research workspace</a> · <a href='/plan'>Plan evaluation</a> · <span class='tag'>Local session</span></div></header>
 {notices}
 <div class='notice'><b>Administrative screening only.</b> Uploaded documents are not
 automatically verified for accuracy, and this view is not a clinical validation,
@@ -246,6 +246,64 @@ The table shows up to {data["limit"]} runs; raw clinical text and credentials ar
 <div style='overflow:auto'><table><thead><tr><th>Run</th><th>Family</th><th>Integrity</th>
 <th>Recorded claim</th><th>Manifest hash</th></tr></thead><tbody>{''.join(runs)}</tbody></table></div>
 </section></main></body></html>""".encode("utf-8")
+
+
+def render_plan(state: dict, record=None) -> bytes:
+    from . import intake
+    options = "".join("<option value='" + esc(v["vendor_id"]) + "'>" +
+                      esc(v["name"]) + "</option>" for v in state["vendors"])
+    profiles = "".join("<label style='display:block'><input style='display:inline;width:auto;margin:4px 8px 4px 0' "
+                       "type='checkbox' name='profiles' value='" + esc(p) + "'>" +
+                       esc(p.replace("_", " ").title()) + "</label>" for p in intake.TARGET_PROFILES)
+    questions = {
+        "what_it_does": "What does the product do?",
+        "who_is_the_user": "Who uses it?",
+        "decisions_it_can_influence": "Which decisions can it influence?",
+        "information_normally_received": "What information does it normally receive?",
+        "information_normally_unavailable": "What information is normally unavailable?",
+        "expected_human_oversight": "What human oversight is expected?",
+        "plausible_harm": "What plausible harms could arise?",
+    }
+    fields = "".join("<label>" + esc(questions.get(q, q)) +
+                     "<textarea style='display:block;width:100%;margin:6px 0 16px' name='" +
+                     esc(q) + "' required rows='3' maxlength='4000'></textarea></label>"
+                     for q in intake.INTAKE_QUESTIONS)
+    result = ""
+    if record is not None:
+        chosen = record["plan"]["selection"]["required_suites"]
+        rows = "".join("<tr><td>" + esc(x["suite"]) + "</td><td>" +
+                       ("Runnable" if x["implemented"] else "Required but not runnable") +
+                       "</td><td>" + esc(x.get("because")) + "</td><td>" +
+                       esc(x.get("blocked_reason")) + "</td></tr>" for x in chosen)
+        result = (
+            "<section class='panel'><h2>Saved draft scope preview</h2><p>" +
+            esc(record["plan"]["target"]["name"]) + " · " +
+            esc(record["plan"]["target"]["version"]) + "</p><p>Definition status: " +
+            ("Matches current build" if record.get("definitions_current") else
+             "Different build or definitions — regenerate before relying on it") +
+            "</p><table><thead><tr><th>Family</th><th>Availability</th><th>Rationale</th>"
+            "<th>Limitation</th></tr></thead><tbody>" + rows + "</tbody></table><p>"
+            "<a href='/plan?id=" + esc(record["plan_id"]) + "&amp;format=json'>Download draft JSON</a></p>"
+            "<p class='small'>Snapshot SHA-256: " + esc(record["plan_id"]) + "</p></section>"
+        )
+    return f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Clinical AI Eval — Evaluation planning</title><style>{STYLE}</style></head>
+<body><main class='shell'><header><div><div class='kicker'>Scientific intake</div>
+<h1>Plan an evaluation</h1></div><a href='/'>Procurement workspace</a></header>
+<div class='notice'>This is a draft scope preview, not an executable or frozen assessment.
+No AI provider is called. Select the intended clinical workflow and explicitly answer all
+scientific intake questions. Do not enter identifiable patient records.</div>
+{result}
+<section class='panel'><h2>Describe the candidate</h2>
+<form action='/plan-preview' method='post'>
+<label>Candidate<select name='vendor_id' required>{options}</select></label>
+<label>Exact product name<input name='target_name' required maxlength='300'></label>
+<label>Exact product version<input name='target_version' required maxlength='300'></label>
+<h3>Target profiles (select one or more)</h3>{profiles}
+<h3 style='margin-top:18px'>Intended-use questions</h3>{fields}
+<button type='submit' {'disabled' if not state["vendors"] else ''}>Generate and save draft scope</button>
+</form></section></main></body></html>""".encode("utf-8")
 
 
 def render_setup() -> bytes:
@@ -378,7 +436,7 @@ class BuyerHandler(BaseHTTPRequestHandler):
         if not self._host_ok():
             return self._error(HTTPStatus.BAD_REQUEST, "invalid local Host")
         parts = urllib.parse.urlsplit(self.path)
-        if parts.path not in ("/", "/dossier", "/questionnaire", "/research"):
+        if parts.path not in ("/", "/dossier", "/questionnaire", "/research", "/plan"):
             return self._error(HTTPStatus.NOT_FOUND, "unknown route")
         supplied = urllib.parse.parse_qs(parts.query).get("token", [""])[0]
         if parts.path == "/" and supplied and hmac.compare_digest(supplied, self.server.session_token):
@@ -393,6 +451,28 @@ class BuyerHandler(BaseHTTPRequestHandler):
                                "Launch with the private URL shown in your terminal.")
         query = urllib.parse.parse_qs(parts.query)
         try:
+            if parts.path == "/plan":
+                from . import buyer_plan
+                with self.server.mutation_lock:
+                    state = buyer.load(self.server.directory)
+                    ids = query.get("id", [])
+                    if len(ids) > 1:
+                        raise buyer.BuyerError("select one plan")
+                    record = buyer_plan.load(self.server.directory, ids[0]) if ids else None
+                    if query.get("format") == ["json"]:
+                        if record is None:
+                            raise buyer.BuyerError("select a saved plan")
+                        document = json.dumps(record, ensure_ascii=False, indent=2).encode("utf-8")
+                        self._headers(content_type="application/json; charset=utf-8", extra={
+                            "Content-Disposition": 'attachment; filename="draft-evaluation-plan.json"',
+                            "Content-Length": str(len(document)),
+                        })
+                        self.wfile.write(document)
+                        return
+                    content = render_plan(state, record)
+                self._headers(extra={"Content-Length": str(len(content))})
+                self.wfile.write(content)
+                return
             if parts.path == "/research":
                 from . import buyer_research
                 with self.server.mutation_lock:
@@ -446,7 +526,7 @@ class BuyerHandler(BaseHTTPRequestHandler):
             return self._error(HTTPStatus.FORBIDDEN,
                                "cross-origin local writes are not permitted")
         path = urllib.parse.urlsplit(self.path).path
-        if path not in ("/project-init", "/vendor-add", "/evidence-add", "/questionnaire-import"):
+        if path not in ("/project-init", "/vendor-add", "/evidence-add", "/questionnaire-import", "/plan-preview"):
             return self._error(HTTPStatus.NOT_FOUND, "unknown route")
         try:
             n = int(self.headers.get("Content-Length", "-1"))
@@ -456,6 +536,25 @@ class BuyerHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(n)
             if len(body) != n:
                 raise buyer.BuyerError("incomplete request body")
+            if path == "/plan-preview":
+                from . import buyer_plan, intake
+                if not ctype.startswith("application/x-www-form-urlencoded") or n > buyer_plan.MAX_INPUT:
+                    raise buyer.BuyerError("invalid or oversized planning form")
+                fields = urllib.parse.parse_qs(body.decode("utf-8"), keep_blank_values=True,
+                                                max_num_fields=32)
+                required = ("vendor_id", "target_name", "target_version", *intake.INTAKE_QUESTIONS)
+                if set(fields) != set(required) | {"profiles"}:
+                    raise buyer.BuyerError("complete every intake question and select profiles")
+                if any(len(fields[k]) != 1 for k in required):
+                    raise buyer.BuyerError("duplicate intake field")
+                spec = {k: fields[k][0] for k in ("vendor_id", "target_name", "target_version")}
+                spec["profiles"] = fields["profiles"]
+                spec["answers"] = {q: fields[q][0] for q in intake.INTAKE_QUESTIONS}
+                with self.server.mutation_lock:
+                    record = buyer_plan.preview(self.server.directory, spec)
+                self._headers(HTTPStatus.SEE_OTHER, extra={
+                    "Location": "/plan?id=" + record["plan_id"], "Content-Length": "0"})
+                return
             if path in ("/project-init", "/vendor-add"):
                 if not ctype.startswith("application/x-www-form-urlencoded"):
                     raise buyer.BuyerError("invalid local form content type")
