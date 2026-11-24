@@ -173,7 +173,7 @@ def _material(directory,plan_id,connector_id,pack_id,panel_id,governance):
              "required_but_not_run":selected["required_but_not_run"],
              "file_sha256":{k:_sha(v) for k,v in files.items()},"definitions":definitions,
              "decision_grade":False}
-    return binding,files
+    return json.loads(buyer_plan._canonical(binding)),files
 
 
 def prepare(directory,actor,spec):
@@ -265,9 +265,14 @@ def _verify(directory,row):
     if recorded["plan_hash"]!=claim.plan_fingerprint(recorded):
         raise buyer.BuyerError("invalid canonical plan digest")
     claim.verify_binding(recorded,actual)
+    from . import lifecycle
+    cells=[json.loads(line) for line in buyer_research.verified_bytes(ws,meta,"results").splitlines() if line.strip()]
+    conformance=lifecycle.conformance_from(panel,cells,False)
+    if conformance!=analysis["conformance_level"] or len(cells)!=analysis["n_cells"]:
+        raise buyer.BuyerError("patient score coverage or conformance changed")
     family=pipeline.load_family(FAMILY)
     target=analysis["target"]
-    derived=claim.compute(cfg.mode,analysis["conformance_level"],family["maturity"]["level"],
+    derived=claim.compute(cfg.mode,conformance,(family.get("maturity") or {}).get("level","experimental"),
                           claim.pack_authority(desc),claim.target_provenance(target))
     if (analysis["case_pack"]["content_hash"]!=desc["content_hash"]
             or target["target_id"]!=b["target"]["name"] or target["version"]!=b["target"]["version"]
@@ -279,9 +284,13 @@ def _verify(directory,row):
     raw=_read(ws/"episodes.jsonl",buyer_research.MAX_BYTES)
     episodes=[json.loads(line) for line in raw.splitlines() if line.strip()]
     expected={(c.case_id,w.world_id) for c in cases for w in c.worlds}
-    baselines={(e["case_id"],e["world_id"]) for e in episodes if e["stress_test"]=="BASELINE"}
+    baseline_rows=[(e["case_id"],e["world_id"]) for e in episodes if e["stress_test"]=="BASELINE"]
+    baselines=set(baseline_rows)
+    observed=[(e["case_id"],e["world_id"],e["stress_test"]) for e in episodes]
     ids=[e["episode_id"] for e in episodes]
-    if (baselines!=expected or len(ids)!=len(set(ids)) or len(episodes)!=analysis["n_cells"]
+    if (baselines!=expected or len(baseline_rows)!=len(expected) or len(observed)!=len(set(observed))
+            or any((cid,wid) not in expected or stress not in STRESS_TESTS for cid,wid,stress in observed)
+            or len(ids)!=len(set(ids)) or len(episodes)!=analysis["n_cells"]
             or any(e.get("errors") or e["target_id"]!=b["target"]["name"] or e["target_version"]!=b["target"]["version"] for e in episodes)):
         raise buyer.BuyerError("incomplete or inconsistent episode inventory")
     file_hashes={p.relative_to(ws).as_posix():_sha(_read(p,buyer_research.MAX_BYTES))
@@ -322,6 +331,10 @@ def execute(directory,identifier,approved_digest,*,allow_candidate_calls=False,a
                 f.write(raw)
         env=os.environ.copy()
         env["PYTHONPATH"]=str(Path(__file__).resolve().parents[1])
+        with access.db(directory) as db:
+            owner=db.execute("SELECT role,enabled FROM users WHERE id=?",(row["owner"],)).fetchone()
+            if not owner or not owner["enabled"] or owner["role"] not in ("admin","operator"):
+                raise access.AccessDenied("job owner disabled or role changed")
         proc=subprocess.run([sys.executable,"-m","caeval.cli","run","--project","."],
                             cwd=dest,env=env,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL,timeout=1800,check=False)
