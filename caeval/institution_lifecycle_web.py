@@ -26,12 +26,15 @@ def render(directory,actor):
         body+="<p>Rollback: "+esc(pilot["rollback_plan"])+"</p><p>Blocking open records: "+str(pilot["blocking_open"])+(" · Overdue" if pilot["overdue"] else "")+"</p>"
         if actor["role"]=="admin":
             body+="<p><a href='/lifecycle-history?id="+esc(pilot["id"])+"'>Record history</a></p>"
+        for e in pilot["evidence"]:
+            body+="<p>Evaluation "+esc(e["purpose"])+" · "+esc(e["job_id"])+" · "+esc(e["integrity"])+" · "+str(e["family_count"])+" families</p>"
         for item in pilot["items"]:
             body+="<section><h3>"+esc(item["title"])+"</h3><p>"+esc(item["kind"])+" · "+esc(item["severity"])+" · "+esc(item["state"])+"</p><p>"+esc(item["action"])+"</p><p>Owner: "+esc(item["owner"])+" · Due: "+esc(item["due"])+"</p>"
             if write and item["state"]=="open" and pilot["state"]!="closed":
                 body+=form("resolve",field("reason","Resolution and evidence"),"Record resolution",(("item_id",item["id"]),("revision",item["revision"])))
             body+="</section>"
         if write and pilot["state"]!="closed":
+            body+=form("link",field("job_id","Verified job ID")+select("purpose","Evidence purpose",("baseline","retest")),"Link assessment",h)
             body+=form("add",select("kind","Record type",lifecycle.KINDS)+select("severity","Severity",lifecycle.SEVERITIES)+field("title","Title")+field("action","Action / mitigation")+field("owner","Owner account ID")+field("due","Due date","date"),"Add register item",h)
             allowed=("paused","in_review","closed") if actor["role"]=="admin" else ("paused",)
             body+=form("transition",select("state","Administrative state",allowed)+field("reason","Reason"),"Record state change",h)
@@ -60,6 +63,8 @@ def dispatch(directory,actor,form):
     if action=="add":
         pilot=form.pop("pilot_id","")
         return lifecycle.add_item(directory,actor,pilot,form,rev)
+    if action=="link" and set(form)=={"pilot_id","job_id","purpose"}:
+        return lifecycle.link_evidence(directory,actor,form["pilot_id"],rev,form["job_id"],form["purpose"])
     if action=="resolve" and set(form)=={"item_id","reason"}:
         return lifecycle.resolve_item(directory,actor,form["item_id"],rev,form["reason"])
     if action=="transition" and set(form)=={"pilot_id","state","reason"}:
