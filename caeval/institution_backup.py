@@ -128,7 +128,10 @@ def _sqlite_check(root):
             continue
         if p.is_symlink() or not p.is_file():
             raise buyer.BuyerError("invalid workspace database")
-        conn=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=1)
+        try:
+            conn=sqlite3.connect(p.as_uri()+"?mode=ro",uri=True,timeout=1)
+        except sqlite3.Error as exc:
+            raise buyer.BuyerError("workspace database could not be opened read-only") from exc
         try:
             if conn.execute("PRAGMA quick_check").fetchall()!=[("ok",)]:
                 raise buyer.BuyerError("workspace database failed integrity check")
@@ -136,6 +139,8 @@ def _sqlite_check(root):
                 # Fixed identifiers above, never user-controlled SQL.
                 if conn.execute("SELECT count(*) FROM "+table+" WHERE "+column+"='running'").fetchone()[0]:
                     raise buyer.BuyerError("running jobs present; investigate before checkpoint")
+        except sqlite3.Error as exc:
+            raise buyer.BuyerError("workspace database could not be verified") from exc
         finally:
             conn.close()
 
@@ -244,9 +249,9 @@ def create(directory,output,*,services_stopped=False):
     buyer.load(root)
     if _inside(root,dest) is not None or _inside(dest,root) is not None:
         raise buyer.BuyerError("backup destination must be outside workspace")
+    dirs,files=_inventory(root)
     _sqlite_check(root)
     _procurement_paths(root,root)
-    dirs,files=_inventory(root)
     dest.mkdir(mode=0o700)  # exclusive; never overwrite prior backup
     try:
         workspace=dest/"workspace"
@@ -284,26 +289,32 @@ def restore(backup,destination,*,services_stopped=False):
     dirs,files=_inventory(source)
     dest.mkdir(mode=0o700)  # exclusive; never overwrite an existing workspace
     try:
+        stage=dest/".restore-staging"
+        stage.mkdir(mode=0o700)
         for rel in dirs:
-            (dest/rel).mkdir(mode=0o700,parents=True,exist_ok=True)
-        # Publish buyer.json last, so an interrupted restore is not usable.
-        for rel,info in sorted(files.items(),key=lambda pair:pair[0]==buyer.STATE_FILE):
-            if _read_file(source/rel,info,dest/rel)!=doc["files"][rel]:
+            (stage/rel).mkdir(mode=0o700,parents=True,exist_ok=True)
+        for rel,info in sorted(files.items()):
+            if _read_file(source/rel,info,stage/rel)!=doc["files"][rel]:
                 raise buyer.BuyerError("backup changed during restore")
         if check(root)["backup_id"]!=doc["backup_id"]:
             raise buyer.BuyerError("backup changed during restore")
-        relocation=_procurement_paths(dest,Path(doc["source_root"]))
+        relocation=_procurement_paths(stage,Path(doc["source_root"]))
         if relocation is not None:
             from . import procurement_workflow as pw
-            pw.save(dest/"assessment",relocation)
-        db=dest/"institution"/"access.sqlite3"
+            pw.save(stage/"assessment",relocation)
+        db=stage/"institution"/"access.sqlite3"
         if db.is_file():
             from . import institution_access as access
-            with access.db(dest) as conn:
+            with access.db(stage) as conn:
                 conn.execute("DELETE FROM sessions")
                 access._audit(conn,"local-admin","workspace-restored",doc["backup_id"])
-        _sqlite_check(dest)
-        buyer.load(dest)
+        _sqlite_check(stage)
+        buyer.load(stage)
+        # Publish the root state file last, only after relocation and session
+        # revocation have completed. Partial destinations cannot be opened.
+        for p in sorted(stage.iterdir(),key=lambda p:p.name==buyer.STATE_FILE):
+            p.rename(dest/p.name)
+        stage.rmdir()
         return {"backup_id":doc["backup_id"],"restored":True,
                 "sessions_revoked":True,"decision_grade":False,
                 "clinical_validity":"not_established"}
