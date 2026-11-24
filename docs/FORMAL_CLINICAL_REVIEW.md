@@ -1,0 +1,113 @@
+# Formal offline clinical review handoff (experimental)
+
+This is a trusted-operator workflow for a completed verified **generic
+paired-text** assessment. It reuses the existing canonical adjudicator,
+review manifest and platform-issued HMAC packets. It is independent of
+the institutional browser's exploratory account-bound reviews. Those
+submissions are never silently converted into formal clinical evidence.
+
+## Before review
+
+An authorised institution must independently confirm professional
+credentials, identities, relevant clinical expertise, conflict-of-interest
+and independence from the product vendor, hazard authors and defect
+implementers. Record the institution's own verification documentation in
+approved systems. The software records the operator's explicit attestation;
+it does not perform credential checks or authenticate a returned document's
+author. Use approved non-identifiable cases and secure offline exchange.
+
+Predeclare two to five independent safety reviewer IDs and a **different**
+validity reviewer before anyone receives packets. The issuing and receiving
+operator cannot be one of those reviewers. Any predeclared restrictions in
+the original assessment remain in force. Use a new handoff for a different
+roster or source version, not an edited handoff.
+
+    python -m caeval.formal_review_cli prepare /srv/caeval/workspace \
+      --job JOB --family missing_information \
+      --reviewer clinician-a --reviewer clinician-b \
+      --validity-reviewer clinician-c --operator coordinator --confirm-roster
+
+The result gives a handoff ID. The source package and review queue are
+reverified; captured source artifacts and issued packets are frozen in a
+private derivative workspace. The per-handoff HMAC secret stays on the
+trusted server. A synthetic/non-L1 source is automatically marked synthetic
+and cannot be relabelled as genuine clinical evidence.
+
+## Independent review and validity
+
+Export one packet per reviewer to an approved destination:
+
+    python -m caeval.formal_review_cli export /srv/caeval/workspace \
+      --handoff HANDOFF --reviewer clinician-a --out /approved/a.json
+
+Repeat separately for the other safety reviewer(s) and validity reviewer.
+Do not send a combined dossier or automated scores to independent
+reviewers. Safety packets expose only case-as-shown, response and opaque
+slot IDs. Validity packets expose the original and perturbed case, with
+the canonical validity questions. The coordinator should check the packet
+for accidental identifying text before distribution.
+
+Reviewers fill only the submission block. Each safety verdict is safe,
+unsafe or cannot_judge. Each validity question is yes, no or cannot_judge;
+notes are optional. Set the independence confirmation only after independently
+performing the review. Do not change the request, packet or slots.
+
+The coordinator separately verifies the source of each returned file and
+the reviewer's identity and independence before importing it:
+
+    python -m caeval.formal_review_cli submit /srv/caeval/workspace \
+      --handoff HANDOFF --reviewer clinician-a --file /approved/a-filled.json \
+      --operator coordinator --confirm-identity
+
+A different submission for an already received reviewer is refused; an
+identical submission is idempotent. There is no automatic clinical
+identity verification and the HMAC signs the issued packet binding, not
+the reviewer's filled verdicts. Account names alone do not prove clinical
+qualifications.
+
+## Disagreement resolution
+
+After all independent submissions and the validity submission are locked,
+the coordinator can export a separate consensus packet containing only tied
+cells:
+
+    python -m caeval.formal_review_cli consensus-export /srv/caeval/workspace \
+      --handoff HANDOFF --out /approved/consensus.json
+
+Original reviewers discuss only these tied cells, document the agreed
+verdict and rationale, and explicitly confirm the consensus. If no
+agreement is possible, record cannot_judge, leaving the cell unresolved.
+The coordinator verifies their agreement externally before importing:
+
+    python -m caeval.formal_review_cli consensus-submit /srv/caeval/workspace \
+      --handoff HANDOFF --file /approved/consensus-filled.json \
+      --operator coordinator --confirm-consensus
+
+Consensus is bound to the exact independent submission digests; it never
+changes independent labels or inter-rater reliability.
+
+## Analysis
+
+    python -m caeval.formal_review_cli status /srv/caeval/workspace --handoff HANDOFF
+    python -m caeval.formal_review_cli analyze /srv/caeval/workspace --handoff HANDOFF
+
+The canonical adjudicator runs offline against a private derivative copy
+with the originally issued packets, independently submitted verdicts and
+any locked consensus. A negative or indeterminate answer to a canonical
+positive perturbation-validity gate blocks formal validity; no cell is
+silently removed or counted as passing. The report retains canonical
+coverage, disagreement, judge operating points and gate outcomes. It also
+records the source manifest, roster and submission digests. The result
+does **not** change the original assessment or its claim authority, and is
+not a procurement or deployment decision. Canonical L2 gate output is
+only an audited-scope statistical/conformance result, conditional on
+external identity and independence attestations; it is not clinical
+validation. Existing clinical study protocols remain separate.
+
+Do not put the handoff directory or signing secret in a reviewer export,
+MCP snapshot, public repository or external service. Protect all derivative
+data under institutional retention, access and recovery policies. A trusted
+filesystem administrator can alter local files and reissue HMAC packets;
+this is not PKI or tamper-proof audit. Browser-based formal issuance and
+submission, institutional identity federation and production acceptance
+are future work.
