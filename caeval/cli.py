@@ -1449,6 +1449,20 @@ def cmd_reference_actions(args):
             raise SystemExit("Provider run incomplete: retry explicitly with "
                              "the same --out, model and casepack; no pass claim")
         return
+    if args.action == "compare":
+        if not args.baseline or not args.candidate:
+            raise SystemExit("reference-actions compare requires --baseline and --candidate JSONL")
+        from . import reference_action_regression as regression
+        result = regression.compare(
+            pack, ra.read_jsonl(args.baseline), ra.read_jsonl(args.candidate),
+            repeats=args.repeats)
+        pathlib_Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        pathlib_Path(args.out).write_text(json.dumps(result, indent=2, sort_keys=True))
+        print(regression.render_markdown(result))
+        if result["status"] != "COMPLETE_EXPLORATORY_COMPARISON":
+            raise SystemExit("Reference-action comparison INCOMPLETE: never infer "
+                             f"no regression from missing responses; inspect {args.out}")
+        return
     if not args.responses:
         raise SystemExit("reference-actions score requires --responses JSONL")
     rows = ra.read_jsonl(args.responses)
@@ -1753,9 +1767,11 @@ def main(argv=None):
     pra = sub.add_parser(
         "reference-actions",
         help="offline clinical reference actions, paired fact changes and repeatability")
-    pra.add_argument("action", choices=["prepare", "run", "score"])
+    pra.add_argument("action", choices=["prepare", "run", "score", "compare"])
     pra.add_argument("--cases", required=True, help="clinician-defined reference-action JSON pack")
     pra.add_argument("--responses", help="structured model responses JSONL (score mode)")
+    pra.add_argument("--baseline", help="baseline model responses JSONL (compare mode)")
+    pra.add_argument("--candidate", help="candidate model responses JSONL (compare mode)")
     pra.add_argument("--out", required=True, help="requests JSONL, provider results JSONL or report JSON")
     pra.add_argument("--repeats", type=int, default=1)
     pra.add_argument("--provider", choices=["openai", "anthropic", "google", "xai"],
