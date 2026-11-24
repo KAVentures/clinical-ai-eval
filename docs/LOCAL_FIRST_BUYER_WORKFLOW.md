@@ -179,6 +179,33 @@ or independently validated clinical performance. The research CLI, study
 protocols, scoring and publication exports remain unchanged. This initial
 view is not yet a full browser experiment designer or multi-user review tool.
 
+## Browser evaluation planning
+
+From the procurement dashboard, open **Plan evaluation**. Register a candidate,
+enter the exact product and version, select its intended-use profiles, and
+answer every canonical scientific intake question. The planner calls the same
+scientific selection rules as the CLI. It explicitly lists required, runnable
+and unavailable families, the selection rationale, and definition limitations.
+
+A saved preview is content-addressed and downloadable as JSON. It records the
+engine version and scientific definition hashes; loading a changed snapshot fails,
+and a changed engine or ruleset is flagged. Identical inputs generate the same
+snapshot. A draft is **not** a frozen protocol, executable run, clinical finding,
+or procurement decision. It does not contain provider credentials, invoke
+models, or substitute for case-pack, judge and physician-review configuration.
+
+CLI agents can use the same planner:
+
+```bash
+clinical-ai-eval buyer plan-preview ./hospital-assessment --file intake.json
+clinical-ai-eval buyer plan-show ./hospital-assessment --plan-id <snapshot-sha256>
+```
+
+The input is a JSON object with `vendor_id`, `target_name`, `target_version`,
+`profiles` (a list of explicit supported target-profile identifiers), and
+`answers` (an object answering each scientific intake question). The browser
+shows the questions directly. Do not include patient identifiers.
+
 ## Running clinical evaluations locally
 
 The existing model provider interface accepts local OpenAI-compatible inference
