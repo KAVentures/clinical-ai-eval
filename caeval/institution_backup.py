@@ -135,6 +135,11 @@ def _sqlite_check(root):
         try:
             if conn.execute("PRAGMA quick_check").fetchall()!=[("ok",)]:
                 raise buyer.BuyerError("workspace database failed integrity check")
+            if rel=="institution/access.sqlite3":
+                for name,column in (("conversation_jobs","status"),("monitoring_occurrences","state")):
+                    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(name,)).fetchone():
+                        if conn.execute("SELECT count(*) FROM "+name+" WHERE "+column+"='running'").fetchone()[0]:
+                            raise buyer.BuyerError("running institutional work; investigate before checkpoint")
             if table is not None:
                 # Fixed identifiers above, never user-controlled SQL.
                 if conn.execute("SELECT count(*) FROM "+table+" WHERE "+column+"='running'").fetchone()[0]:
