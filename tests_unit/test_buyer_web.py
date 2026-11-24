@@ -82,6 +82,32 @@ class LocalBuyerBrowserTests(unittest.TestCase):
             self.assertIn("No verified clinical comparison", report)
             self.assertNotIn(self.app.session_token, report)
 
+    def test_browser_questionnaire_roundtrip(self):
+        from caeval import buyer_questionnaire as q
+        with self.assertRaises(urllib.error.HTTPError) as exc:
+            self._request("/questionnaire?vendor_id=v1")
+        self.assertEqual(exc.exception.code, 401)
+        self._login()
+        buyer.add_vendor(self.root, "v1", "Vendor One")
+        with self._request("/questionnaire?vendor_id=v1") as response:
+            self.assertIn("attachment", response.headers["Content-Disposition"])
+            doc = json.loads(response.read())
+        doc["submission"]["respondent"] = "Supplier"
+        doc["submission"]["product_version"] = "v1"
+        for answer in doc["submission"]["answers"]:
+            answer.update(status="not_available", answer="Not supplied")
+        boundary = "----questionnaire-fixture"
+        form = (
+            f'--{boundary}\r\nContent-Disposition: form-data; name="vendor_id"\r\n\r\nv1\r\n'
+            f'--{boundary}\r\nContent-Disposition: form-data; name="document"; filename="q.json"\r\n'
+            f'Content-Type: application/json\r\n\r\n'
+        ).encode("utf-8") + json.dumps(doc).encode("utf-8")
+        form += f"\r\n--{boundary}--\r\n".encode("utf-8")
+        headers = {"Origin": self.base, "Content-Type": f"multipart/form-data; boundary={boundary}"}
+        with self._request("/questionnaire-import", data=form, headers=headers) as response:
+            self.assertIn(b"self-reported and unverified", response.read())
+        self.assertEqual(buyer.status(self.root)["vendors"][0]["questionnaires"][0]["schema_status"], "valid")
+
     def test_reject_cross_origin_vendor_write(self):
         self._login()
         with self.assertRaises(urllib.error.HTTPError) as exc:
