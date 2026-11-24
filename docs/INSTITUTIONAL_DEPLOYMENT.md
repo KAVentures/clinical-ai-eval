@@ -288,3 +288,54 @@ unscored and operator-attested. Real patient data, external endpoints, multi-tur
 collection, vendor attestation and deployment authorization remain outside
 this feature. A crashed running collection requires operator investigation;
 no automatic retry is performed.
+
+
+## Local MCP agent integration
+
+Clinical AI Eval provides a native stdio MCP interface over an explicitly
+exported, aggregate-only metadata snapshot. The agent process does not need
+access to the clinical workspace, and must not be given access to it through
+other tools or filesystem permissions. An approved administrator exports
+metadata to a separate, protected location:
+
+```bash
+clinical-ai-eval agent export /srv/caeval/workspace --out /approved-agent-data/summary.json
+clinical-ai-eval agent mcp /approved-agent-data/summary.json
+```
+
+For Claude Code or another compatible local MCP client, configure a stdio
+server using the absolute path of the installed executable:
+
+```json
+{
+  "mcpServers": {
+    "clinical-ai-eval": {
+      "command": "/approved/bin/clinical-ai-eval",
+      "args": ["agent", "mcp", "/approved-agent-data/summary.json"]
+    }
+  }
+}
+```
+
+The server implements the initialization and read-only tools subset of MCP
+2025-03-26 and 2024-11-05. Compatibility with individual current clients
+must be verified before deployment. No HTTP listener or SDK dependency is
+required. It supports four tools: scientific capabilities, evaluation job
+summary, research package summary, and aggregate procurement inventory.
+Every tool takes an empty argument object; the client cannot specify paths,
+run shell commands, change records, or initiate evaluations.
+
+The export excludes clinical text, candidate names, reviewer identities,
+credentials, paths, free-text diagnostics and individual verdicts. It contains
+counts, installed scientific family identifiers, enumerated states and claim
+ceilings. A strict schema is validated independently of its digest. The
+snapshot is loaded once on startup and is not live; stop the process and
+explicitly approve a new export to refresh it. Its digest is an integrity
+check, not a digital signature or a proof of authorization.
+
+Even aggregate information may be confidential. A cloud-backed agent may
+transmit tool outputs to its provider; only use a client approved for the
+information in the export. Run the agent and MCP process under a separate
+least-privilege account with access only to the approved export and installed
+application dependencies. The gateway is not a sandbox for other client tools.
+Full live institutional MCP with authenticated scoped grants remains separate.
