@@ -235,3 +235,56 @@ No composite score or ranking is produced. All scientific comparisons remain
 experimental and subject to independent clinical validation. A procurement
 committee must make its own risk-proportionate decision using the full
 institutional governance process.
+
+
+## Automated local candidate collection
+
+For a single-turn candidate, first prepare the existing blinded manual exchange.
+An administrator stages a JSON connector under
+`approved-connectors/<connector-id>.json`, with exactly these fields:
+
+```json
+{
+  "vendor_id": "candidate-a",
+  "target_name": "Candidate A",
+  "target_version": "1.0",
+  "url": "http://127.0.0.1:8080/evaluate",
+  "prompt_field": "prompt",
+  "answer_path": "answer",
+  "headers": {},
+  "timeout_seconds": 30
+}
+```
+
+The URL must be literal loopback HTTP with an explicit port. The product must
+be running on the execution host. This transport disables proxies and redirects;
+it does not establish that the target itself refrains from external calls.
+Apply institutional egress restrictions and use approved non-identifiable
+cases. Credentials may only be environment references in the supported
+Authorization or X-API-Key headers, not literal secrets.
+
+The institutional operator can queue and cancel collections from the browser.
+The trusted CLI operator executes the exact approved binding:
+
+```bash
+clinical-ai-eval buyer connector-list ./hospital-assessment
+clinical-ai-eval buyer collection-queue ./hospital-assessment --exchange-id EXCHANGE --connector-id local
+clinical-ai-eval buyer collection-execute ./hospital-assessment --collection-id COLLECTION --approve-binding HASH --operator OPERATOR
+clinical-ai-eval buyer collection-status ./hospital-assessment --collection-id COLLECTION
+```
+
+Queueing sends no data. Execution requires the binding hash and revalidates
+the connector configuration, candidate/version and exact prompts. The
+transport sends only the case-as-shown text, bounds requests and responses,
+does not retry, stops after repeated failures and checks a 15-minute deadline
+between calls. The socket timeout is not a hard process deadline; run under
+an approved process supervisor with resource and wall-clock limits.
+
+The returned receipt identifies the frozen response submission for the existing
+assessment preparation workflow. Incomplete collections cannot be handed to
+the scoring engine. The recorded product version is still operator-configured,
+not cryptographically authenticated by the endpoint. The submission remains
+unscored and operator-attested. Real patient data, external endpoints, multi-turn
+collection, vendor attestation and deployment authorization remain outside
+this feature. A crashed running collection requires operator investigation;
+no automatic retry is performed.
