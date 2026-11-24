@@ -11,6 +11,7 @@ import csv
 import hashlib
 import io
 import json
+import os
 import tempfile
 import uuid
 from pathlib import Path
@@ -134,7 +135,7 @@ def prepare(directory,job,family,reviewers,validity_reviewer,operator,*,confirm_
     excluded=set(predeclared.get("excluded_roles") or [])
     if (assigned and not set(ids)<=set(assigned)) or excluded.intersection(ids+[vid]):
         raise buyer.BuyerError("roster conflicts with source project reviewer restrictions")
-    synthetic=not adjudicate.panel_can_anchor_l2(meta["panel"])
+    synthetic=pkg["claim"]=="demonstration" or not adjudicate.panel_can_anchor_l2(meta["panel"])
     root=_root(directory)
     if sum(p.is_dir() for p in root.iterdir())>=MAX_ROSTERS:
         raise buyer.BuyerError("formal review workspace limit")
@@ -178,14 +179,15 @@ def _load(directory,identifier):
         raise buyer.BuyerError("formal review binding changed")
     ids,vid=_roster(binding["reviewers"],binding["validity_reviewer"])
     pkg,source=_source(directory,binding["job"],binding["family"])
-    if pkg["manifest_hash"]!=binding["source_manifest"] or set(binding["inputs"])!=set(INPUTS.values()):
+    if (pkg["manifest_hash"]!=binding["source_manifest"] or pkg["claim"]!=binding["source_claim"]
+            or set(binding["inputs"])!=set(INPUTS.values())):
         raise buyer.BuyerError("source package changed")
     blobs={name:_read(ws/name) for name in INPUTS.values()}
     if blobs!=source or {name:_sha(raw) for name,raw in blobs.items()}!=binding["inputs"]:
         raise buyer.BuyerError("frozen review source changed")
     locked,safety,validity=_queues(blobs)
     if (locked["manifest_hash"]!=binding["review_manifest"] or locked["run_id"]!=binding["run_id"]
-            or binding["synthetic"] != (not adjudicate.panel_can_anchor_l2(json.loads(blobs["run_meta.json"])["panel"]))):
+            or binding["synthetic"] != (pkg["claim"]=="demonstration" or not adjudicate.panel_can_anchor_l2(json.loads(blobs["run_meta.json"])["panel"]))):
         raise buyer.BuyerError("review policy changed")
     if (ws/"review_packets").is_symlink() or (ws/"submissions").is_symlink() or (ws/packets.SECRET_FILE).is_symlink():
         raise buyer.BuyerError("unsafe review storage")
@@ -205,16 +207,21 @@ def _load(directory,identifier):
     return ws,binding,safety,validity,issued
 
 
+def _slots(binding, rows):
+    return {buyer_plan._digest([binding["binding_hash"],r["cell_id"]]):r for r in rows}
+
+
 def _template(binding,safety,validity,packet,rid):
     is_validity=rid==binding["validity_reviewer"]
+    # Do not expose canonical cell IDs: they can encode test/stress labels.
     if is_validity:
-        items=[{"cell_id":r["cell_id"],"original_case":r["original_case"],
-                "perturbed_case":r["perturbed_case"]} for r in validity]
-        answers=[{"cell_id":r["cell_id"],**{q:"" for q in VALIDITY},"notes":""} for r in items]
+        items=[{"slot":slot,"original_case":r["original_case"],
+                "perturbed_case":r["perturbed_case"]} for slot,r in sorted(_slots(binding,validity).items())]
+        answers=[{"slot":r["slot"],**{q:"" for q in VALIDITY},"notes":""} for r in items]
     else:
-        items=[{"cell_id":r["cell_id"],"case":r["case_as_shown_to_product"],
-                "response":r["product_response"]} for r in safety]
-        answers=[{"cell_id":r["cell_id"],"verdict":"","notes":""} for r in items]
+        items=[{"slot":slot,"case":r["case_as_shown_to_product"],
+                "response":r["product_response"]} for slot,r in sorted(_slots(binding,safety).items())]
+        answers=[{"slot":r["slot"],"verdict":"","notes":""} for r in items]
     return {"request":{"schema":"formal-review-packet/1","binding_hash":binding["binding_hash"],
                         "source_manifest":binding["source_manifest"],"packet":packet,
                         "kind":"validity" if is_validity else "safety","items":items},
@@ -235,15 +242,15 @@ def _validate_submission(doc,expected):
             or doc["submission"]["independent_review_confirmed"] is not True):
         raise buyer.BuyerError("changed packet or missing independent review confirmation")
     rows=doc["submission"]["answers"]
-    want={r["cell_id"] for r in expected["submission"]["answers"]}
+    want={r["slot"] for r in expected["submission"]["answers"]}
     validity=expected["request"]["kind"]=="validity"
-    fields={"cell_id","notes",*VALIDITY} if validity else {"cell_id","notes","verdict"}
+    fields={"slot","notes",*VALIDITY} if validity else {"slot","notes","verdict"}
     if not isinstance(rows,list) or len(rows)!=len(want):
         raise buyer.BuyerError("one answer per issued cell required")
     seen=set()
     for r in rows:
-        if (not isinstance(r,dict) or set(r)!=fields or not isinstance(r["cell_id"],str)
-                or r["cell_id"] not in want or r["cell_id"] in seen
+        if (not isinstance(r,dict) or set(r)!=fields or not isinstance(r["slot"],str)
+                or r["slot"] not in want or r["slot"] in seen
                 or not isinstance(r["notes"],str) or len(r["notes"])>4000):
             raise buyer.BuyerError("invalid or duplicate review answer")
         if validity:
@@ -251,8 +258,28 @@ def _validate_submission(doc,expected):
                 raise buyer.BuyerError("explicit validity answers required")
         elif r["verdict"] not in VERDICTS:
             raise buyer.BuyerError("explicit safety verdict required")
-        seen.add(r["cell_id"])
-    return sorted(rows,key=lambda r:r["cell_id"])
+        seen.add(r["slot"])
+    return sorted(rows,key=lambda r:r["slot"])
+
+
+def _publish_once(path,record):
+    """Publish complete private JSON exclusively, including concurrent imports."""
+    raw=(json.dumps(record,ensure_ascii=False,indent=2,allow_nan=False)+"\n").encode("utf-8")
+    if len(raw)>manual.MAX_REQUEST_BYTES:
+        raise buyer.BuyerError("stored review exceeds size limit")
+    fd,temp=tempfile.mkstemp(prefix=".formal-write-",dir=path.parent)
+    try:
+        with os.fdopen(fd,"wb") as f:
+            f.write(raw)
+            f.flush()
+            os.fsync(f.fileno())
+        try:
+            os.link(temp,path)
+        except FileExistsError:
+            if _json(path)!=record:
+                raise buyer.BuyerError("existing review differs; refusing overwrite")
+    finally:
+        os.unlink(temp)
 
 
 def submit(directory,identifier,reviewer_id,document,operator,*,confirm_identity=False):
@@ -268,7 +295,7 @@ def submit(directory,identifier,reviewer_id,document,operator,*,confirm_identity
              "reviewer":reviewer_id,"operator":operator,"operator_attested_identity_and_independence":True,
              "answers":rows}
     payload["digest"]=buyer_plan._digest(payload)
-    manual._write_once(ws/"submissions"/(reviewer_id+".json"),payload)
+    _publish_once(ws/"submissions"/(reviewer_id+".json"),payload)
     return {"reviewer":reviewer_id,"digest":payload["digest"],"decision_grade":False}
 
 
@@ -329,10 +356,12 @@ def analyze(directory,identifier):
         (dest/packets.SECRET_FILE).write_bytes(_read(ws/packets.SECRET_FILE,1024))
         for rid,packet in issued.items():
             packets.write_packet(dest,packet)
+        safety_slots=_slots(binding,safety)
+        validity_slots=_slots(binding,validity)
         files=[]
         for rid in binding["reviewers"]:
             path=dest/"adjudication"/(rid+".csv")
-            _write_csv(path,[{"cell_id":r["cell_id"],"reviewer_id":rid,
+            _write_csv(path,[{"cell_id":safety_slots[r["slot"]]["cell_id"],"reviewer_id":rid,
                              "human_verdict_safe_unsafe":r["verdict"]}
                             for r in records[rid]["answers"]],
                        ["cell_id","reviewer_id","human_verdict_safe_unsafe"])
@@ -340,10 +369,10 @@ def analyze(directory,identifier):
         # A "no" on any of the canonical positive validity gates blocks
         # promotion. Do not silently exclude a cell or reweight denominators.
         vrows=records[binding["validity_reviewer"]]["answers"]
-        nonvalid=[r["cell_id"] for r in vrows if any(r[q]!="yes" for q in adjudicate.VALIDITY_FIELDS)]
+        nonvalid=[r["slot"] for r in vrows if any(r[q]!="yes" for q in adjudicate.VALIDITY_FIELDS)]
         if not nonvalid:
             _write_csv(dest/"adjudication"/"validity_review_filled.csv",
-                       [{"cell_id":r["cell_id"],**{q:r[q] for q in adjudicate.VALIDITY_FIELDS}} for r in vrows],
+                       [{"cell_id":validity_slots[r["slot"]]["cell_id"],**{q:r[q] for q in adjudicate.VALIDITY_FIELDS}} for r in vrows],
                        ["cell_id",*adjudicate.VALIDITY_FIELDS])
         result=adjudicate.adjudicate(str(dest),files)
         if nonvalid and result["l2_adjudication_gate_passed"]:
@@ -363,5 +392,5 @@ def analyze(directory,identifier):
                         "Contested cells require a separately approved resolution workflow."]}
     out["digest"]=buyer_plan._digest(out)
     # Canonical adjudication is deterministic for unchanged review data.
-    manual._write_once(ws/("analysis-"+out["digest"]+".json"),out)
+    _publish_once(ws/("analysis-"+out["digest"]+".json"),out)
     return out
