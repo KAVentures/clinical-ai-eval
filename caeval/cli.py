@@ -248,6 +248,24 @@ def _run_project_bound(args):
 
     from . import executors, packsource
 
+    local_only = proj.subject.get("local_only", False)
+    if type(local_only) is not bool:
+        raise SystemExit("subject.local_only must be a boolean")
+    if local_only:
+        if (proj.subject.get("kind")!="http" or proj.subject.get("modality")!="conversation"
+                or any(executors.resolve(f).executor_id!=executors.PATIENT_EPISODE for f in runnable)):
+            raise SystemExit("local_only is currently supported only for patient conversational HTTP projects")
+        # Refuse reuse, so a failed local run cannot leave a previous completed
+        # manifest in the same workspace. No credential loading or calls yet.
+        root = Path(args.workspace) if args.workspace else Path(proj.path)/"out"
+        for family_id in runnable:
+            dest=root/("run_"+family_id)
+            if dest.exists() or dest.is_symlink():
+                raise SystemExit("local_only requires a fresh output workspace")
+        if root.is_symlink():
+            raise SystemExit("local_only refuses a linked output workspace")
+        _conversation_spec(proj.subject)
+
     panel, keys = _panel_and_keys(proj.data.get("panel", {}).get("config"), proj.path)
 
     subject_spec = dict(proj.subject)
@@ -329,7 +347,7 @@ def _conversation_spec(subject_spec: dict):
         history_field=subject_spec.get("history_field", "messages"),
         answer_path=subject_spec.get("answer_path", "answer"),
         session_field=subject_spec.get("session_field", ""),
-        timeout=int(subject_spec.get("timeout", 30 if local_only else 120)),
+        timeout=subject_spec.get("timeout", 30) if local_only else int(subject_spec.get("timeout", 120)),
         local_only=local_only,
     )
 
