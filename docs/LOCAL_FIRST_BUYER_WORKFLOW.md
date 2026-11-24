@@ -154,6 +154,31 @@ references are never automatically fetched. The questionnaire is an administrati
 intake aid, not a validated regulatory checklist or a clinical test. Its provenance
 and limitations are shown separately in the combined report.
 
+## Research workspace
+
+Open **Research workspace** from the local procurement dashboard to see the live
+scientific family registry, runnable/blocked status, maturity and executor
+information. This view uses the same registry as the research CLI.
+
+For read-only verification of existing runs, an approved local operator can
+copy complete run directories to `<buyer-project>/research-runs/<run-id>/`.
+Run IDs use lowercase letters, digits, hyphens and underscores. The browser
+does not accept arbitrary server paths or uploaded executable artifacts.
+The inspection checks the manifest schema and artifact inventory, limits
+package size and file count, rejects symlinks and unsafe manifest paths, and
+invokes the existing scientific verifier. It does not alter staged files.
+Raw clinical responses are not exposed by this overview.
+
+The same read-only view is available to CLI agents:
+```bash
+clinical-ai-eval buyer research ./hospital-assessment
+```
+
+A valid manifest is evidence of artifact integrity, not authenticated provenance
+or independently validated clinical performance. The research CLI, study
+protocols, scoring and publication exports remain unchanged. This initial
+view is not yet a full browser experiment designer or multi-user review tool.
+
 ## Running clinical evaluations locally
 
 The existing model provider interface accepts local OpenAI-compatible inference

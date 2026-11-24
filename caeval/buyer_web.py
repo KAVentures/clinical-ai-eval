@@ -143,7 +143,7 @@ def render_page(data: dict, message: str = "", error: str = "") -> bytes:
 <div class='kicker'>Clinical AI Eval · Local workspace</div>
 <h1>{esc(data["project_name"])}</h1>
 <div class='muted'>On-device procurement evidence register · No cloud connection</div>
-</div><span class='tag'>Local session</span></header>
+</div><div><a href='/research'>Research workspace</a> · <span class='tag'>Local session</span></div></header>
 {notices}
 <div class='notice'><b>Administrative screening only.</b> Uploaded documents are not
 automatically verified for accuracy, and this view is not a clinical validation,
@@ -207,6 +207,45 @@ Vendor statements require independent review; they do not close evidence require
 <div class='small'>Clinical evaluation</div>
 <p>{assessment_status}</p></section></div></div></div></body></html>"""
     return content.encode("utf-8")
+
+
+def render_research(data: dict) -> bytes:
+    """Scientific capability and provenance view, not a separate scoring implementation."""
+    caps = []
+    for row in data["capabilities"]:
+        caps.append("<tr><td>" + esc(row["family_id"]) + "</td><td>" +
+                    ("Runnable" if row.get("selectable") and row.get("executor") else "Blocked") +
+                    "</td><td>" + esc(row.get("maturity") or "Unknown") +
+                    "</td><td>" + esc(row.get("executor") or row.get("blocked_reason") or "—") +
+                    "</td></tr>")
+    runs = []
+    for row in data["runs"]:
+        runs.append("<tr><td>" + esc(row["run_id"]) + "</td><td>" +
+                    esc(row.get("family_id") or "Unknown") + "</td><td>" +
+                    esc(row["verdict"]) + "</td><td>" +
+                    esc(row.get("recorded_claim") or "Not established") +
+                    "</td><td>" + esc(row.get("manifest_hash") or "—") +
+                    "</td></tr>")
+    if not runs:
+        runs.append("<tr><td colspan='5'>No locally staged research runs.</td></tr>")
+    return f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Clinical AI Eval — Research</title><style>{STYLE}</style></head>
+<body><main class='shell'><header><div><div class='kicker'>Clinical AI Eval · Research</div>
+<h1>Scientific evaluation workspace</h1><p class='muted'>Same evaluation engine as the CLI.</p></div>
+<a href='/'>Procurement workspace</a></header>
+<div class='notice'>Read-only research view. Manifest verification establishes artifact integrity
+under this build's definitions, not the authenticity, clinical validity, or suitability of a result.</div>
+<section class='panel'><h2>Evaluation capabilities</h2><table>
+<thead><tr><th>Family</th><th>Availability</th><th>Maturity</th><th>Executor / limitation</th></tr></thead>
+<tbody>{''.join(caps)}</tbody></table></section>
+<section class='panel'><h2>Locally staged research runs</h2>
+<p class='muted'>An approved operator can stage existing run directories under
+<code>research-runs/</code> inside the project. No browser upload or model invocation occurs here.
+The table shows up to {data["limit"]} runs; raw clinical text and credentials are not displayed.</p>
+<div style='overflow:auto'><table><thead><tr><th>Run</th><th>Family</th><th>Integrity</th>
+<th>Recorded claim</th><th>Manifest hash</th></tr></thead><tbody>{''.join(runs)}</tbody></table></div>
+</section></main></body></html>""".encode("utf-8")
 
 
 def render_setup() -> bytes:
@@ -339,7 +378,7 @@ class BuyerHandler(BaseHTTPRequestHandler):
         if not self._host_ok():
             return self._error(HTTPStatus.BAD_REQUEST, "invalid local Host")
         parts = urllib.parse.urlsplit(self.path)
-        if parts.path not in ("/", "/dossier", "/questionnaire"):
+        if parts.path not in ("/", "/dossier", "/questionnaire", "/research"):
             return self._error(HTTPStatus.NOT_FOUND, "unknown route")
         supplied = urllib.parse.parse_qs(parts.query).get("token", [""])[0]
         if parts.path == "/" and supplied and hmac.compare_digest(supplied, self.server.session_token):
@@ -354,6 +393,13 @@ class BuyerHandler(BaseHTTPRequestHandler):
                                "Launch with the private URL shown in your terminal.")
         query = urllib.parse.parse_qs(parts.query)
         try:
+            if parts.path == "/research":
+                from . import buyer_research
+                with self.server.mutation_lock:
+                    content = render_research(buyer_research.overview(self.server.directory))
+                self._headers(extra={"Content-Length": str(len(content))})
+                self.wfile.write(content)
+                return
             if parts.path == "/questionnaire":
                 from . import buyer_questionnaire as questionnaire
                 vendor_ids = query.get("vendor_id", [])
