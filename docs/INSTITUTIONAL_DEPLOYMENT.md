@@ -472,8 +472,8 @@ This is the existing experimental patient evaluator, not a new scoring
 method, and local transport does not prove that the product itself avoids
 external requests. Use synthetic or approved non-identifiable case packs,
 approved local judges or explicitly authorized external judge configurations,
-and institutional egress controls. Browser preparation of conversational
-jobs remains separate; the initial controlled route is the research CLI.
+and institutional egress controls. Browser preparation and supervised worker execution are available through
+[Institutional multi-turn candidate assessments](INSTITUTIONAL_CONVERSATIONS.md).
 The corrected per-episode reset changes the scientific session definition
 hash: older patient packages should be verified with their pinned version,
 not rehashed to claim they used the corrected executor.
@@ -489,3 +489,9 @@ itself implement OIDC/SAML token validation or MFA; the upstream gateway must
 enforce those policies. A managed WSGI app factory and sample Linux/systemd
 deployment configuration are included under deploy/institution. Actual IdP
 interoperability, security and production acceptance remain mandatory.
+
+## Additional institutional workflows
+
+- [Formal independent clinical review](FORMAL_CLINICAL_REVIEW.md) and [browser coordination](FORMAL_REVIEW_BROWSER.md).
+- [Longitudinal regression monitoring](LONGITUDINAL_MONITORING.md).
+- [Scoped live agent metadata](LIVE_AGENT_BROKER.md).
