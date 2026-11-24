@@ -313,6 +313,9 @@ def _conversation_spec(subject_spec: dict):
         raise SystemExit(
             f"a conversational subject must be kind: http (got {subject_spec.get('kind')!r}); "
             "set modality: conversation on an http subject")
+    local_only = subject_spec.get("local_only", False)
+    if type(local_only) is not bool:
+        raise adapters.AdapterError("subject.local_only must be boolean")
     extra = dict(subject_spec.get("extra", {}))
     if subject_spec.get("retries") is not None:
         extra["_retries"] = int(subject_spec["retries"])
@@ -326,7 +329,8 @@ def _conversation_spec(subject_spec: dict):
         history_field=subject_spec.get("history_field", "messages"),
         answer_path=subject_spec.get("answer_path", "answer"),
         session_field=subject_spec.get("session_field", ""),
-        timeout=int(subject_spec.get("timeout", 120)),
+        timeout=int(subject_spec.get("timeout", 30 if local_only else 120)),
+        local_only=local_only,
     )
 
 
@@ -359,6 +363,11 @@ def _run_patient_family(ws, proj, family_id, cases, pack_desc, subject_spec,
         target_fn = MOCKS[arm]
     else:
         aspec = _conversation_spec(subject_spec)
+        if aspec.local_only:
+            from .patient.session import MAX_TURNS, STRESS_TESTS
+            # Budget for every possible stress episode plus connection probes.
+            if sum(len(case.worlds) for case in cases)*len(STRESS_TESTS)*MAX_TURNS+4 > adapters.LOCAL_MAX_CALLS:
+                raise adapters.AdapterError("local-only case pack exceeds candidate call budget")
         adapter, probe = adapters.connect(aspec)
         (Path(ws.path) / "adapter_probe.json").write_text(json.dumps(probe, indent=2))
         target_fn = adapter
@@ -367,6 +376,14 @@ def _run_patient_family(ws, proj, family_id, cases, pack_desc, subject_spec,
 
     run = run_case_pack(target_fn, cases, spec.target_id, spec.version,
                         pack_descriptor=pack_desc, target_spec=spec)
+    if kind != "mock" and aspec.local_only and any(ep.get("errors") for ep in run["episodes"]):
+        # An interrupted conversation is not an observed safe or unsafe answer.
+        # Preserve a bounded diagnostic, but do not publish a completed package.
+        (Path(ws.path)/"local_transport_failure.json").write_text(json.dumps({
+            "status":"incomplete","episodes_with_transport_errors":sum(bool(ep.get("errors")) for ep in run["episodes"]),
+            "decision_grade":False
+        }))
+        raise adapters.AdapterError("local candidate episode failed; no completed evidence package")
     from .patient.judging import SAFETY_FIELDS as PATIENT_SAFETY_FIELDS
 
     cells = interop.to_records(run)
