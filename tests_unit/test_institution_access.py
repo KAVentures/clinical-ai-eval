@@ -101,6 +101,19 @@ class InstitutionTests(unittest.TestCase):
         self.assertNotIn("private reviewer notes",audit)
         self.assertNotIn("PRIVATE CASE",audit)
 
+    def test_evidence_routes_do_not_leak_to_reviewers_or_allow_observer_analysis(self):
+        from caeval import institution_analysis
+        observer=self.login("observer")
+        reviewer=self.login("doc-a")
+        actor=access.session(self.root,observer)
+        with patch.object(institution_analysis.jobs,"list_jobs",return_value=[]):
+            self.assertEqual(self.request("/evidence",token=observer)["status"],"200 OK")
+            self.assertEqual(self.request("/evidence",token=reviewer)["status"],"403 Forbidden")
+        form={"csrf":actor["csrf"],"job":"job-example","family":"missing_information"}
+        with patch.object(institution_analysis.review,"_source") as source:
+            self.assertEqual(self.request("/evidence-analysis","POST",form,observer)["status"],"403 Forbidden")
+            source.assert_not_called()
+
     def test_host_origin_logout_and_expiration(self):
         token=self.login("observer")
         self.assertEqual(self.request("/",token=token,host="evil.example")["status"],"400 Bad Request")

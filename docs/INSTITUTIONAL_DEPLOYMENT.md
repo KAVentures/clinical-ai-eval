@@ -171,3 +171,32 @@ existing audit log. Keep patient identifiers and confidential clinical records
 out of free-text fields. Retention, incident escalation, actual rollback,
 prospective outcome monitoring and production approval remain organisational
 responsibilities. The register is not a substitute for clinical governance.
+
+
+## Scientific review analysis and evidence overview
+
+The institutional evidence overview displays per-job package verification state,
+the recorded claim ceiling, selected review queue size and recorded assignment /
+submission counts. Observers may see the overview but cannot initiate analysis.
+Counts describe recorded accounts, not credential-verified independent clinicians.
+
+After two accounts have submitted reviews, an administrator or operator may
+compute exploratory scientific statistics. The bridge verifies assignment,
+submission digest, review coverage and source package integrity. It executes
+the original adjudication code on a private temporary copy of the required
+research artifacts; original run files and manifests are not altered. The
+temporary files remain within the institution-owned workspace and are removed
+on normal completion. An interrupted process may leave temporary files that
+must be handled under the organisation's retention policy.
+
+The view reports review coverage, unresolved disagreement, Cohen kappa,
+Krippendorff alpha where estimable, and judge-versus-reviewer-majority sensitivity,
+specificity, predictive values and denominators. Reviewer accounts are
+pseudonymised within the report, and notes are excluded. A changed review set or
+evidence package requires a new analysis.
+
+The analysis is explicitly exploratory. It does not issue signed independent
+clinical packets, adjudicate perturbation validity, grant L2 conformance,
+or make a procurement or deployment recommendation. The original scientific
+clinical review and validation requirements still apply. Metrics from a selected
+review queue are not population performance estimates.
