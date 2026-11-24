@@ -322,12 +322,96 @@ def _submissions(ws,binding,safety,validity,issued):
     return records
 
 
+def _consensus_request(binding,safety,records,issued):
+    if set(records)!=set(issued):
+        raise buyer.BuyerError("all independent submissions must be locked before consensus")
+    slots=_slots(binding,safety)
+    votes={rid:{r["slot"]:r["verdict"] for r in records[rid]["answers"]}
+           for rid in binding["reviewers"]}
+    contested=[]
+    for slot,row in sorted(slots.items()):
+        labels=[votes[rid][slot] for rid in binding["reviewers"]]
+        safe,unsafe=labels.count("safe"),labels.count("unsafe")
+        if safe==unsafe and safe:
+            contested.append({"slot":slot,"case":row["case_as_shown_to_product"],
+                              "response":row["product_response"],"safe_votes":safe,
+                              "unsafe_votes":unsafe,"cannot_judge_votes":labels.count("cannot_judge")})
+    return {"schema":"formal-consensus-request/1","binding_hash":binding["binding_hash"],
+            "submission_digests":{rid:r["digest"] for rid,r in sorted(records.items())},
+            "items":contested}
+
+
+def consensus_template(directory,identifier):
+    ws,binding,safety,validity,issued=_load(directory,identifier)
+    records=_submissions(ws,binding,safety,validity,issued)
+    req=_consensus_request(binding,safety,records,issued)
+    if not req["items"]:
+        raise buyer.BuyerError("no tied cells require consensus")
+    return {"request":req,"submission":{"confirmed_by_original_reviewers":False,
+            "answers":[{"slot":r["slot"],"verdict":"","rationale":""} for r in req["items"]]}}
+
+
+def _consensus_answers(request,answers):
+    want={r["slot"] for r in request["items"]}
+    if not want or not isinstance(answers,list) or len(answers)!=len(want):
+        raise buyer.BuyerError("consensus must address exactly the tied cells")
+    seen=set()
+    for row in answers:
+        if (not isinstance(row,dict) or set(row)!={"slot","verdict","rationale"}
+                or not isinstance(row["slot"],str) or row["slot"] not in want or row["slot"] in seen
+                or row["verdict"] not in VERDICTS or not isinstance(row["rationale"],str)
+                or not row["rationale"].strip() or len(row["rationale"])>4000):
+            raise buyer.BuyerError("invalid consensus response")
+        seen.add(row["slot"])
+    return sorted(answers,key=lambda r:r["slot"])
+
+
+def submit_consensus(directory,identifier,document,operator,*,confirm_consensus=False):
+    if confirm_consensus is not True:
+        raise buyer.BuyerError("operator must attest original reviewers confirmed consensus")
+    operator=manual._identifier(operator)
+    ws,binding,safety,validity,issued=_load(directory,identifier)
+    if operator in issued:
+        raise buyer.BuyerError("operator cannot also be a reviewer")
+    records=_submissions(ws,binding,safety,validity,issued)
+    req=_consensus_request(binding,safety,records,issued)
+    if (not isinstance(document,dict) or set(document)!={"request","submission"}
+            or document["request"]!=req or not isinstance(document["submission"],dict)
+            or set(document["submission"])!={"answers","confirmed_by_original_reviewers"}
+            or document["submission"]["confirmed_by_original_reviewers"] is not True):
+        raise buyer.BuyerError("stale consensus request or missing reviewer confirmation")
+    payload={"schema":"formal-consensus/1","binding_hash":binding["binding_hash"],
+             "submission_digests":req["submission_digests"],"operator":operator,
+             "operator_attested_consensus":True,
+             "answers":_consensus_answers(req,document["submission"]["answers"])}
+    payload["digest"]=buyer_plan._digest(payload)
+    _publish_once(ws/"consensus.json",payload)
+    return {"digest":payload["digest"],"decision_grade":False}
+
+
+def _consensus_record(ws,binding,safety,records,issued):
+    path=ws/"consensus.json"
+    if not path.exists() and not path.is_symlink():
+        return None
+    obj=_json(path)
+    req=_consensus_request(binding,safety,records,issued)
+    if (set(obj)!={"schema","binding_hash","submission_digests","operator","operator_attested_consensus","answers","digest"}
+            or obj["schema"]!="formal-consensus/1" or obj["binding_hash"]!=binding["binding_hash"]
+            or obj["submission_digests"]!=req["submission_digests"]
+            or obj["operator_attested_consensus"] is not True or manual._identifier(obj["operator"]) in issued
+            or _consensus_answers(req,obj["answers"])!=obj["answers"]
+            or buyer_plan._digest({k:v for k,v in obj.items() if k!="digest"})!=obj["digest"]):
+        raise buyer.BuyerError("consensus integrity or roster changed")
+    return obj
+
+
 def status(directory,identifier):
     ws,binding,safety,validity,issued=_load(directory,identifier)
     records=_submissions(ws,binding,safety,validity,issued)
+    consensus=_consensus_record(ws,binding,safety,records,issued)
     return {"id":identifier,"source_manifest":binding["source_manifest"],"synthetic":binding["synthetic"],
             "expected_accounts":len(issued),"received":len(records),"n_cells":len(safety),
-            "ready_for_adjudication":set(records)==set(issued),"decision_grade":False}
+            "ready_for_adjudication":set(records)==set(issued),"consensus_recorded":consensus is not None,"decision_grade":False}
 
 
 def _write_csv(path,rows,fields):
@@ -342,6 +426,7 @@ def analyze(directory,identifier):
     records=_submissions(ws,binding,safety,validity,issued)
     if set(records)!=set(issued):
         raise buyer.BuyerError("all predeclared reviewers must return packets")
+    consensus=_consensus_record(ws,binding,safety,records,issued)
     # Do not alter source or frozen packet inputs. Analysis operates in a
     # disposable private derivative, with the ORIGINAL issued HMAC packets.
     with tempfile.TemporaryDirectory(prefix=".formal-analysis-",dir=_root(directory)) as tmp:
@@ -374,22 +459,30 @@ def analyze(directory,identifier):
             _write_csv(dest/"adjudication"/"validity_review_filled.csv",
                        [{"cell_id":validity_slots[r["slot"]]["cell_id"],**{q:r[q] for q in adjudicate.VALIDITY_FIELDS}} for r in vrows],
                        ["cell_id",*adjudicate.VALIDITY_FIELDS])
-        result=adjudicate.adjudicate(str(dest),files)
+        consensus_path=None
+        if consensus:
+            consensus_path=dest/"adjudication"/"consensus.csv"
+            _write_csv(consensus_path,[{"cell_id":safety_slots[r["slot"]]["cell_id"],
+                       "consensus_verdict_safe_unsafe":r["verdict"]} for r in consensus["answers"]],
+                       ["cell_id","consensus_verdict_safe_unsafe"])
+        result=adjudicate.adjudicate(str(dest),files,consensus_file=str(consensus_path) if consensus_path else None)
         if nonvalid and result["l2_adjudication_gate_passed"]:
             raise buyer.BuyerError("invalid perturbations cannot pass formal review")
     # Recheck source, roster and exact submissions after the computation.
     after,latest,s2,v2,p2=_load(directory,identifier)
-    if latest!=binding or _submissions(after,latest,s2,v2,p2)!=records:
+    if (latest!=binding or _submissions(after,latest,s2,v2,p2)!=records
+            or _consensus_record(after,latest,s2,records,p2)!=consensus):
         raise buyer.BuyerError("review evidence changed during analysis")
     out={"schema":"formal-review-analysis/1","binding_hash":binding["binding_hash"],
          "source_manifest":binding["source_manifest"],"source_claim":binding["source_claim"],
          "submission_digests":{rid:r["digest"] for rid,r in sorted(records.items())},
          "canonical_adjudication":result,"n_invalid_or_indeterminate_validity":len(nonvalid),
+         "consensus_digest":consensus["digest"] if consensus else None,
          "original_package_modified":False,"clinical_identity_independently_verified":False,
          "decision_grade":False,
          "limitations":["Operator attestations are not independent identity proof.",
                         "This derivative does not upgrade the original run or claim authority.",
-                        "Contested cells require a separately approved resolution workflow."]}
+                        "Consensus is operator-attested and does not change independent labels or inter-rater agreement."]}
     out["digest"]=buyer_plan._digest(out)
     # Canonical adjudication is deterministic for unchanged review data.
     _publish_once(ws/("analysis-"+out["digest"]+".json"),out)
