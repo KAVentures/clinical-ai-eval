@@ -95,7 +95,7 @@ def _setup_upload(env):
                 raise ValueError()
             if name=="document":
                 blob=payload
-                filename=(part.get_filename() or "").replace("\\\\","/").rsplit("/",1)[-1][:200]
+                filename=(part.get_filename() or "").replace("\\","/").rsplit("/",1)[-1][:200]
                 if not filename or not blob:
                     raise ValueError()
             else:
