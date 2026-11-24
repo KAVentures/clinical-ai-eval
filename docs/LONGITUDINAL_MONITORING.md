@@ -84,4 +84,5 @@ remain linked. A report whose digest or underlying packages fail verification
 is shown as invalid. Preserve the access database, child job records and
 scientific artifacts under approved retention and recovery procedures. Stop
 the scheduler and all workers before backup/restore and investigate any
-running occurrences. Actual deployment acceptance remains mandatory.
+running occurrences. Restored schedules are disabled; create a freshly approved
+schedule before enabling repeat execution. Actual deployment acceptance remains mandatory.
