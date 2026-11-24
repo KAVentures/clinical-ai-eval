@@ -376,8 +376,77 @@ No model calls authorized. An approved scientific operator must verify data hand
 <section class='panel'><p>Mode: {esc(record["mode"])}</p><p>Responses: {esc(record["n_responses"])}</p>
 <p>Panel: {esc(record["panel_id"])}</p><p>Pack hash: {esc(record["pack_content_hash"])}</p>
 <p>Assessment ID: {esc(record["assessment_id"])}</p>
-<p><a href='/manual-submission?id={esc(record["submission_id"])}'>Return to responses</a></p>
+<form action='/job-enqueue' method='post'><input type='hidden' name='assessment_id' value='{esc(record["assessment_id"])}'>
+<button type='submit'>Queue scientific assessment</button></form>
+<p class='small'>A local scientific operator must explicitly execute queued jobs. Queuing sends no data to models.</p>
+<p><a href='/jobs'>View evaluation jobs</a> · <a href='/manual-submission?id={esc(record["submission_id"])}'>Return to responses</a></p>
 </section></main></body></html>""".encode("utf-8")
+
+
+def render_jobs(rows: list) -> bytes:
+    items = "".join("<tr><td><a href='/job?id=" + esc(r["id"]) + "'>" +
+                    esc(r["id"]) + "</a></td><td>" + esc(r["status"]) + "</td><td>" +
+                    esc(r["mode"]) + "</td></tr>" for r in rows)
+    return f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Clinical AI Eval — Jobs</title><style>{STYLE}</style></head>
+<body><main class='shell'><header><h1>Evaluation jobs</h1><a href='/'>Workspace</a></header>
+<section class='panel'><p>Stored locally. Jobs require an authorised operator to execute.</p>
+<table><thead><tr><th>Job</th><th>Stored status</th><th>Mode</th></tr></thead><tbody>{items}</tbody></table>
+<p class='small'>Open an individual completed job to reverify its evidence packages.</p></section></main></body></html>""".encode("utf-8")
+
+
+def render_job(row: dict) -> bytes:
+    links = "".join("<li>" + esc(p["family_id"]) + " — " + esc(p["claim"]) +
+                    "; " + esc(p["review_count"]) + " review items. "
+                    "<a href='/physician-review?id=" + esc(row["id"]) + "&amp;family=" +
+                    esc(p["family_id"]) + "'>Blinded review</a></li>"
+                    for p in row["result"].get("packages", []))
+    cancel = ""
+    if row["status"] == "queued":
+        cancel = ("<form action='/job-cancel' method='post'><input type='hidden' name='job_id' value='" +
+                  esc(row["id"]) + "'><button type='submit'>Cancel queued job</button></form>")
+    return f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Clinical AI Eval — Job</title><style>{STYLE}</style></head>
+<body><main class='shell'><header><h1>Assessment job</h1><a href='/jobs'>All jobs</a></header>
+<div class='notice'>Candidate responses are operator-attested. Demonstration/internal regression only.
+A completed software run is not a clinical finding or purchase decision.</div>
+<section class='panel'><h2>{esc(row["status"])}</h2><p>Job: {esc(row["id"])}</p>
+<p>Real judges: {esc(row["real_judges"])}</p><p>{esc(row["result"].get("reason", ""))}</p>
+<ul>{links}</ul>{cancel}
+<p><a href='/job?id={esc(row["id"])}'>Refresh status</a></p>
+</section></main></body></html>""".encode("utf-8")
+
+
+def render_physician_review(doc: dict, inventory: dict) -> bytes:
+    req = doc["request"]
+    fields = []
+    for i, item in enumerate(req["items"], 1):
+        slot = esc(item["slot"])
+        fields.append("<section class='panel'><h3>Review item " + str(i) + "</h3>"
+                      "<h4>Case as shown</h4><p style='white-space:pre-wrap'>" + esc(item["case"]) +
+                      "</p><h4>Product response</h4><p style='white-space:pre-wrap'>" + esc(item["response"]) +
+                      "</p><label>Verdict<select required name='v_" + slot +
+                      "'><option value=''>Choose</option><option>safe</option><option>unsafe</option>"
+                      "<option>cannot_judge</option></select></label><label>Notes<textarea name='n_" +
+                      slot + "' maxlength='4000' rows='3'></textarea></label></section>")
+    enabled = "" if fields else " disabled"
+    return f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Clinical AI Eval — Blinded review</title><style>{STYLE}</style></head>
+<body><main class='shell'><header><h1>Blinded response review</h1><a href='/job?id={esc(req["job_id"])}'>Job</a></header>
+<div class='notice'>Single-user local prototype. Reviewer identities are self-attested, not authenticated.
+No previous reviewer verdicts or automated scores are shown. Submission does not constitute independent adjudication.</div>
+<p>Review submissions recorded: {esc(inventory["n_submitted_reviewer_ids"])}. Use the assigned reviewer ID.</p>
+<form action='/physician-review-submit' method='post'>
+<input type='hidden' name='job_id' value='{esc(req["job_id"])}'>
+<input type='hidden' name='family_id' value='{esc(req["family_id"])}'>
+<input type='hidden' name='manifest_hash' value='{esc(req["manifest_hash"])}'>
+<label>Reviewer ID<input name='reviewer_id' required maxlength='64'></label>
+{''.join(fields)}<button type='submit'{enabled}>Save immutable review</button></form>
+<p><a href='/physician-review-template?id={esc(req["job_id"])}&amp;family={esc(req["family_id"])}'>Download review JSON</a></p>
+</main></body></html>""".encode("utf-8")
 
 
 def render_rehearsal(record: dict) -> bytes:
@@ -533,7 +602,7 @@ class BuyerHandler(BaseHTTPRequestHandler):
         if not self._host_ok():
             return self._error(HTTPStatus.BAD_REQUEST, "invalid local Host")
         parts = urllib.parse.urlsplit(self.path)
-        if parts.path not in ("/", "/dossier", "/questionnaire", "/research", "/plan", "/rehearsal", "/manual-submission", "/manual-template", "/manual-responses", "/assessment-prepared"):
+        if parts.path not in ("/", "/dossier", "/questionnaire", "/research", "/plan", "/rehearsal", "/manual-submission", "/manual-template", "/manual-responses", "/assessment-prepared", "/jobs", "/job", "/physician-review", "/physician-review-template"):
             return self._error(HTTPStatus.NOT_FOUND, "unknown route")
         supplied = urllib.parse.parse_qs(parts.query).get("token", [""])[0]
         if parts.path == "/" and supplied and hmac.compare_digest(supplied, self.server.session_token):
@@ -548,6 +617,32 @@ class BuyerHandler(BaseHTTPRequestHandler):
                                "Launch with the private URL shown in your terminal.")
         query = urllib.parse.parse_qs(parts.query)
         try:
+            if parts.path in ("/jobs", "/job", "/physician-review", "/physician-review-template"):
+                from . import buyer_jobs, buyer_physician_review as reviews
+                if parts.path == "/jobs":
+                    content = render_jobs(buyer_jobs.list_jobs(self.server.directory))
+                else:
+                    ids = query.get("id", [])
+                    if len(ids) != 1:
+                        raise buyer.BuyerError("select one job")
+                    if parts.path == "/job":
+                        content = render_job(buyer_jobs.status(self.server.directory, ids[0]))
+                    else:
+                        families = query.get("family", [])
+                        if len(families) != 1:
+                            raise buyer.BuyerError("select one family")
+                        doc = reviews.template(self.server.directory, ids[0], families[0])
+                        if parts.path == "/physician-review-template":
+                            raw = json.dumps(doc, ensure_ascii=False, indent=2).encode("utf-8")
+                            self._headers(content_type="application/json; charset=utf-8", extra={
+                                "Content-Disposition": 'attachment; filename="blinded-review.json"',
+                                "Content-Length": str(len(raw))})
+                            self.wfile.write(raw)
+                            return
+                        content = render_physician_review(doc, reviews.inventory(self.server.directory, ids[0], families[0]))
+                self._headers(extra={"Content-Length": str(len(content))})
+                self.wfile.write(content)
+                return
             if parts.path == "/assessment-prepared":
                 from . import buyer_assessment
                 ids = query.get("id", [])
@@ -670,7 +765,7 @@ class BuyerHandler(BaseHTTPRequestHandler):
             return self._error(HTTPStatus.FORBIDDEN,
                                "cross-origin local writes are not permitted")
         path = urllib.parse.urlsplit(self.path).path
-        if path not in ("/project-init", "/vendor-add", "/evidence-add", "/questionnaire-import", "/plan-preview", "/rehearsal-run", "/manual-prepare", "/manual-import", "/assessment-prepare"):
+        if path not in ("/project-init", "/vendor-add", "/evidence-add", "/questionnaire-import", "/plan-preview", "/rehearsal-run", "/manual-prepare", "/manual-import", "/assessment-prepare", "/job-enqueue", "/job-cancel", "/physician-review-submit"):
             return self._error(HTTPStatus.NOT_FOUND, "unknown route")
         try:
             n = int(self.headers.get("Content-Length", "-1"))
@@ -680,6 +775,38 @@ class BuyerHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(n)
             if len(body) != n:
                 raise buyer.BuyerError("incomplete request body")
+            if path in ("/job-enqueue", "/job-cancel", "/physician-review-submit"):
+                from . import buyer_jobs, buyer_physician_review as reviews
+                if not ctype.startswith("application/x-www-form-urlencoded") or n > 8 * 1024 * 1024:
+                    raise buyer.BuyerError("invalid local form")
+                fields = urllib.parse.parse_qs(body.decode("utf-8"), keep_blank_values=True, max_num_fields=2500)
+                if any(len(v) != 1 for v in fields.values()):
+                    raise buyer.BuyerError("duplicate form field")
+                fields = {k: v[0] for k, v in fields.items()}
+                with self.server.mutation_lock:
+                    if path == "/job-enqueue" and set(fields) == {"assessment_id"}:
+                        row = buyer_jobs.enqueue(self.server.directory, fields["assessment_id"])
+                        location = "/job?id=" + row["id"]
+                    elif path == "/job-cancel" and set(fields) == {"job_id"}:
+                        row = buyer_jobs.cancel(self.server.directory, fields["job_id"])
+                        location = "/job?id=" + row["id"]
+                    elif path == "/physician-review-submit":
+                        doc = reviews.template(self.server.directory, fields.get("job_id", ""), fields.get("family_id", ""))
+                        req = doc["request"]
+                        slots = [r["slot"] for r in req["items"]]
+                        required = {"job_id", "family_id", "manifest_hash", "reviewer_id"} | {
+                            prefix + slot for slot in slots for prefix in ("v_", "n_")}
+                        if set(fields) != required or fields["manifest_hash"] != req["manifest_hash"]:
+                            raise buyer.BuyerError("review form is incomplete or stale")
+                        doc["submission"] = {"reviewer_id": fields["reviewer_id"], "verdicts": [
+                            {"slot": slot, "verdict": fields["v_" + slot], "notes": fields["n_" + slot]}
+                            for slot in slots]}
+                        reviews.submit(self.server.directory, doc)
+                        location = "/job?id=" + req["job_id"]
+                    else:
+                        raise buyer.BuyerError("unexpected form fields")
+                self._headers(HTTPStatus.SEE_OTHER, extra={"Location": location, "Content-Length": "0"})
+                return
             if path == "/assessment-prepare":
                 from . import buyer_assessment, project
                 if not ctype.startswith("application/x-www-form-urlencoded") or n > 8192:
