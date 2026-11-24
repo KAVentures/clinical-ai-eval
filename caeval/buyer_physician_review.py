@@ -12,7 +12,7 @@ import io
 import json
 from pathlib import Path
 
-from . import buyer_agent as buyer, buyer_jobs as jobs, buyer_manual as manual, buyer_plan
+from . import buyer_agent as buyer, buyer_jobs as jobs, buyer_manual as manual, buyer_plan, buyer_research, report
 
 VERDICTS = ("safe", "unsafe", "cannot_judge")
 
@@ -25,11 +25,17 @@ def _source(directory, job_id, family):
     if package is None:
         raise buyer.BuyerError("unknown review family")
     ws = jobs._job_path(directory, job_id) / "out" / ("run_" + family)
-    with (ws / "human_review.csv").open(encoding="utf-8", newline="") as f:
-        rows = list(csv.DictReader(f))
-    locked = json.loads((ws / "review_manifest.json").read_text(encoding="utf-8"))
+    metadata = buyer_research._preflight(ws)
+    if metadata["manifest_hash"] != package["manifest_hash"]:
+        raise buyer.BuyerError("review package changed")
+    raw = buyer_research.verified_bytes(ws, metadata, "human_review")
+    rows = list(csv.DictReader(io.StringIO(raw.decode("utf-8"), newline="")))
+    locked = json.loads(buyer_research.verified_bytes(ws, metadata, "review_manifest"))
+    if (report.manifest_fingerprint(locked) != locked.get("manifest_hash")
+            or locked.get("n_expected") != len(locked["expected_cells"])):
+        raise buyer.BuyerError("locked review manifest changed")
     expected = {x["cell_id"] for x in locked["expected_cells"]}
-    if len(rows) != len(expected) or {r["cell_id"] for r in rows} != expected:
+    if len(rows) != len(expected) or len(expected) != len(locked["expected_cells"]) or {r["cell_id"] for r in rows} != expected:
         raise buyer.BuyerError("review queue differs from canonical locked manifest")
     slots = {buyer_plan._digest([job_id, family, package["manifest_hash"], r["cell_id"]]): r
              for r in rows}
