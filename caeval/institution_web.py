@@ -107,6 +107,7 @@ def _dashboard(directory, actor):
             body += "</section>"
     else:
         body += "<p><a href='/lifecycle'>Implementation and monitoring register</a></p>"
+        body += "<p><a href='/evidence'>Scientific evidence overview</a></p>"
         rows = access.summary(directory, actor)
         body += "<h2>Evaluation job overview</h2><table><tr><th>Job</th><th>Status</th><th>Mode</th><th>Packages</th></tr>"
         for row in rows:
@@ -196,6 +197,14 @@ class InstitutionApp:
                     body+="<tr>"+"".join("<td>"+esc(row[k])+"</td>" for k in ("seq","actor","action","object_id","outcome"))+"</tr>"
                 access.event(self.directory,actor["user_id"],"audit-opened")
                 return respond("200 OK",page("Access audit",body+"</table>"))
+            if path=="/evidence" and method=="GET":
+                from . import institution_analysis_web as evidence
+                return respond("200 OK",evidence.render(self.directory,actor))
+            if path=="/evidence-analysis" and method=="POST":
+                from . import institution_analysis_web as evidence
+                form=_form(env)
+                _csrf(actor,form)
+                return respond("200 OK",evidence.analyze(self.directory,actor,form))
             if path=="/lifecycle":
                 from . import institution_lifecycle_web as lifecycle
                 if method=="GET":
