@@ -231,11 +231,20 @@ def paired_summary(old,new,threshold):
     return measures
 
 
-def _report(directory,b,job_id):
+def _report(directory,b,job_id,collection_id):
     base=jobs.status(directory,b["baseline_job"])
     retest=jobs.status(directory,job_id)
     if base["status"]!="completed" or retest["status"]!="completed" or retest["mode"]!=b["mode"]:
         raise buyer.BuyerError("verified baseline and retest required")
+    collection=connector.status(directory,collection_id)
+    binding=manual._read(jobs._job_path(directory,job_id)/"binding.json")
+    if (collection["state"]!="complete_unscored" or collection["binding"]!=b["connector_binding"]
+            or binding["submission_id"]!=collection["receipt"]["submission_id"]
+            or binding["exchange_id"]!=b["exchange_id"]
+            or binding["scientific_definitions"]!=b["scientific_definitions"]
+            or binding["file_sha256"]["panel.toml"]!=b["panel_hash"]
+            or binding["governance"]!=b["governance"]):
+        raise buyer.BuyerError("retest collection or assessment provenance changed")
     hashes={p["family_id"]:p["manifest_hash"] for p in retest["result"]["packages"]}
     if ({p["family_id"]:p["manifest_hash"] for p in base["result"]["packages"]}!=b["baseline_packages"]
             or set(hashes)!=set(b["baseline_packages"])):
@@ -247,7 +256,8 @@ def _report(directory,b,job_id):
         families[family]=paired_summary(old,new,b["alert_delta"])
     if jobs.status(directory,b["baseline_job"])!=base or jobs.status(directory,job_id)!=retest:
         raise buyer.BuyerError("evidence changed during comparison")
-    return {"baseline_job":b["baseline_job"],"retest_job":job_id,"baseline_packages":b["baseline_packages"],
+    return {"baseline_job":b["baseline_job"],"retest_job":job_id,"collection_id":collection_id,
+            "collection_receipt_hash":collection["receipt"]["receipt_hash"],"baseline_packages":b["baseline_packages"],
             "retest_packages":hashes,"baseline_version":b["baseline_version"],"target_version":b["target_version"],
             "families":families,"required_but_not_run":retest["result"]["required_but_not_run"],
             "alert_delta":b["alert_delta"],"decision_grade":False,
@@ -330,12 +340,23 @@ def run_due(directory,identifier,approved_digest,*,allow_candidate_calls=False,a
             _active(directory,identifier,approved_digest)
             completed=jobs.execute(directory,job_id,allow_model_calls=allow_model_calls)
             if completed["status"]=="completed":
-                result=_report(directory,b,job_id)
+                result=_report(directory,b,job_id,collection_id)
                 _active(directory,identifier,approved_digest)
                 state="completed"
     except (OSError,ValueError,RuntimeError,KeyError,TypeError,AttributeError):
         pass
     finally:
+        if state!="completed":
+            # Cancel only still-queued child work, never running or completed
+            # evidence. Preserve identifiers for operator reconciliation.
+            for child,lookup,cancel,field in ((collection_id,connector.status,connector.cancel,"state"),
+                                               (job_id,jobs.status,jobs.cancel,"status")):
+                if child:
+                    try:
+                        if lookup(directory,child)[field]=="queued":
+                            cancel(directory,child)
+                    except (OSError,ValueError,RuntimeError,KeyError,TypeError):
+                        pass
         with access.db(directory) as conn:
             _schema(conn)
             conn.execute("BEGIN IMMEDIATE")
@@ -363,7 +384,7 @@ def overview(directory,actor):
                         r.update(state="invalid",report=None)
                     elif r["state"]=="completed":
                         try:
-                            if _report(directory,b,r["job_id"])!=report:
+                            if _report(directory,b,r["job_id"],r["collection_id"])!=report:
                                 raise buyer.BuyerError("report changed")
                             r["report"]=report
                         except (OSError,ValueError,RuntimeError,KeyError,TypeError,AttributeError):
