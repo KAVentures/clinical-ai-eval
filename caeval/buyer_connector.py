@@ -12,6 +12,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import time
 import urllib.parse
 import urllib.request
 import uuid
@@ -26,6 +27,7 @@ MAX_ANSWER_BYTES = 6000
 MAX_TOTAL_ANSWER_BYTES = 2 * 1024 * 1024
 MAX_CALLS = 1000
 MAX_COLLECTIONS = 200
+MAX_RUNTIME_SECONDS = 900
 FIELD = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
 PATH = re.compile(r"[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*")
 ENV = re.compile(r"(?:Bearer )?\$\{[A-Za-z_][A-Za-z0-9_]*\}")
@@ -119,7 +121,7 @@ def connectors(directory):
         return []
     result=[]
     for path in sorted(base.glob("*.json"))[:100]:
-        if path.is_symlink() or not manual._identifier(path.stem):
+        if path.is_symlink():
             continue
         try:
             cfg=_config(directory,path.stem)
@@ -254,7 +256,10 @@ def execute(directory,identifier,approved_binding_hash,operator):
         failed=0
         attempted=0
         stopped=False
+        deadline=time.monotonic()+MAX_RUNTIME_SECONDS
         for item,answer in zip(doc["request"]["prompts"],answers):
+            if time.monotonic()>=deadline:
+                stopped=True
             if not stopped:
                 attempted+=1
                 try:
@@ -287,6 +292,9 @@ def execute(directory,identifier,approved_binding_hash,operator):
                  "source":"operator_authorized_local_http_collection",
                  "decision_grade":False}
         receipt["receipt_hash"]=buyer_plan._digest(receipt)
+    except (OSError,ValueError,RuntimeError,KeyError,TypeError):
+        state="failed"
+        receipt={"reason":"collection inputs, transport or handoff failed"}
     finally:
         with _db(directory) as conn:
             conn.execute("UPDATE collections SET state=?,receipt=?,finished_at=CURRENT_TIMESTAMP WHERE id=? AND state='running'",
