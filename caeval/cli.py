@@ -1249,6 +1249,9 @@ def cmd_buyer(args):
                 if not args.file:
                     raise buyer.BuyerError("--file is required for questionnaire-import")
                 result = questionnaire.import_file(args.path, args.vendor_id, args.file)
+        elif args.action == "research":
+            from . import buyer_research
+            result = buyer_research.overview(args.path)
         elif args.action == "serve":
             from . import buyer_web
             buyer_web.serve(args.path, port=args.port, open_browser=not args.no_browser)
@@ -1552,7 +1555,7 @@ def main(argv=None):
     pproc.set_defaults(func=cmd_procurement)
 
     pb = sub.add_parser("buyer", help="local-only buyer workspace (JSON for CLI agents)")
-    pb.add_argument("action", choices=["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import"])
+    pb.add_argument("action", choices=["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research"])
     pb.add_argument("path", nargs="?", help="local buyer workspace directory (except contract)")
     pb.add_argument("--name", help="project name on init, vendor name on vendor-add")
     pb.add_argument("--intended-use", default="", help="planned clinical/administrative use")
