@@ -277,12 +277,15 @@ def _md(value) -> str:
     return str(value).replace("\\", "\\\\").replace("|", "\\|").replace("\n", " ").replace("\r", " ")
 
 
-def dossier(directory, output_file: str) -> dict:
+def render_dossier(directory) -> str:
+    """Combine the administrative register and freshly reverified clinical evidence.
+
+    Reconstruct comparisons from the original evidence packages, not editable cached
+    result rows. Failed/missing packages are explicitly excluded. This is still an
+    exploratory dossier; a valid package is not a validated clinical measurement.
+    """
     root = _root(directory)
     report = status(root)
-    output = Path(output_file).expanduser().resolve()
-    if output.exists():
-        raise BuyerError(f"refusing to overwrite existing dossier {output}; choose a new file")
     L = [
         f"# Buyer evidence register — {_md(report['project_name'])}", "",
         "> Administrative inventory only. Document presence is not independent verification,",
@@ -301,13 +304,75 @@ def dossier(directory, output_file: str) -> dict:
               f"Status: {_md(report['assessment']['status'])}", ""])
     if report["assessment"]["status"] == "configured":
         L.extend([f"Frozen conditions hash: `{_md(report['assessment']['conditions_hash'])}`", ""])
-        L.extend(["The detailed assessment dossier is produced separately by",
-                  "`clinical-ai-eval procurement export` and retains its own",
-                  "verification, uncertainty and maturity caveats.", ""])
+        L.extend(_clinical_dossier_lines(root, report))
+    else:
+        L.extend(["No verified clinical comparison is available from this workspace.", ""])
+    return "\n".join(L)
+
+
+def _clinical_dossier_lines(root: Path, report: dict) -> list[str]:
+    from copy import deepcopy
+    pw = procurement_workflow
+    original = pw.load(root / "assessment")
+    if original["conditions_hash"] != report["assessment"]["conditions_hash"]:
+        raise BuyerError("assessment changed during report creation; retry")
+    buyer_ids = {v["vendor_id"] for v in report["vendors"]}
+    study_ids = {v["vendor_id"] for v in original["vendors"]}
+    lines = [
+        "### Reverification at export", "",
+        "Clinical results below are reconstructed from the original packages.",
+        "Package integrity is not proof of clinical validity or vendor identity.", "",
+    ]
+    for missing in sorted(buyer_ids - study_ids):
+        lines.append(f"- Candidate {_md(missing)}: not registered in the clinical study.")
+    for extra in sorted(study_ids - buyer_ids):
+        lines.append(f"- Study participant {_md(extra)}: not registered in the buyer shortlist; excluded.")
+    rebuilt = deepcopy(original)
+    rebuilt["results"] = {}
+    rebuilt["vendors"] = [v for v in rebuilt["vendors"] if v["vendor_id"] in buyer_ids]
+    # Private scratch state; do not change the original frozen procurement or
+    # silently trust modified cached cells. Re-ingestion enforces the same gates.
+    with tempfile.TemporaryDirectory(prefix="caeval-reverify-") as tmp:
+        pw.save(tmp, rebuilt)
+        for vendor_id in sorted(buyer_ids & study_ids):
+            recorded = original.get("results", {}).get(vendor_id, {})
+            for family in original["conditions"]["families"]:
+                item = recorded.get(family)
+                if not item or item.get("ingestion") != "verified_package":
+                    lines.append(f"- {_md(vendor_id)} / {_md(family)}: no verified package recorded.")
+                    continue
+                package = item.get("package") or {}
+                try:
+                    if not package.get("workspace") or not package.get("package_digest"):
+                        raise BuyerError("package location or digest missing")
+                    # Refuse changed manifests even if the replacement is internally
+                    # valid. A frozen study cannot silently substitute new evidence.
+                    ws = Path(package["workspace"])
+                    from . import manifest
+                    current = json.loads((ws / manifest.MANIFEST_FILE).read_text(encoding="utf-8"))
+                    if current.get("manifest_hash") != package["package_digest"]:
+                        raise BuyerError("package digest changed")
+                    if current.get("family_id") != family:
+                        raise BuyerError("package family mismatch")
+                    pw.ingest_package(tmp, vendor_id, ws)
+                except (OSError, ValueError, RuntimeError, KeyError, TypeError):
+                    lines.append(f"- {_md(vendor_id)} / {_md(family)}: package missing, changed or invalid; excluded.")
+                    continue
+                lines.append(f"- {_md(vendor_id)} / {_md(family)}: package integrity reverified.")
+        lines += ["", "### Clinical evaluation report", "",
+                  pw.export_dossier(tmp), ""]
+    return lines
+
+
+def dossier(directory, output_file: str) -> dict:
+    output = Path(output_file).expanduser().resolve()
+    if output.exists():
+        raise BuyerError(f"refusing to overwrite existing dossier {output}; choose a new file")
+    content = render_dossier(directory)
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("x", encoding="utf-8") as f:
         os.chmod(output, 0o600)
-        f.write("\n".join(L))
+        f.write(content)
     return {"path": str(output), "status": "exported",
             "decision_grade": False, "network_calls": 0}
 
@@ -336,7 +401,7 @@ def contract() -> dict:
         "evidence_kinds": list(EVIDENCE_KINDS),
         "max_document_bytes": MAX_DOCUMENT_BYTES,
         "notes": [
-            "Commands do not use remote LLMs, phone home, or export documents.",
+            "Commands do not use remote LLMs, phone home, or upload documents; dossier export is local.",
             "An external agent may still send data to its model provider; keep private clinical data out of agent prompts unless approved.",
             "Clinical testing and verified comparisons use the separate existing run, adjudicate, and procurement commands.",
             "This module does not certify products or authorize clinical deployment.",
