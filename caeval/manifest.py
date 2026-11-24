@@ -87,13 +87,17 @@ def hash_file(path: Path) -> str | None:
     """Content hash. JSON/JSONL are canonicalized so reformatting cannot alter it."""
     if not path.exists():
         return None
-    raw = path.read_bytes()
-    if path.suffix == ".json":
+    return hash_content(path.read_bytes(), path.suffix)
+
+
+def hash_content(raw: bytes, suffix: str) -> str:
+    """Hash already-read content using the existing manifest hash contract."""
+    if suffix == ".json":
         try:
             return stable_hash_text(json.dumps(json.loads(raw.decode()), sort_keys=True, default=str))
         except Exception:  # noqa: BLE001 — malformed JSON hashes as bytes
             pass
-    if path.suffix == ".jsonl":
+    if suffix == ".jsonl":
         try:
             rows = [json.loads(l) for l in raw.decode().splitlines() if l.strip()]
             return stable_hash_text(json.dumps(rows, sort_keys=True, default=str))
