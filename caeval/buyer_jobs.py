@@ -36,17 +36,17 @@ def _db(directory):
         raise buyer.BuyerError("invalid job database")
     fd = os.open(str(path), os.O_CREAT | os.O_RDWR, 0o600)
     os.close(fd)
-    with sqlite3.connect(path, timeout=10) as conn:
+    conn = sqlite3.connect(path, timeout=10)
+    try:
         conn.row_factory = sqlite3.Row
         conn.execute("""CREATE TABLE IF NOT EXISTS jobs (
           id TEXT PRIMARY KEY, assessment_id TEXT NOT NULL, status TEXT NOT NULL,
           mode TEXT NOT NULL, real_judges INTEGER NOT NULL,
           created_at TEXT DEFAULT CURRENT_TIMESTAMP, started_at TEXT,
           finished_at TEXT, result TEXT NOT NULL DEFAULT '{}')""")
-        try:
-            yield conn
-        finally:
-            conn.close()
+        yield conn
+    finally:
+        conn.close()
 
 
 def _public(row):
@@ -98,7 +98,7 @@ def _job_path(directory, job_id):
 
 def _verify(directory, row):
     job = _job_path(directory, row["id"])
-    if not job.is_dir() or (job / "out").is_symlink():
+    if not job.is_dir() or (job / "out").is_symlink() or (job / "pack").is_symlink():
         raise buyer.BuyerError("missing execution workspace")
     binding = manual._read(job / "binding.json")
     if (binding.get("assessment_id") != row["assessment_id"]
