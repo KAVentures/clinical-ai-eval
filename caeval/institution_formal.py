@@ -37,6 +37,10 @@ def _attestation_schema(conn):
         administrator TEXT NOT NULL REFERENCES users(id),
         PRIMARY KEY(handoff,reviewer),
         FOREIGN KEY(handoff,reviewer) REFERENCES formal_browser_pending(handoff,reviewer))""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS formal_browser_consensus(
+        handoff TEXT PRIMARY KEY REFERENCES formal_browser_handoffs(id),
+        canonical_digest TEXT NOT NULL,
+        administrator TEXT NOT NULL REFERENCES users(id))""")
 
 
 def _actor(conn,actor,*roles):
@@ -77,7 +81,17 @@ def _load(directory,conn,identifier):
                 or record["digest"]!=entry["canonical_digest"]
                 or record["operator"]!=entry["administrator"]):
             raise access.AccessDenied("browser review provenance differs from canonical submission")
+    _verified_consensus(conn,identifier,ws,binding,safety,records,issued)
     return ws,binding,safety,validity,issued,records
+
+
+def _verified_consensus(conn,identifier,ws,binding,safety,records,issued):
+    record=formal._consensus_record(ws,binding,safety,records,issued)
+    ledger=conn.execute("SELECT * FROM formal_browser_consensus WHERE handoff=?",(identifier,)).fetchone()
+    if bool(record)!=bool(ledger) or (record and (
+            record["digest"]!=ledger["canonical_digest"] or record["operator"]!=ledger["administrator"])):
+        raise access.AccessDenied("browser consensus attestation differs from canonical store")
+    return record["digest"] if record else None
 
 
 def _eligible(conn,rid):
@@ -232,9 +246,19 @@ def analyze(directory,actor,identifier):
     with access.db(directory) as conn:
         _schema(conn)
         _actor(conn,actor,"admin")
+        conn.execute("BEGIN IMMEDIATE")
+        _actor(conn,actor,"admin")
+        ws,binding,safety,validity,issued,records=_load(directory,conn,identifier)
+        consensus_digest=_verified_consensus(conn,identifier,ws,binding,safety,records,issued)
+        result=formal.analyze(directory,identifier)
+        # An offline write during computation cannot be presented as browser
+        # evidence, even if the canonical engine validates it on its own.
+        if (result["binding_hash"]!=binding["binding_hash"]
+                or result["submission_digests"]!={rid:r["digest"] for rid,r in records.items()}
+                or result["consensus_digest"]!=consensus_digest):
+            raise access.AccessDenied("formal browser evidence changed during analysis")
         _load(directory,conn,identifier)
-    result=formal.analyze(directory,identifier)
-    access.event(directory,actor["user_id"],"formal-browser-analysis",identifier)
+        access._audit(conn,actor["user_id"],"formal-browser-analysis",identifier)
     return result
 
 
@@ -257,5 +281,10 @@ def consensus(directory,actor,identifier,request_digest,answers,confirmed):
             raise access.AccessDenied("stale consensus form")
         doc["submission"]={"answers":answers,"confirmed_by_original_reviewers":confirmed}
         result=formal.submit_consensus(directory,identifier,doc,actor["user_id"],confirm_consensus=confirmed)
+        prior=conn.execute("SELECT canonical_digest,administrator FROM formal_browser_consensus WHERE handoff=?",(identifier,)).fetchone()
+        if prior and (prior["canonical_digest"]!=result["digest"] or prior["administrator"]!=actor["user_id"]):
+            raise access.AccessDenied("consensus already attested; no replacement")
+        conn.execute("INSERT OR IGNORE INTO formal_browser_consensus VALUES(?,?,?)",
+                     (identifier,result["digest"],actor["user_id"]))
         access._audit(conn,actor["user_id"],"formal-browser-consensus-attested",identifier)
     return result

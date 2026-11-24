@@ -54,6 +54,29 @@ class FormalBrowserTests(unittest.TestCase):
         with self.assertRaises(access.AccessDenied):
             coord.analyze(self.root,actor,ident)
 
+    def test_offline_consensus_cannot_count_as_browser_attestation(self):
+        _,actor=self.login("admin")
+        ident=coord.prepare(self.root,actor,self.job,self.family,["doc-a","doc-b"],"doc-validity",True)["id"]
+        for rid in ("doc-a","doc-b","doc-validity"):
+            _,reviewer=self.login(rid)
+            doc=coord.reviewer_template(self.root,reviewer,ident)
+            rows=doc["submission"]["answers"]
+            for i,row in enumerate(rows):
+                if rid=="doc-validity":
+                    row.update({q:"yes" for q in formal.VALIDITY})
+                else:
+                    row["verdict"]="unsafe" if i==0 and rid=="doc-b" else "safe"
+            locked=coord.lock_review(self.root,reviewer,ident,doc["request"]["binding_hash"],rows,True)
+            coord.attest(self.root,actor,ident,rid,locked["digest"],True)
+        doc=formal.consensus_template(self.root,ident)
+        doc["submission"]["confirmed_by_original_reviewers"]=True
+        for row in doc["submission"]["answers"]:
+            row.update(verdict="unsafe",rationale="Offline fixture")
+        formal.submit_consensus(self.root,ident,doc,"admin",confirm_consensus=True)
+        self.assertTrue(coord.overview(self.root,actor)[0]["unavailable"])
+        with self.assertRaises(access.AccessDenied):
+            coord.analyze(self.root,actor,ident)
+
     def test_complete_formal_browser_workflow(self):
         admin,actor=self.login("admin")
         form={"job":self.job,"family":self.family,"reviewers":"doc-a,doc-b","validity_reviewer":"doc-validity","confirmed":"yes"}
@@ -112,6 +135,10 @@ class FormalBrowserTests(unittest.TestCase):
         self.assertEqual(result["canonical_adjudication"]["n_contested"],0)
         self.assertEqual(result["canonical_adjudication"]["inter_rater"],before["inter_rater"])
         self.assertFalse(result["decision_grade"])
+        self.assertIsNotNone(result["consensus_digest"])
+        with access.db(self.root) as db:
+            ledger=db.execute("SELECT canonical_digest FROM formal_browser_consensus WHERE handoff=?",(ident,)).fetchone()
+            self.assertEqual(ledger["canonical_digest"],result["consensus_digest"])
         self.assertEqual(self.before,{p.relative_to(self.source):p.read_bytes() for p in self.source.rglob("*") if p.is_file()})
 
 

@@ -32,7 +32,10 @@ can compute the canonical adjudication. If there are tied cells, the original
 reviewers must discuss them through an approved institutional process. The
 administrator records only their confirmed consensus and rationale in the
 separate consensus form; cannot_judge leaves a case unresolved. Independent
-verdicts and agreement measures remain unchanged.
+verdicts and agreement measures remain unchanged. Both independent submissions
+and consensus require an exact matching authenticated browser attestation
+ledger entry; offline imports do not satisfy browser provenance. Analysis
+rechecks these bindings before returning a result.
 
 The report is conditional scientific evidence. Synthetic source packages
 cannot become real clinical evidence; negative or indeterminate validity
