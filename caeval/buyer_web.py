@@ -248,7 +248,7 @@ The table shows up to {data["limit"]} runs; raw clinical text and credentials ar
 </section></main></body></html>""".encode("utf-8")
 
 
-def render_plan(state: dict, record=None) -> bytes:
+def render_plan(state: dict, record=None, pack_ids=()) -> bytes:
     from . import intake
     options = "".join("<option value='" + esc(v["vendor_id"]) + "'>" +
                       esc(v["name"]) + "</option>" for v in state["vendors"])
@@ -296,6 +296,21 @@ def render_plan(state: dict, record=None) -> bytes:
                 "This tests the evaluation software, NOT the named candidate. No network calls.</p>"
                 "<button type='submit'>Run offline software rehearsal</button></form>"
             )
+        if record.get("definitions_current"):
+            pack_options = "".join("<option value='" + esc(p) + "'>" + esc(p) + "</option>" for p in pack_ids)
+            result += (
+                "<h3>Collect candidate responses offline</h3>"
+                "<p class='small'>Select an operator-staged, approved non-identifiable case pack. "
+                "The exported template contains prompts and opaque identifiers, not reference labels. "
+                "Use only approved channels. Returned answers are unverified and unscored.</p>"
+                "<form action='/manual-prepare' method='post'>"
+                "<input type='hidden' name='plan_id' value='" + esc(record["plan_id"]) + "'>"
+                "<label>Staged case pack<select name='pack_id' required>" + pack_options + "</select></label>"
+                "<button type='submit'" + ("" if pack_ids else " disabled") + ">Download candidate prompt template</button></form>"
+                "<form action='/manual-import' method='post' enctype='multipart/form-data'>"
+                "<label>Completed response template<input type='file' name='document' accept='.json,application/json' required></label>"
+                "<button type='submit'>Import candidate responses</button></form>"
+            )
         result += "</section>"
     return f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -315,6 +330,24 @@ scientific intake questions. Do not enter identifiable patient records.</div>
 <h3 style='margin-top:18px'>Intended-use questions</h3>{fields}
 <button type='submit' {'disabled' if not state["vendors"] else ''}>Generate and save draft scope</button>
 </form></section></main></body></html>""".encode("utf-8")
+
+
+def render_manual_submission(record: dict) -> bytes:
+    handoff = ""
+    if record["status"] == "complete_unscored":
+        handoff = ("<p><a href='/manual-responses?id=" + esc(record["submission_id"]) +
+                   "'>Download canonical manual response mapping</a></p>"
+                   "<p class='small'>Use only with the same bound pack and scope. A scientific operator must "
+                   "configure the real evaluation and judges; this is not an executed assessment.</p>")
+    return f"""<!doctype html><html lang='en'><head><meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Clinical AI Eval — Candidate responses</title><style>{STYLE}</style></head>
+<body><main class='shell'><header><h1>Candidate response collection</h1><a href='/'>Workspace</a></header>
+<div class='notice'>Operator-attested, unverified responses. No scores, clinical findings or purchasing verdict.</div>
+<section class='panel'><h2>{esc(record["status"])}</h2>
+<p>Provided answers: {esc(record["n_provided"])} of {esc(record["n_expected"])}</p>
+{handoff}<p class='small'>Submission ID: {esc(record["submission_id"])}</p>
+</section></main></body></html>""".encode("utf-8")
 
 
 def render_rehearsal(record: dict) -> bytes:
@@ -470,7 +503,7 @@ class BuyerHandler(BaseHTTPRequestHandler):
         if not self._host_ok():
             return self._error(HTTPStatus.BAD_REQUEST, "invalid local Host")
         parts = urllib.parse.urlsplit(self.path)
-        if parts.path not in ("/", "/dossier", "/questionnaire", "/research", "/plan", "/rehearsal"):
+        if parts.path not in ("/", "/dossier", "/questionnaire", "/research", "/plan", "/rehearsal", "/manual-submission", "/manual-template", "/manual-responses"):
             return self._error(HTTPStatus.NOT_FOUND, "unknown route")
         supplied = urllib.parse.parse_qs(parts.query).get("token", [""])[0]
         if parts.path == "/" and supplied and hmac.compare_digest(supplied, self.server.session_token):
@@ -485,6 +518,31 @@ class BuyerHandler(BaseHTTPRequestHandler):
                                "Launch with the private URL shown in your terminal.")
         query = urllib.parse.parse_qs(parts.query)
         try:
+            if parts.path in ("/manual-template", "/manual-responses", "/manual-submission"):
+                from . import buyer_manual
+                ids = query.get("id", [])
+                if len(ids) != 1:
+                    raise buyer.BuyerError("select exactly one exchange or submission")
+                with self.server.mutation_lock:
+                    if parts.path == "/manual-template":
+                        payload = buyer_manual.template(self.server.directory, ids[0])
+                        filename = "candidate-prompts.json"
+                    elif parts.path == "/manual-responses":
+                        payload = buyer_manual.responses(self.server.directory, ids[0])
+                        filename = "manual-responses.json"
+                    else:
+                        payload = buyer_manual.submission_status(self.server.directory, ids[0])
+                        content = render_manual_submission(payload)
+                        self._headers(extra={"Content-Length": str(len(content))})
+                        self.wfile.write(content)
+                        return
+                document = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+                self._headers(content_type="application/json; charset=utf-8", extra={
+                    "Content-Disposition": 'attachment; filename="' + filename + '"',
+                    "Content-Length": str(len(document)),
+                })
+                self.wfile.write(document)
+                return
             if parts.path == "/rehearsal":
                 from . import buyer_rehearsal
                 ids = query.get("id", [])
@@ -513,7 +571,8 @@ class BuyerHandler(BaseHTTPRequestHandler):
                         })
                         self.wfile.write(document)
                         return
-                    content = render_plan(state, record)
+                    from . import buyer_manual
+                    content = render_plan(state, record, buyer_manual.packs(self.server.directory))
                 self._headers(extra={"Content-Length": str(len(content))})
                 self.wfile.write(content)
                 return
@@ -570,7 +629,7 @@ class BuyerHandler(BaseHTTPRequestHandler):
             return self._error(HTTPStatus.FORBIDDEN,
                                "cross-origin local writes are not permitted")
         path = urllib.parse.urlsplit(self.path).path
-        if path not in ("/project-init", "/vendor-add", "/evidence-add", "/questionnaire-import", "/plan-preview", "/rehearsal-run"):
+        if path not in ("/project-init", "/vendor-add", "/evidence-add", "/questionnaire-import", "/plan-preview", "/rehearsal-run", "/manual-prepare", "/manual-import"):
             return self._error(HTTPStatus.NOT_FOUND, "unknown route")
         try:
             n = int(self.headers.get("Content-Length", "-1"))
@@ -580,6 +639,28 @@ class BuyerHandler(BaseHTTPRequestHandler):
             body = self.rfile.read(n)
             if len(body) != n:
                 raise buyer.BuyerError("incomplete request body")
+            if path == "/manual-prepare":
+                from . import buyer_manual
+                if not ctype.startswith("application/x-www-form-urlencoded") or n > 1024:
+                    raise buyer.BuyerError("invalid manual exchange form")
+                fields = urllib.parse.parse_qs(body.decode("utf-8"), max_num_fields=2)
+                if set(fields) != {"plan_id", "pack_id"} or any(len(v) != 1 for v in fields.values()):
+                    raise buyer.BuyerError("select one saved plan and one staged pack")
+                with self.server.mutation_lock:
+                    payload = buyer_manual.prepare(self.server.directory, fields["plan_id"][0], fields["pack_id"][0])
+                self._headers(HTTPStatus.SEE_OTHER, extra={
+                    "Location": "/manual-template?id=" + payload["request"]["exchange_id"], "Content-Length": "0"})
+                return
+            if path == "/manual-import":
+                from . import buyer_manual
+                fields, payload, _ = parse_upload(body, ctype)
+                if fields:
+                    raise buyer.BuyerError("only the completed response file is accepted")
+                with self.server.mutation_lock:
+                    record = buyer_manual.import_response(self.server.directory, payload)
+                self._headers(HTTPStatus.SEE_OTHER, extra={
+                    "Location": "/manual-submission?id=" + record["submission_id"], "Content-Length": "0"})
+                return
             if path == "/rehearsal-run":
                 from . import buyer_rehearsal
                 if not ctype.startswith("application/x-www-form-urlencoded") or n > 1024:
