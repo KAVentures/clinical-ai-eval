@@ -151,6 +151,7 @@ def _dashboard(directory, actor):
     else:
         body += "<p><a href='/lifecycle'>Implementation and monitoring register</a></p>"
         body += "<p><a href='/evidence'>Scientific evidence overview</a></p>"
+        body += "<p><a href='/conversation'>Patient conversation assessments</a></p>"
         body += "<p><a href='/committee'>Procurement committee</a></p>"
         if role in ("admin","operator"):
             body += "<p><a href='/setup'>Candidate intake and assessment setup</a></p>"
@@ -245,6 +246,16 @@ class InstitutionApp:
                     body+="<tr>"+"".join("<td>"+esc(row[k])+"</td>" for k in ("seq","actor","action","object_id","outcome"))+"</tr>"
                 access.event(self.directory,actor["user_id"],"audit-opened")
                 return respond("200 OK",page("Access audit",body+"</table>"))
+            if path=="/conversation" and method=="GET":
+                from . import institution_conversation_web as conversation
+                return respond("200 OK",conversation.render(self.directory,actor))
+            if path in ("/conversation-queue","/conversation-cancel") and method=="POST":
+                from . import institution_conversation_web as conversation
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                conversation.dispatch(self.directory,actor,path,form)
+                return respond("303 See Other",extra=[("Location","/conversation")])
             if path=="/setup" and method=="GET":
                 from . import institution_setup_web as setup
                 return respond("200 OK",setup.render(self.directory,actor))
