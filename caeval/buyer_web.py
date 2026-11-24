@@ -110,6 +110,15 @@ def render_page(data: dict, message: str = "", error: str = "") -> bytes:
         "<option value='" + esc(v["vendor_id"]) + "'>" + esc(v["name"]) + "</option>"
         for v in vendors
     )
+    questionnaire_rows = []
+    for v in vendors:
+        link = "/questionnaire?vendor_id=" + urllib.parse.quote(v["vendor_id"], safe="")
+        questionnaire_rows.append("<p><a href='" + esc(link) + "'>Download questionnaire for " +
+                                  esc(v["name"]) + "</a></p>")
+        for q in v.get("questionnaires", []):
+            questionnaire_rows.append("<p class='small'>" + esc(v["name"]) + ": " +
+                esc(q.get("schema_status", q["integrity"])) + " — self-reported, unverified. " +
+                esc(q.get("counts", "")) + "</p>")
     kind_options = "".join("<option value='" + esc(k) + "'>" +
                            esc(k.replace("_", " ").title()) + "</option>"
                            for k in buyer.EVIDENCE_KINDS)
@@ -121,6 +130,8 @@ def render_page(data: dict, message: str = "", error: str = "") -> bytes:
         notices += "<div class='notice'>Vendor registered locally.</div>"
     elif message == "evidence-added":
         notices += "<div class='notice'>Document copied into the private local evidence store.</div>"
+    elif message == "questionnaire-imported":
+        notices += "<div class='notice'>Vendor disclosure imported. Its claims are self-reported and unverified.</div>"
     if error:
         notices += "<div class='notice danger'>Error: " + esc(error) + "</div>"
     assessment = data["assessment"]
@@ -180,7 +191,16 @@ placeholder='e.g. Validation report'></label>
 <button type='submit' {'disabled' if not vendors else ''}>Add document</button>
 </form><p class='small'>Maximum file size: 20 MiB. Do not upload identifiable
 patient records unless the organisation has approved the local data environment.</p>
-</div><section class='panel'><h2>Assessment scope</h2>
+</div><section class='panel'><h2>Vendor disclosures</h2>
+<p class='muted'>Export a candidate-specific questionnaire and import the completed JSON.
+Only send the template through approved channels. It contains the buyer's intended use and setting.
+Vendor statements require independent review; they do not close evidence requirements automatically.</p>
+{''.join(questionnaire_rows)}
+<form action='/questionnaire-import' method='post' enctype='multipart/form-data'>
+<label>Candidate<select name='vendor_id' required>{options}</select></label>
+<label>Completed questionnaire<input type='file' name='document' accept='.json,application/json' required></label>
+<button type='submit' {'disabled' if not vendors else ''}>Import disclosure</button></form>
+</section><section class='panel'><h2>Assessment scope</h2>
 <div class='small'>Intended use</div><p>{esc(data["intended_use"]) or "Not yet specified"}</p>
 <div class='small'>Missing intake fields</div>
 <p>{esc(', '.join(data["missing_intake"])) or "None"}</p>
@@ -319,7 +339,7 @@ class BuyerHandler(BaseHTTPRequestHandler):
         if not self._host_ok():
             return self._error(HTTPStatus.BAD_REQUEST, "invalid local Host")
         parts = urllib.parse.urlsplit(self.path)
-        if parts.path not in ("/", "/dossier"):
+        if parts.path not in ("/", "/dossier", "/questionnaire"):
             return self._error(HTTPStatus.NOT_FOUND, "unknown route")
         supplied = urllib.parse.parse_qs(parts.query).get("token", [""])[0]
         if parts.path == "/" and supplied and hmac.compare_digest(supplied, self.server.session_token):
@@ -334,6 +354,20 @@ class BuyerHandler(BaseHTTPRequestHandler):
                                "Launch with the private URL shown in your terminal.")
         query = urllib.parse.parse_qs(parts.query)
         try:
+            if parts.path == "/questionnaire":
+                from . import buyer_questionnaire as questionnaire
+                vendor_ids = query.get("vendor_id", [])
+                if len(vendor_ids) != 1:
+                    return self._error(HTTPStatus.BAD_REQUEST, "select one vendor")
+                with self.server.mutation_lock:
+                    template = questionnaire.template(self.server.directory, vendor_ids[0])
+                document = json.dumps(template, ensure_ascii=False, indent=2).encode("utf-8")
+                self._headers(content_type="application/json; charset=utf-8", extra={
+                    "Content-Disposition": 'attachment; filename="vendor-questionnaire.json"',
+                    "Content-Length": str(len(document)),
+                })
+                self.wfile.write(document)
+                return
             if parts.path == "/dossier":
                 if not (self.server.directory / buyer.STATE_FILE).is_file():
                     return self._error(HTTPStatus.NOT_FOUND, "create a buyer project first")
@@ -366,7 +400,7 @@ class BuyerHandler(BaseHTTPRequestHandler):
             return self._error(HTTPStatus.FORBIDDEN,
                                "cross-origin local writes are not permitted")
         path = urllib.parse.urlsplit(self.path).path
-        if path not in ("/project-init", "/vendor-add", "/evidence-add"):
+        if path not in ("/project-init", "/vendor-add", "/evidence-add", "/questionnaire-import"):
             return self._error(HTTPStatus.NOT_FOUND, "unknown route")
         try:
             n = int(self.headers.get("Content-Length", "-1"))
@@ -399,6 +433,13 @@ class BuyerHandler(BaseHTTPRequestHandler):
                     buyer.add_vendor(self.server.directory, fields["vendor_id"][0], fields["name"][0])
                 return self._redirect("?message=vendor-added")
             fields, payload, filename = parse_upload(body, ctype)
+            if path == "/questionnaire-import":
+                from . import buyer_questionnaire as questionnaire
+                if not fields.get("vendor_id"):
+                    raise buyer.BuyerError("select a vendor")
+                with self.server.mutation_lock:
+                    questionnaire.import_response(self.server.directory, fields["vendor_id"], payload)
+                return self._redirect("?message=questionnaire-imported")
             if not fields.get("vendor_id") or not fields.get("kind"):
                 raise buyer.BuyerError("vendor and evidence category are required")
             tmp = tempfile.NamedTemporaryFile(prefix=".upload-", dir=self.server.directory,
