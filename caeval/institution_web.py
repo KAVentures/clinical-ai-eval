@@ -140,6 +140,8 @@ def _dashboard(directory, actor):
     role = actor["role"]
     body = nav + "<p>Account: " + esc(actor["user_id"]) + " · " + esc(role) + "</p>"
     body += "<p>Research and clinical assessment remain experimental. No procurement or deployment approval.</p>"
+    if role in ("admin","reviewer"):
+        body += "<p><a href='/formal'>Formal independent clinical review</a></p>"
     if role == "reviewer":
         body += "<h2>Assigned blinded reviews</h2>"
         for row in access.assignments(directory, actor):
@@ -264,6 +266,25 @@ class InstitutionApp:
                     body+="<tr>"+"".join("<td>"+esc(row[k])+"</td>" for k in ("seq","actor","action","object_id","outcome"))+"</tr>"
                 access.event(self.directory,actor["user_id"],"audit-opened")
                 return respond("200 OK",page("Access audit",body+"</table>"))
+            if path=="/formal" and method=="GET":
+                from . import institution_formal_web as formal
+                return respond("200 OK",formal.render(self.directory,actor))
+            if path in ("/formal-review","/formal-consensus") and method=="GET":
+                from . import institution_formal_web as formal
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("select one formal handoff")
+                view=formal.review_page if path=="/formal-review" else formal.consensus_page
+                return respond("200 OK",view(self.directory,actor,q["id"]))
+            if path in ("/formal-prepare","/formal-lock","/formal-attest","/formal-consensus","/formal-analyze") and method=="POST":
+                from . import institution_formal_web as formal
+                access.require(actor,"reviewer" if path=="/formal-lock" else "admin")
+                form=_form(env)
+                _csrf(actor,form)
+                result=formal.dispatch(self.directory,actor,path,form)
+                if result is not None:
+                    return respond("200 OK",result)
+                return respond("303 See Other",extra=[("Location","/formal")])
             if path=="/setup" and method=="GET":
                 from . import institution_setup_web as setup
                 return respond("200 OK",setup.render(self.directory,actor))
