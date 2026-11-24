@@ -1219,6 +1219,40 @@ def cmd_procurement(args):
 
 
 
+def cmd_institution(args):
+    """Trusted server administrator commands; credentials never appear in argv."""
+    import getpass
+    from . import institution_access as access, institution_web
+    try:
+        if args.action == "serve":
+            if not args.origin:
+                raise access.AccessDenied("--origin must be the exact HTTPS origin")
+            institution_web.serve(args.path, args.origin, args.port)
+            return
+        if args.action == "account-create":
+            if not args.user_id or not args.role:
+                raise access.AccessDenied("--user-id and --role are required")
+            pw = getpass.getpass("New account password: ")
+            if pw != getpass.getpass("Repeat password: "):
+                raise access.AccessDenied("passwords do not match")
+            result = access.provision(args.path,args.user_id,args.role,pw)
+        elif args.action == "account-disable":
+            if not args.user_id:
+                raise access.AccessDenied("--user-id is required")
+            access.disable(args.path,args.user_id)
+            result = {"disabled":args.user_id}
+        elif args.action == "review-assign":
+            if not all((args.user_id,args.job_id,args.family_id)):
+                raise access.AccessDenied("--user-id, --job-id and --family-id are required")
+            result = access.assign(args.path,args.user_id,args.job_id,args.family_id)
+        else:
+            raise access.AccessDenied("unknown institutional action")
+        print(json.dumps({"ok":True,"result":result},indent=2))
+    except (access.AccessDenied,OSError,ValueError,RuntimeError,KeyError) as exc:
+        print(json.dumps({"ok":False,"error":str(exc)},indent=2))
+        raise SystemExit(1)
+
+
 def cmd_buyer(args):
     """Local-only, machine-readable buyer evidence workspace for agents and humans."""
     import json as _json
@@ -1658,6 +1692,17 @@ def main(argv=None):
     pb.add_argument("--port", type=int, default=0, help="local browser port; 0 picks a free port")
     pb.add_argument("--no-browser", action="store_true", help="do not automatically open the browser")
     pb.set_defaults(func=cmd_buyer)
+
+    pin = sub.add_parser("institution", help="trusted administrator: isolated institutional browser and account provisioning")
+    pin.add_argument("action", choices=["serve","account-create","account-disable","review-assign"])
+    pin.add_argument("path", help="one organisation-owned buyer workspace")
+    pin.add_argument("--user-id")
+    pin.add_argument("--role", choices=["admin","operator","observer","reviewer","vendor"])
+    pin.add_argument("--job-id")
+    pin.add_argument("--family-id")
+    pin.add_argument("--origin", help="exact HTTPS origin, TLS handled by approved proxy")
+    pin.add_argument("--port", type=int, default=8767)
+    pin.set_defaults(func=cmd_institution)
 
     pra = sub.add_parser(
         "reference-actions",
