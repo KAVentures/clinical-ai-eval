@@ -104,6 +104,73 @@ class BuyerWorkspaceTests(unittest.TestCase):
         self.assertTrue(a["case_pack_hash_locked"])
         self.assertTrue(a["conditions_hash"])
 
+    def test_combined_dossier_excludes_missing_and_unverified_results(self):
+        buyer.add_vendor(self.root, "a", "Vendor A")
+        buyer.add_vendor(self.root, "b", "Vendor B")
+        assessment = self.root / "assessment"
+        st = pw.init(assessment, "test", ["missing_information"],
+                     {"pack_id": "demo", "content_hash": "demo-hash"},
+                     "panel.toml", [{"hazard_id": "h",
+                     "acceptance_criterion": {"metric": "unsafe_overconfident",
+                                              "operator": "<=", "threshold": 0.1}}])
+        pw.add_vendor(assessment, "a", {"kind": "mock"}, "Product A")
+        pw.record_result(assessment, "a", "missing_information", [],
+                         {"conditions_hash": st["conditions_hash"],
+                          "case_pack_hash": "demo-hash"})
+        before = (assessment / "procurement.json").read_bytes()
+        report = buyer.render_dossier(self.root)
+        self.assertIn("a / missing_information: no verified package recorded", report)
+        self.assertIn("Candidate b: not registered", report)
+        self.assertIn("NOT MEASURED", report)
+        self.assertEqual((assessment / "procurement.json").read_bytes(), before)
+
+    def test_combined_dossier_reconstructs_not_cached_cells(self):
+        from caeval import claim, manifest
+        buyer.add_vendor(self.root, "a", "Vendor A")
+        assessment = self.root / "assessment"
+        st = pw.init(assessment, "test", ["missing_information"],
+                     {"pack_id": "demo", "content_hash": "demo-hash"},
+                     "panel.toml", [{"hazard_id": "h",
+                     "acceptance_criterion": {"metric": "unsafe_overconfident",
+                                              "operator": "<=", "threshold": 0.1}}])
+        pw.add_vendor(assessment, "a", {"kind": "mock"}, "Product A")
+        ws = self.root / "run"
+        ws.mkdir()
+        authority = claim.compute("procurement_comparison", "L0", "experimental",
+                                  "demonstration_fixture", "mock").as_dict()
+        files = {
+            "analysis.json": {"family_id": "missing_information",
+                              "claim_authority": authority,
+                              "case_pack": {"content_hash": "demo-hash"}},
+            "run_meta.json": {"conditions_hash": st["conditions_hash"]},
+            "assessment_manifest.json": {"family_id": "missing_information",
+                    "executor": "generic_paired_text", "manifest_hash": "fixture-digest",
+                    "definitions": {"tests/missing_information/family.yaml": "family-hash",
+                                    "selection_rules.yaml": "rules-hash"}},
+            "provenance.json": {"eval_standard": "fixture", "judge_prompt_sha256": "prompt-hash",
+                                "panel": {"judges": [{"name": "fixture"}]}},
+        }
+        for filename, payload in files.items():
+            (ws / filename).write_text(json.dumps(payload))
+        (ws / "results.jsonl").write_text(json.dumps({
+            "cell_id": "c1", "case_id": "s1", "unsafe_overconfident": 0}) + "\n")
+        # This fixture mocks only the manifest verifier, not the reconstruction.
+        with patch.object(manifest, "verify_manifest", return_value={"verdict": "VALID"}) as verify:
+            pw.ingest_package(assessment, "a", ws)
+            first = buyer.render_dossier(self.root)
+            self.assertIn("package integrity reverified", first)
+            self.assertGreaterEqual(verify.call_count, 2)
+            saved = pw.load(assessment)
+            saved["results"]["a"]["missing_information"]["cells"][0]["unsafe_overconfident"] = 1
+            pw.save(assessment, saved)
+            self.assertEqual(first, buyer.render_dossier(self.root))
+            files["assessment_manifest.json"]["manifest_hash"] = "replacement"
+            (ws / "assessment_manifest.json").write_text(json.dumps(files["assessment_manifest.json"]))
+            second = buyer.render_dossier(self.root)
+            self.assertIn("package missing, changed or invalid; excluded", second)
+            self.assertNotIn("package integrity reverified", second)
+            self.assertIn("NOT MEASURED", second)
+
     def test_agent_cli_json_contract_and_read_only_status(self):
         for argv in (["buyer", "contract"], ["buyer", "status", str(self.root)]):
             output = io.StringIO()
