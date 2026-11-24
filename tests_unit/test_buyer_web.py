@@ -69,6 +69,19 @@ class LocalBuyerBrowserTests(unittest.TestCase):
             self.assertEqual(response.headers["Cache-Control"], "no-store")
             self.assertEqual(response.headers["X-Frame-Options"], "DENY")
 
+    def test_combined_dossier_download_requires_authentication(self):
+        with self.assertRaises(urllib.error.HTTPError) as exc:
+            self._request("/dossier")
+        self.assertEqual(exc.exception.code, 401)
+        self._login()
+        with self._request("/dossier") as response:
+            self.assertIn("attachment", response.headers["Content-Disposition"])
+            self.assertIn("text/plain", response.headers["Content-Type"])
+            report = response.read().decode("utf-8")
+            self.assertIn("Administrative inventory only", report)
+            self.assertIn("No verified clinical comparison", report)
+            self.assertNotIn(self.app.session_token, report)
+
     def test_reject_cross_origin_vendor_write(self):
         self._login()
         with self.assertRaises(urllib.error.HTTPError) as exc:
