@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from . import buyer_agent as buyer, buyer_assessment as assessment, buyer_manual as manual
-from . import buyer_research, claim, manifest, pipeline, project, selection
+from . import buyer_research, claim, manifest, pipeline, project, selection, packsource, maturity, executors
 
 MAX_JOBS = 200
 TIMEOUT_SECONDS = 1800
@@ -96,9 +96,44 @@ def _job_path(directory, job_id):
     return path
 
 
+def _read_inputs(job, binding):
+    """Check the complete private execution input set and recompute the plan."""
+    if (job / "pack").is_symlink() or not (job / "pack").is_dir():
+        raise buyer.BuyerError("invalid execution case pack")
+    files = binding["file_sha256"]
+    required = {"project.yaml", "responses.json", "panel.toml"}
+    pack_files = set(files) - required
+    case_files = pack_files & {"pack/cases.json", "pack/cases.jsonl"}
+    if (not required <= set(files) or len(case_files) != 1
+            or pack_files - case_files - {"pack/pack.json"}):
+        raise buyer.BuyerError("unexpected execution input inventory")
+    if {p.name for p in (job / "pack").iterdir()} != {p.split("/",1)[1] for p in pack_files}:
+        raise buyer.BuyerError("execution case pack inventory changed")
+    for name, digest in files.items():
+        p = job / name
+        if p.is_symlink() or not p.is_file() or p.stat().st_size > manual.MAX_REQUEST_BYTES:
+            raise buyer.BuyerError("invalid execution input")
+        if assessment._sha(p.read_bytes()) != digest:
+            raise buyer.BuyerError("execution input changed")
+    for rel, digest in binding["scientific_definitions"].items():
+        if manifest.hash_file(manifest.definition_file(rel)) != digest:
+            raise buyer.BuyerError("scientific definition changed")
+    cfg = project.load(job)
+    cfg.require_valid()
+    panel = pipeline.load_panel(job / "panel.toml")
+    pipeline.assess_panel(panel)
+    cases, desc = packsource.resolve({"source":str(job / "pack")},"clinician_vignette")
+    if desc["content_hash"] != binding["pack_content_hash"]:
+        raise buyer.BuyerError("execution pack content changed")
+    responses = json.loads((job / "responses.json").read_text(encoding="utf-8"))
+    if not isinstance(responses,dict) or any(not isinstance(v,str) or not v.strip() for v in responses.values()):
+        raise buyer.BuyerError("invalid collected response mapping")
+    return cfg,panel,cases,desc,responses
+
+
 def _verify(directory, row):
     job = _job_path(directory, row["id"])
-    if not job.is_dir() or (job / "out").is_symlink() or (job / "pack").is_symlink():
+    if not job.is_dir() or (job / "out").is_symlink():
         raise buyer.BuyerError("missing execution workspace")
     binding = manual._read(job / "binding.json")
     if (binding.get("assessment_id") != row["assessment_id"]
@@ -106,64 +141,70 @@ def _verify(directory, row):
             or assessment.buyer_plan._digest({k: v for k, v in binding.items()
                                               if k != "assessment_id"}) != row["assessment_id"]):
         raise buyer.BuyerError("execution binding changed")
-    for name, digest in binding["file_sha256"].items():
-        # File names are constrained to the generated project format.
-        if name not in ("project.yaml", "responses.json", "panel.toml", "pack/cases.json",
-                        "pack/cases.jsonl", "pack/pack.json"):
-            raise buyer.BuyerError("unexpected execution input")
-        p = job / name
-        if p.is_symlink() or not p.is_file() or assessment._sha(p.read_bytes()) != digest:
-            raise buyer.BuyerError("execution input changed")
-    cfg = project.load(job)
-    cfg.require_valid()
+    cfg,panel,cases,desc,responses = _read_inputs(job,binding)
     if cfg.mode != row["mode"] or cfg.subject.get("kind") != "manual":
         raise buyer.BuyerError("execution project changed")
-    expected = selection.select_suites(cfg.profiles)["runnable_suites"]
-    if not expected:
-        raise buyer.BuyerError("no runnable family")
-    responses = json.loads((job / "responses.json").read_text(encoding="utf-8"))
+    if any(not j["mock"] for j in panel["judges"]) != row["real_judges"]:
+        raise buyer.BuyerError("execution panel policy changed")
+    selected = selection.select_suites(cfg.profiles)
+    expected = selected["runnable_suites"]
+    if not expected or any(executors.resolve(f).executor_id != executors.GENERIC_PAIRED_TEXT for f in expected):
+        raise buyer.BuyerError("unsupported execution family")
+    out = job / "out"
+    if not out.is_dir() or {p.name for p in out.iterdir() if p.name.startswith("run_")} != {"run_"+f for f in expected}:
+        raise buyer.BuyerError("execution family inventory differs from plan")
     packages = []
     seen = set()
     for family in expected:
         manual._identifier(family)
-        ws = job / "out" / ("run_" + family)
+        ws = out / ("run_" + family)
         if ws.is_symlink() or not ws.is_dir():
             raise buyer.BuyerError("missing family package")
         meta = buyer_research._preflight(ws)
-        verification = manifest.verify_manifest(ws)
-        analysis = json.loads((ws / "analysis.json").read_text(encoding="utf-8"))
-        bound = json.loads((ws / "plan_binding.json").read_text(encoding="utf-8"))
-        auth = analysis["claim_authority"]
-        derived = claim.compute(auth["project_mode"], auth["run_conformance"],
-                                auth["family_maturity"], auth["case_pack_authority"],
-                                auth["target_provenance"])
-        if (verification["verdict"] != manifest.VALID or meta["family_id"] != family
-                or analysis["family_id"] != family or bound["family_id"] != family
-                or bound["case_pack_hash"] != binding["pack_content_hash"]
-                or bound["target_name"] != cfg.target_meta["name"]
-                or bound["target_version"] != cfg.target_meta["version"]
-                or bound["subject_kind"] != "manual" or bound["project_mode"] != cfg.mode
-                or derived.project_mode != cfg.mode
-                or derived.effective_claim != auth["effective_claim"]
-                or derived.effective_claim not in ("none", "demonstration", "internal_regression")):
+        if manifest.verify_manifest(ws)["verdict"] != manifest.VALID or meta["family_id"] != family:
+            raise buyer.BuyerError("invalid family package")
+        def read_json(key):
+            return json.loads(buyer_research.verified_bytes(ws, meta, key))
+        analysis = read_json("analysis")
+        bound = read_json("plan_binding")
+        run_meta = read_json("run_meta")
+        family_def = pipeline.load_family(family)
+        # Re-derive the bound plan from the actual prepared project, not from
+        # the run's own reported binding.
+        names = [j["name"] for j in panel["judges"]]
+        claim.verify_binding(bound, claim.build_binding(cfg,family,names,desc["content_hash"]))
+        derived = claim.compute(cfg.mode,run_meta["panel"]["conformance_level"],
+                                maturity.family_maturity(family_def),
+                                claim.pack_authority(desc),"real")
+        if (analysis["family_id"] != family or run_meta["family_id"] != family
+                or analysis.get("plan_binding") != bound
+                or analysis.get("case_pack",{}).get("content_hash") != desc["content_hash"]
+                or run_meta["panel"]["names"] != names
+                or run_meta["subject_spec"].get("kind") != "manual"
+                or analysis["claim_authority"] != derived.as_dict()
+                or derived.effective_claim not in ("none","demonstration","internal_regression")):
             raise buyer.BuyerError("run package does not match bound assessment")
-        claim.verify_binding(bound, bound)
-        with (ws / "responses.jsonl").open(encoding="utf-8") as handle:
-            cells = [json.loads(line) for line in handle if line.strip()]
-        ids = set()
-        for cell in cells:
-            cid = cell["cell_id"]
-            if cid in ids or cid not in responses or cell["response_text"] != responses[cid]:
-                raise buyer.BuyerError("run response differs from collected candidate output")
-            ids.add(cid)
+        # Check exact per-family coverage (a union across families could hide
+        # a missing baseline shared by two suites), prompt text and responses.
+        expected_rows = pipeline.generate_responses(lambda rec: responses[rec["cell_id"]],family_def,cases)
+        actual_rows = [json.loads(line) for line in buyer_research.verified_bytes(ws,meta,"responses").splitlines() if line.strip()]
+        if actual_rows != expected_rows:
+            raise buyer.BuyerError("family prompts or responses differ from canonical collected cells")
+        ids = {r["cell_id"] for r in actual_rows}
+        if len(ids)!=len(actual_rows):
+            raise buyer.BuyerError("duplicate response cell")
         seen.update(ids)
-        review = json.loads((ws / "review_manifest.json").read_text(encoding="utf-8"))
+        review = read_json("review_manifest")
+        review_ids=[r["cell_id"] for r in review["expected_cells"]]
+        if (review["n_expected"] != len(review_ids) or len(review_ids)!=len(set(review_ids))
+                or not set(review_ids)<=ids):
+            raise buyer.BuyerError("invalid review coverage")
         packages.append({"family_id": family, "manifest_hash": meta["manifest_hash"],
                          "claim": derived.effective_claim, "review_count": review["n_expected"],
-                         "n_responses": len(cells)})
+                         "n_responses": len(actual_rows)})
     if seen != set(responses):
         raise buyer.BuyerError("not every collected response was executed")
-    return {"packages": packages, "required_but_not_run": selection.select_suites(cfg.profiles)["required_but_not_run"]}
+    return {"packages":packages,"required_but_not_run":selected["required_but_not_run"]}
 
 
 def status(directory, job_id):
@@ -215,7 +256,7 @@ def execute(directory, job_id, *, allow_model_calls=False):
                 p.chmod(0o600)
                 f.write(raw)
         buyer._write_json(job / "binding.json", record, create=True)
-        panel = pipeline.load_panel(job / "panel.toml")
+        _, panel, _, _, _ = _read_inputs(job, record)
         if any(not j["mock"] for j in panel["judges"]) != row["real_judges"]:
             raise buyer.BuyerError("judge network policy changed")
         # Preserve import resolution when running from a source checkout, but
