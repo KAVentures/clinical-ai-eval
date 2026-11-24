@@ -12,7 +12,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from . import adjudicate, buyer_agent as buyer, buyer_jobs as jobs, buyer_plan
+from . import adjudicate, buyer_agent as buyer, buyer_jobs as jobs, buyer_plan, manifest
 from . import buyer_physician_review as review, institution_access as access
 
 MAX_REVIEWERS = 30
@@ -73,14 +73,20 @@ def analyze(directory, actor, job_id, family):
     source=jobs._job_path(directory,job_id)/"out"/("run_"+family)
     # No secrets, packets, existing adjudication or validity declarations copied.
     # This deliberately cannot satisfy the existing L2 packet/validity gates.
-    with tempfile.TemporaryDirectory(prefix="caeval-institution-analysis-") as temp:
+    with tempfile.TemporaryDirectory(prefix=".analysis-", dir=access._root(directory)) as temp:
         ws=Path(temp)
         (ws/"adjudication").mkdir()
+        original_manifest=json.loads((source/manifest.MANIFEST_FILE).read_text(encoding="utf-8"))
+        if original_manifest.get("manifest_hash")!=digest:
+            raise access.AccessDenied("assessment manifest changed")
+        recorded={entry["path"]:entry["sha256"] for entry in original_manifest["artifacts"].values()}
         for name in ("results.jsonl","run_meta.json","review_manifest.json"):
             path=source/name
             if path.is_symlink() or not path.is_file():
                 raise access.AccessDenied("missing analysis input")
             (ws/name).write_bytes(path.read_bytes())
+            if manifest.hash_file(ws/name)!=recorded.get(name):
+                raise access.AccessDenied("copied analysis artifact differs from verified manifest")
         files=[]
         for index,(_,payload) in enumerate(records,1):
             # Pseudonymous labels in aggregate reports; account identities stay
