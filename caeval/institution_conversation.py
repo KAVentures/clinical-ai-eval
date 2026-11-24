@@ -131,11 +131,14 @@ def _pack(directory,identifier):
 
 def _material(directory,plan_id,connector_id,pack_id,panel_id,governance):
     plan=buyer_plan.load(directory,plan_id)
-    if not plan["definitions_current"]:
-        raise buyer.BuyerError("current saved scientific plan required")
+    state=buyer.load(directory)
+    scope={k:state.get(k,"") for k in ("project_name","intended_use","setting","jurisdiction","created_at")}
+    if (not plan["definitions_current"] or plan["buyer_scope"]!=scope
+            or plan["vendor_id"] not in {v["vendor_id"] for v in state["vendors"]}):
+        raise buyer.BuyerError("current saved scientific plan and buyer scope required")
     profiles=plan["plan"]["target_profile"]["types"]
     selected=selection.select_suites(profiles)
-    if selected["runnable_suites"]!=[FAMILY]:
+    if selected!=plan["plan"]["selection"] or selected["runnable_suites"]!=[FAMILY]:
         raise buyer.BuyerError("conversation queue requires a patient-only runnable scope")
     subject=_connector(directory,connector_id,plan)
     _,desc,files,budget=_pack(directory,pack_id)
@@ -143,7 +146,7 @@ def _material(directory,plan_id,connector_id,pack_id,panel_id,governance):
     real=any(not j["mock"] for j in panel["judges"])
     mode="internal_regression" if not any(j["mock"] for j in panel["judges"]) and not desc["is_builtin"] else "demonstration"
     target=plan["plan"]["target"]
-    vendor=next(v for v in buyer.load(directory)["vendors"] if v["vendor_id"]==plan["vendor_id"])
+    vendor=next(v for v in state["vendors"] if v["vendor_id"]==plan["vendor_id"])
     config=project.template("Institutional patient conversation assessment",mode)
     config["target"]={"name":target["name"],"version":target["version"],"vendor":vendor["name"]}
     config["target_profile"]["types"]=profiles
@@ -230,6 +233,46 @@ def _workspace(directory,identifier):
     return dest
 
 
+def _expected_episodes(cases):
+    from .patient.stress import applicable
+    expected=set()
+    skipped=[]
+    for case in cases:
+        for world in case.worlds:
+            for stress in sorted(STRESS_TESTS):
+                if stress=="BASELINE":
+                    expected.add((case.case_id,world.world_id,stress))
+                    continue
+                ok,why=applicable(case,world.world_id,stress)
+                if ok:
+                    expected.add((case.case_id,world.world_id,stress))
+                else:
+                    skipped.append({"case_id":case.case_id,"world_id":world.world_id,
+                                    "stress_test":stress,"reason":why})
+    from .patient.run import coverage
+    return expected,coverage(cases,sorted(set(STRESS_TESTS)-{"BASELINE"}),skipped)
+
+
+def _verify_episode_inventory(cases,episodes,cells,reported_coverage):
+    from .util import stable_hash_text
+    expected,expected_coverage=_expected_episodes(cases)
+    observed=[(e["case_id"],e["world_id"],e["stress_test"]) for e in episodes]
+    ids=[e["episode_id"] for e in episodes]
+    if (set(observed)!=expected or len(observed)!=len(expected)
+            or len(ids)!=len(set(ids)) or len(cells)!=len(episodes)
+            or reported_coverage!=expected_coverage):
+        raise buyer.BuyerError("incomplete or inconsistent patient stress coverage")
+    traces={}
+    for e in episodes:
+        digest=stable_hash_text("|".join(f"{t['speaker']}:{t['text']}" for t in e["turns"]))
+        if e["trace_hash"]!=digest:
+            raise buyer.BuyerError("episode transcript hash changed")
+        traces[e["episode_id"]]=digest
+    scored=[(cell["patient"]["episode_id"],cell["patient"]["trace_hash"]) for cell in cells]
+    if len(scored)!=len(traces) or len({eid for eid,_ in scored})!=len(scored) or dict(scored)!=traces:
+        raise buyer.BuyerError("scored cells do not match episode traces")
+
+
 def _verify(directory,row):
     dest=_workspace(directory,row["id"])
     b=row["binding"]
@@ -283,16 +326,13 @@ def _verify(directory,row):
     # the complete output inventory here, not just analysis.json.
     raw=_read(ws/"episodes.jsonl",buyer_research.MAX_BYTES)
     episodes=[json.loads(line) for line in raw.splitlines() if line.strip()]
-    expected={(c.case_id,w.world_id) for c in cases for w in c.worlds}
-    baseline_rows=[(e["case_id"],e["world_id"]) for e in episodes if e["stress_test"]=="BASELINE"]
-    baselines=set(baseline_rows)
-    observed=[(e["case_id"],e["world_id"],e["stress_test"]) for e in episodes]
-    ids=[e["episode_id"] for e in episodes]
-    if (baselines!=expected or len(baseline_rows)!=len(expected) or len(observed)!=len(set(observed))
-            or any((cid,wid) not in expected or stress not in STRESS_TESTS for cid,wid,stress in observed)
-            or len(ids)!=len(set(ids)) or len(episodes)!=analysis["n_cells"]
-            or any(e.get("errors") or e["target_id"]!=b["target"]["name"] or e["target_version"]!=b["target"]["version"] for e in episodes)):
-        raise buyer.BuyerError("incomplete or inconsistent episode inventory")
+    coverage=json.loads(_read(ws/"coverage.json",buyer_research.MAX_BYTES))
+    if coverage!=analysis["summary"]["coverage"]:
+        raise buyer.BuyerError("coverage artifact differs from analysis")
+    _verify_episode_inventory(cases,episodes,cells,coverage)
+    if any(e.get("errors") or e["target_id"]!=b["target"]["name"]
+           or e["target_version"]!=b["target"]["version"] for e in episodes):
+        raise buyer.BuyerError("episode transport error or target mismatch")
     file_hashes={p.relative_to(ws).as_posix():_sha(_read(p,buyer_research.MAX_BYTES))
                  for p in sorted(ws.rglob("*")) if p.is_file()}
     return {"manifest_hash":meta["manifest_hash"],"family":FAMILY,"claim":derived.effective_claim,
