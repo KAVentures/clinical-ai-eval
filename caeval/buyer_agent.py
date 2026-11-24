@@ -420,6 +420,8 @@ def _clinical_dossier_lines(root: Path, report: dict) -> list[str]:
                     # Refuse changed manifests even if the replacement is internally
                     # valid. A frozen study cannot silently substitute new evidence.
                     ws = Path(package["workspace"])
+                    if not ws.is_absolute():
+                        ws = root / ws
                     from . import manifest
                     current = json.loads((ws / manifest.MANIFEST_FILE).read_text(encoding="utf-8"))
                     if current.get("manifest_hash") != package["package_digest"]:
