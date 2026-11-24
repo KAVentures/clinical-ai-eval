@@ -404,7 +404,7 @@ def contract() -> dict:
     """Machine-readable discovery for Claude Code, CLI agents and future MCP servers."""
     return {
         "schema_version": SCHEMA_VERSION, "transport": "local_subprocess_json",
-        "network_calls": "none except explicitly authorized job-execute", "data_storage": "local_only",
+        "network_calls": 0, "network_policy": "none except explicitly authorized job-execute", "data_storage": "local_only",
         "entrypoint": "clinical-ai-eval buyer",
         "actions": ["contract", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research", "plan-preview", "plan-show", "rehearsal-run", "rehearsal-show", "manual-packs", "manual-prepare", "manual-template", "manual-import", "manual-responses", "assessment-panels", "assessment-prepare", "assessment-check", "job-enqueue", "job-list", "job-status", "job-cancel", "job-execute", "review-template", "review-submit", "review-inventory"],
         "action_schemas": {
