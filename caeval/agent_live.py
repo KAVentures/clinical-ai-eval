@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import socketserver
 import stat
@@ -78,7 +79,7 @@ def serve(directory,socket_path,generation_file):
     path=Path(socket_path)
     grants.outside_workspace(directory,path)
     grants.outside_workspace(directory,generation_file)
-    generation=grants.read_private(generation_file,__import__("re").compile(r"[0-9a-f]{64}"))
+    generation=grants.read_private(generation_file,re.compile(r"[0-9a-f]{64}"))
     if not path.is_absolute() or path.exists() or path.is_symlink() or path.parent.is_symlink():
         raise access.AccessDenied("fresh absolute socket path required")
     mode=path.parent.stat().st_mode
@@ -93,13 +94,16 @@ def serve(directory,socket_path,generation_file):
         os.umask(old_umask)
     try:
         os.chmod(path,0o660)
+        identity=path.lstat()
         server.directory=directory
         server.generation=generation
         server.serve_forever()
     finally:
         server.server_close()
-        if path.is_socket():
-            path.unlink()
+        if path.is_socket() and not path.is_symlink() and "identity" in locals():
+            current=path.lstat()
+            if (current.st_dev,current.st_ino)==(identity.st_dev,identity.st_ino):
+                path.unlink()
 
 
 def request(socket_path,token,op,tool=None):
@@ -135,7 +139,7 @@ class LiveSession(agent_mcp.Session):
     def handle(self,req):
         if not isinstance(req,dict) or req.get("method") not in ("tools/list","tools/call"):
             result=super().handle(req)
-            if isinstance(result,dict) and req.get("method")=="initialize" and "result" in result:
+            if isinstance(result,dict) and isinstance(req,dict) and req.get("method")=="initialize" and "result" in result:
                 result["result"]["serverInfo"]["name"]="clinical-ai-eval-live-metadata"
                 result["result"]["instructions"]="Revocable, scoped, read-only institutional aggregate metadata; not clinical validation."
             return result
