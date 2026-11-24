@@ -58,7 +58,10 @@ def _pack(directory, pack_id):
         raise buyer.BuyerError("case pack exceeds manual exchange limit")
     if (folder / "cases.json").exists() and (folder / "cases.jsonl").exists():
         raise buyer.BuyerError("stage exactly one case file")
-    cases, descriptor = packsource.resolve({"source": str(folder)}, "clinician_vignette")
+    try:
+        cases, descriptor = packsource.resolve({"source": str(folder)}, "clinician_vignette")
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
+        raise buyer.BuyerError("cannot resolve the staged clinician pack") from exc
     if not isinstance(cases, list) or not 1 <= len(cases) <= MAX_CASES:
         raise buyer.BuyerError("case pack must contain 1–100 clinician vignettes")
     ids = []
@@ -104,7 +107,10 @@ def _build(directory, plan_id, pack_id):
             if len(slots) > MAX_SLOTS:
                 raise buyer.BuyerError("too many prompt slots")
             return "(placeholder)"
-        pipeline.generate_responses(capture, pipeline.load_family(family), cases)
+        try:
+            pipeline.generate_responses(capture, pipeline.load_family(family), cases)
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
+            raise buyer.BuyerError("canonical prompt generation failed for " + family) from exc
     # Baseline originals shared across families are collected once, exactly
     # as the existing manual CLI response mapping does.
     if not slots:
@@ -261,15 +267,27 @@ def _submission(directory, submission_id):
             or buyer_plan._digest({k: v for k, v in content.items() if k != "submission_id"}) != identifier):
         raise buyer.BuyerError("response submission integrity mismatch")
     record = _load(directory, content["exchange_id"])
-    if (content.get("status") != "complete_unscored" or set(content.get("mapping", {})) != set(record["slots"])
-            or any(not isinstance(v, str) or not v.strip() for v in content["mapping"].values())):
-        raise buyer.BuyerError("incomplete responses cannot be handed to the scoring engine")
+    mapping = content.get("mapping")
+    if (not isinstance(mapping, dict) or not set(mapping) <= set(record["slots"])
+            or any(not isinstance(v, str) or not v.strip() for v in mapping.values())
+            or content.get("n_expected") != len(record["slots"])
+            or content.get("n_provided") != len(mapping)
+            or content.get("status") != ("complete_unscored" if len(mapping) == len(record["slots"]) else "incomplete")):
+        raise buyer.BuyerError("submission coverage mismatch")
     return content
+
+
+def submission_status(directory, submission_id):
+    content = _submission(directory, submission_id)
+    return {k: v for k, v in content.items() if k not in ("submission", "mapping")}
 
 
 def responses(directory, submission_id):
     """Exact canonical manual-subject mapping; no score or clinical claim."""
-    return _submission(directory, submission_id)["mapping"]
+    content = _submission(directory, submission_id)
+    if content["status"] != "complete_unscored":
+        raise buyer.BuyerError("incomplete responses cannot be handed to the scoring engine")
+    return content["mapping"]
 
 
 def import_file(directory, path):
