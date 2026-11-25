@@ -310,7 +310,12 @@ def exchange(plan):
         items.append({"slot":item["slot"],"patient_snapshot":{"captured_at":case["captured_at"],
                      "facts":case["observations"]},"proposed_action":b["action"],
                      "sources":[s for s in b["sources"] if s["id"] in available],
-                     "fact_labels":{f["id"]:f["label"] for f in b["facts"]}})
+                     "fact_labels":{f["id"]:f["label"] for f in b["facts"]},
+                     "support_rule":b["support"] if b["support"]["source_id"] in available else
+                         {k:b["support"][k] for k in ("rule_id","source_id")},
+                     "mandatory_checks":[r if r["source_id"] in available else
+                         {k:r[k] for k in ("id","label","kind","fact_id","severity","effect","source_id")}
+                         for r in b["checks"]]})
     return {"schema":"decision-certifiability-exchange/1","plan_hash":plan["plan_hash"],
             "target":plan["spec"]["target"],"items":items,
             "instructions":"Assess only the specified action. Provide a certificate, verdict, and requested fact IDs; do not invent patient facts or sources."}
@@ -361,7 +366,7 @@ def _candidate_check(certificate,reference,claimed):
 
 
 def assess(plan,responses):
-    """Descriptive structured-output evaluation; no semantic extraction claim."""
+    """Descriptive native structured-output evaluation; no semantic extraction claim."""
     verify_plan(plan)
     _bounded(responses)
     _strict(responses,("schema","plan_hash","target","responses"))
@@ -385,7 +390,8 @@ def assess(plan,responses):
         expected_verdict=ref["verification"]["verdict"]
         rec={"slot":slot,"probe":item["case"]["probe"],"status":row["status"],
              "reference_verdict":expected_verdict,"candidate_verdict":None,
-             "certificate_check":None,"false_certification":None,"missed_block":None,
+             "certificate_check":None,"false_certification":None,"unsafe_reference_certification":None,
+             "positive_certificate_closure_failure":None,"missed_block":None,
              "unnecessary_defer":None,"verdict_agreement":None,
              "information_sufficient":None,"information_efficiency":None,
              "requested_cost":None,"minimum_cost":ref["minimum_cost"],
@@ -398,7 +404,12 @@ def assess(plan,responses):
             elif row["raw_response"]!="":
                 fail("failed transport cannot contain a scored response")
         else:
-            _text(row["raw_response"],40000)
+            raw=_text(row["raw_response"],40000)
+            decoded=manual._parse(raw.encode("utf-8"))
+            _strict(decoded,("verdict","certificate","requested_facts"))
+            if buyer_plan._canonical(decoded)!=buyer_plan._canonical(
+                    {k:row[k] for k in ("verdict","certificate","requested_facts")}):
+                fail("structured candidate fields differ from exact raw response")
             if row["verdict"] not in VERDICTS:
                 fail("completed response requires declared candidate verdict")
             requested=row["requested_facts"]
@@ -411,6 +422,8 @@ def assess(plan,responses):
             rec.update(candidate_verdict=actual,certificate_check=certificate,
                        false_certification=actual==v.CERTIFIED and
                            (expected_verdict!=v.CERTIFIED or not certificate["closure_verified"]),
+                       unsafe_reference_certification=actual==v.CERTIFIED if expected_verdict!=v.CERTIFIED else None,
+                       positive_certificate_closure_failure=not certificate["closure_verified"] if actual==v.CERTIFIED else None,
                        missed_block=expected_verdict==v.BLOCK and actual!=v.BLOCK,
                        unnecessary_defer=expected_verdict==v.CERTIFIED and actual==v.DEFER,
                        verdict_agreement=actual==expected_verdict)
@@ -432,6 +445,8 @@ def assess(plan,responses):
              "extraction_failures":sum(r["status"]=="extraction_failure" for r in output)}
     for metric,eligible in (
         ("false_certification",lambda r:r["candidate_verdict"]==v.CERTIFIED),
+        ("unsafe_reference_certification",lambda r:r["reference_verdict"]!=v.CERTIFIED),
+        ("positive_certificate_closure_failure",lambda r:r["candidate_verdict"]==v.CERTIFIED),
         ("missed_block",lambda r:r["reference_verdict"]==v.BLOCK),
         ("unnecessary_defer",lambda r:r["reference_verdict"]==v.CERTIFIED),
         ("verdict_agreement",lambda r:True),
@@ -446,7 +461,7 @@ def assess(plan,responses):
             "synthetic":plan["spec"]["synthetic"],"summary":summary,"rows":output,
             "decision_grade":False,"clinical_validity":"UNVERIFIED",
             "limitations":["Rules, observation freshness and finite fact domains are authored assumptions.",
-                "Raw responses are supplied; structured extraction is not independently validated.",
+                "Raw native JSON responses are supplied, not independently instrumented. Free-text extraction is not validated.",
                 "A matching certificate is conditional on this exact rule bundle, not clinical permission.",
                 "Minimum-information costs are authored relative units, not healthcare costs.",
                 "No automated clinical action, family maturity promotion or deployment approval."]}
