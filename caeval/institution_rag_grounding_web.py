@@ -43,10 +43,15 @@ def study(directory,actor,ident):
         if row["state"]=="collecting" and c["id"] not in row["submitted_candidates"]:
             body+="<a href='/rag-grounding-candidate?id="+esc(ident)+"&amp;candidate="+cid+"&amp;kind=exchange'>Case-specific corpus exchange</a> · <a href='/rag-grounding-candidate?id="+esc(ident)+"&amp;candidate="+cid+"&amp;kind=template'>Trace template</a>"
         body+="</section>"
+    if row["collection_receipts"]:
+        body+="<p>Local collection receipts (consistency only): "+esc(", ".join(r["candidate_id"] for r in row["collection_receipts"]))+"</p>"
     if row["state"]=="collecting":
         body+=("<form method='post' action='/rag-grounding-submit'>"+_hidden("csrf",actor["csrf"])+_hidden("id",ident)+
                "<label>Complete candidate trace JSON<textarea name='trace' required rows='12' maxlength='1048576'></textarea></label>"+
                "<label><input type='checkbox' name='confirm' value='yes' required> Lock the exact complete externally collected trace. Product and retrieval provenance are self-attested; no real patient identifiers.</label><button>Lock trace</button></form>")
+        body+=("<section><h2>Import local collection receipt</h2><p>Use the approved local CLI and exact candidate exchange. Receipt replay is not execution attestation.</p><form method='post' action='/rag-grounding-collection-import'>"+_hidden("csrf",actor["csrf"])+_hidden("id",ident)+
+               "<label>Collection receipt JSON<textarea name='receipt' required rows='12' maxlength='1048576'></textarea></label>"+
+               "<label><input type='checkbox' name='confirm' value='yes' required> Lock the complete trace and its exact local collection receipt.</label><button>Lock local receipt</button></form></section>")
     if row["state"]=="ready" and actor["role"]=="admin":
         p=service.seal_preview(directory,actor,ident)
         body+=("<form method='post' action='/rag-grounding-seal'>"+_hidden("csrf",actor["csrf"])+_hidden("id",ident)+_hidden("approval",p["approval"])+
@@ -62,6 +67,11 @@ def study(directory,actor,ident):
                 body+="</section>"
             body+=("<form method='post' action='/rag-grounding-evidence'>"+_hidden("csrf",actor["csrf"])+_hidden("id",ident)+_hidden("approval",row["evidence_digest"])+
                    "<label><input type='checkbox' name='confirm' value='yes' required> Export restricted full corpus, references, reviewer identities, traces and ratings.</label><button>Download private evidence</button></form>")
+            if row["collection_receipts"]:
+                from . import institution_rag_collection as collection
+                p=collection.export_preview(directory,actor,ident)
+                body+=("<form method='post' action='/rag-grounding-collection-evidence'>"+_hidden("csrf",actor["csrf"])+_hidden("id",ident)+_hidden("approval",p["approval"])+
+                       "<label><input type='checkbox' name='confirm' value='yes' required> Export the restricted collection evidence package, bound to the sealed study.</label><button>Download collection receipts</button></form>")
     return page("RAG grounding study",body)
 
 
@@ -86,6 +96,15 @@ def dispatch(directory,actor,path,form):
         forms._exact(form,"id trace confirm")
         service.submit(directory,actor,form["id"],forms._parse(form["trace"]),confirmed=True)
         return form["id"]
+    if path=="/rag-grounding-collection-import":
+        forms._exact(form,"id receipt confirm")
+        receipt=forms._parse(form["receipt"])
+        service.submit(directory,actor,form["id"],receipt["trace"],confirmed=True,receipt=receipt)
+        return form["id"]
+    if path=="/rag-grounding-collection-evidence":
+        from . import institution_rag_collection as collection
+        forms._exact(form,"id approval confirm")
+        return collection.export(directory,actor,form["id"],form["approval"],confirmed=True)
     if path=="/rag-grounding-review-lock":
         forms._exact(form,"id review confirm")
         service.review(directory,actor,form["id"],forms._parse(form["review"]),confirmed=True)
