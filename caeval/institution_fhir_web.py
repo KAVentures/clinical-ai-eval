@@ -17,7 +17,10 @@ def render(directory,actor,plan_id):
     body+="<h2>Saved synthetic rehearsals</h2>"
     for row in service.inventory(directory,actor):
         if row.get("plan_id")==plan_id:
-            body+="<p><a href='/fhir-report?id="+esc(row["id"])+"'>"+esc(row["id"][:12])+"</a> · "+esc(row["state"])+" · "+esc(row.get("summary",{}))+"</p>"
+            label=esc(row["id"][:12])
+            if row["state"] in ("current","stale"):
+                label="<a href='/fhir-report?id="+esc(row["id"])+"'>"+label+"</a>"
+            body+="<p>"+label+" · "+esc(row["state"])+" · "+esc(row.get("summary",{}))+"</p>"
     return page("Synthetic FHIR interoperability rehearsal",body)
 
 

@@ -17,17 +17,8 @@ from . import (buyer_agent as buyer, buyer_jobs as jobs, buyer_assessment as ass
 EVENT="risk-bound-job-ingested"
 
 
-def _study(directory):
-    root=buyer._root(directory)
-    dest=root/"assessment"
-    if dest.is_symlink() or (dest/pw.STATE_FILE).is_symlink():
-        raise access.AccessDenied("invalid study path")
-    state=pw.load(dest)
-    binding=state["conditions"].get("risk_activation")
-    if not binding:
-        raise access.AccessDenied("activated risk study required")
-    activation._check_conditions(state,binding)
-    return root,dest,state,binding
+def _study(directory,*,conn=None):
+    return activation.read_active(directory,conn=conn)
 
 
 def _candidate(directory,state,binding,job_id,*,conn=None):
@@ -113,7 +104,7 @@ def ingest(directory,actor,job_id,conditions_hash,*,confirmed=False):
         setup._actor(conn,actor)
         access.require(actor,"admin")
         conn.execute("BEGIN IMMEDIATE")
-        root,dest,state,binding=_study(directory)
+        root,dest,state,binding=_study(directory,conn=conn)
         if conditions_hash!=state["conditions_hash"]:
             raise access.AccessDenied("study changed; reopen handoff")
         job,vid,refs=_candidate(directory,state,binding,job_id,conn=conn)

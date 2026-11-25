@@ -16,6 +16,7 @@ from .util import stable_hash_text
 from .report import recorded_judges
 from .pipeline import execution_panel_digest
 
+EVENT="buyer-risk-conditions-activated"
 METRICS=("panel_any_unsafe","panel_majority_unsafe","potentially_harmful_treatment")
 SCHEMA="buyer-risk-conditions/1"
 DENOMINATOR="all_generated_cells"
@@ -132,6 +133,8 @@ def activate(directory,actor,plan_id,pack_id,panel_id,mappings,approved_digest,*
         access.require(actor,"admin")
         risk._schema(conn)
         conn.execute("BEGIN IMMEDIATE")
+        if conn.execute("SELECT 1 FROM audit WHERE action=? AND outcome='ok' LIMIT 1",(EVENT,)).fetchone():
+            _fail("existing audited study cannot be replaced; investigate missing state")
         binding=_compile(directory,conn,plan_id,pack_id,panel_id,mappings,additional_plans)
         if approved_digest!=binding["digest"]:
             _fail("approve the exact compiled conditions digest")
@@ -155,35 +158,57 @@ def activate(directory,actor,plan_id,pack_id,panel_id,mappings,approved_digest,*
             if not roster_matches(state,binding):
                 _fail("candidate roster not fully registered")
             formal._publish_once(dest/pw.STATE_FILE,state)
-        access._audit(conn,actor["user_id"],"buyer-risk-conditions-activated",binding["digest"])
+        access._audit(conn,actor["user_id"],EVENT,binding["digest"])
         return {"conditions_hash":state["conditions_hash"],"binding":binding,"decision_grade":False}
+
+
+def approval(conn,state):
+    """Require a single matching institutional activation, including missing-state detection.
+
+    Historical readback checks the approval without reinterpreting old scientific
+    definitions. Execution additionally recompiles current definitions.
+    """
+    events=conn.execute("SELECT object_id FROM audit WHERE action=? AND outcome='ok'",(EVENT,)).fetchall()
+    binding=state["conditions"].get("risk_activation") if state is not None else None
+    if binding is None:
+        if events:
+            _fail("audited risk study is missing or was replaced")
+        return None
+    _check_conditions(state,binding)
+    if len(events)!=1 or events[0]["object_id"]!=binding["digest"]:
+        _fail("activated study lacks exact local approval audit")
+    return binding
+
+
+def read_active(directory,*,conn=None):
+    root=buyer._root(directory)
+    dest=root/"assessment"
+    path=dest/pw.STATE_FILE
+    if dest.is_symlink() or path.is_symlink():
+        _fail("invalid study path")
+    state=pw.load(dest) if path.exists() else None
+    if conn is None:
+        with access.db(directory) as db:
+            binding=approval(db,state)
+    else:
+        binding=approval(conn,state)
+    if binding is None:
+        _fail("risk-bound conditions are not activated")
+    return root,dest,state,binding
 
 
 def check(directory,plan_id,pack_hash,panel_id,raw_panel,*,conn=None):
     """Validate a requested prepared assessment against the actual frozen study."""
-    root=buyer._root(directory)
-    dest=root/"assessment"
-    if dest.is_symlink() or (dest/pw.STATE_FILE).is_symlink():
-        _fail("invalid study path")
-    state=pw.load(dest)
-    binding=state["conditions"].get("risk_activation")
-    if not binding:
-        _fail("risk-bound conditions are not activated")
-    def verified(db):
-        events=db.execute("SELECT actor FROM audit WHERE action='buyer-risk-conditions-activated' AND object_id=? AND outcome='ok'",
-                          (binding["digest"],)).fetchall()
-        if len(events)!=1:
-            _fail("activated study lacks exact local approval audit")
-        return _compile(directory,db,binding["plan_id"],binding["pack_id"],panel_id,binding["mappings"],binding.get("additional_plans",[]))
     if conn is None:
         with access.db(directory) as db:
-            expected=verified(db)
-    else:
-        expected=verified(conn)
+            return check(directory,plan_id,pack_hash,panel_id,raw_panel,conn=db)
+    root,dest,state,binding=read_active(directory,conn=conn)
+    expected=_compile(directory,conn,binding["plan_id"],binding["pack_id"],panel_id,binding["mappings"],binding.get("additional_plans",[]))
     if (binding!=expected or plan_id not in {v["plan_id"] for v in candidates(binding).values()} or binding["pack_content_hash"]!=pack_hash
             or binding["panel_file_sha256"]!=hashlib.sha256(raw_panel).hexdigest()):
         _fail("prepared inputs differ from activated conditions")
-    _check_conditions(state,binding)
+    if pw.load(dest)["conditions"]!=state["conditions"]:
+        _fail("study conditions changed during verification")
     return state["conditions_hash"]
 
 

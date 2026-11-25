@@ -78,14 +78,10 @@ def prepared(directory,actor,form):
 
 def active(directory,actor):
     from .institution_web import page,esc,_hidden
-    from . import procurement_workflow as pw, buyer_agent as buyer, institution_setup as setup
+    from . import institution_setup as setup
     with access.db(directory) as conn:
         setup._actor(conn,actor)
-    state=pw.load(buyer._root(directory)/"assessment")
-    doc=state["conditions"].get("risk_activation")
-    if not doc:
-        raise access.AccessDenied("risk-bound study is not active")
-    activation._check_conditions(state,doc)
+        _,_,state,doc=activation.read_active(directory,conn=conn)
     body="<p><a href='/setup'>Assessment setup</a> · <a href='/committee'>Committee</a></p><p>Active conditions "+esc(state["conditions_hash"])+" · "+esc(doc["digest"])+"</p>"
     body+="<p>Required but not run: "+esc(", ".join(doc["required_but_not_run"]) or "None")+"</p>"
     for vid,entry in sorted(activation.candidates(doc).items()):

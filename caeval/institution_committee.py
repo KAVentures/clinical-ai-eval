@@ -77,11 +77,16 @@ def _package(root, vendor, family, item):
 def _comparison(root, ids):
     directory=root/"assessment"
     state_file=directory/pw.STATE_FILE
-    if not state_file.exists():
-        return {"status":"not_configured","families":[],"gaps":["No frozen clinical procurement study."]}
     if directory.is_symlink() or state_file.is_symlink():
         raise access.AccessDenied("invalid procurement state path")
-    original=pw.load(directory)
+    original=pw.load(directory) if state_file.exists() else None
+    from . import buyer_risk_activation as activation
+    with access.db(root) as conn:
+        binding=activation.approval(conn,original)
+    if original is None:
+        return {"status":"not_configured","families":[],"gaps":["No frozen clinical procurement study."]}
+    if binding is not None and not set(activation.candidates(binding))<=ids:
+        raise access.AccessDenied("frozen risk candidate missing from buyer register")
     rebuilt=copy.deepcopy(original)
     rebuilt["vendors"]=[v for v in original["vendors"] if v["vendor_id"] in ids]
     rebuilt["results"]={}
@@ -141,6 +146,8 @@ def _comparison(root, ids):
                 "verified_packages":verified,"comparison":cmp})
     if pw.load(directory)!=original:
         raise access.AccessDenied("frozen study changed during reconstruction")
+    with access.db(root) as conn:
+        activation.approval(conn,original)
     return {"status":"configured","conditions_hash":original["conditions_hash"],
             "families":families,"gaps":gaps}
 

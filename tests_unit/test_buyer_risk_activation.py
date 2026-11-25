@@ -78,6 +78,30 @@ class RiskActivationTests(unittest.TestCase):
         with self.assertRaises(buyer.BuyerError):
             assessment.check(self.root,prepared["assessment_id"])
 
+    def test_missing_state_cannot_be_reactivated_or_hidden_from_committee(self):
+        from caeval import institution_committee as committee
+        self.staged()
+        self.activate()
+        path=self.root/"assessment"/pw.STATE_FILE
+        path.unlink()
+        with self.assertRaises(access.AccessDenied):
+            self.activate()
+        with self.assertRaises(access.AccessDenied):
+            activation.read_active(self.root)
+        with self.assertRaises(access.AccessDenied):
+            committee.overview(self.root,self.admin)
+
+    def test_missing_approval_blocks_readback_and_committee(self):
+        from caeval import institution_committee as committee
+        self.staged()
+        self.activate()
+        with access.db(self.root) as conn:
+            conn.execute("DELETE FROM audit WHERE action=?",(activation.EVENT,))
+        with self.assertRaises(access.AccessDenied):
+            activation.read_active(self.root)
+        with self.assertRaises(access.AccessDenied):
+            committee.overview(self.root,self.admin)
+
     def test_incomplete_mapping_and_unsupported_metric_refused(self):
         self.staged()
         for mapping in ({},{next(iter(self.mappings)):"unsafe_overconfident"},
