@@ -146,6 +146,7 @@ def _dashboard(directory, actor):
         body += "<p><a href='/unified-assessment'>Unified clinical AI assessment programmes</a></p>"
     if role in ("admin","operator"):
         body += "<p><a href='/diagnostic-imaging'>Diagnostic imaging research</a></p>"
+        body += "<p><a href='/rag-trace'>Synthetic RAG context rehearsal</a></p>"
     if role in ("admin","reviewer"):
         body += "<p><a href='/imaging-reference'>Independent imaging reference review</a></p>"
         body += "<p><a href='/formal'>Formal independent clinical review</a></p>"
@@ -646,6 +647,29 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=image_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
+            if path in ("/rag-trace","/rag-trace-study","/rag-trace-download") and method=="GET":
+                from . import institution_rag as rag, institution_rag_web as rag_web, buyer_plan
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if path=="/rag-trace" and set(q)<= {"plan_id"}:
+                    return respond("200 OK",rag_web.home(self.directory,actor,q.get("plan_id")))
+                if path=="/rag-trace-study" and set(q)=={"id"}:
+                    return respond("200 OK",rag_web.detail(self.directory,actor,q["id"]))
+                if path=="/rag-trace-download" and set(q)=={"id","kind"}:
+                    doc=rag.download(self.directory,actor,q["id"],q["kind"])
+                    return respond("200 OK",buyer_plan._canonical(doc),extra=[("Content-Disposition",'attachment; filename="rag-rehearsal.json"')],content_type="application/json; charset=utf-8")
+                raise access.AccessDenied("invalid RAG rehearsal request")
+            if path in ("/rag-trace-preview","/rag-trace-freeze","/rag-trace-submit","/rag-trace-evidence") and method=="POST":
+                from . import institution_rag_web as rag_web,buyer_plan
+                access.require(actor,*(("admin","operator") if path=="/rag-trace-submit" else ("admin",)))
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/rag-trace-preview":
+                    return respond("200 OK",rag_web.preview(self.directory,actor,form))
+                result=rag_web.dispatch(self.directory,actor,path,form)
+                if path=="/rag-trace-evidence":
+                    return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="private-rag-evidence.json"')],content_type="application/json; charset=utf-8")
+                return respond("303 See Other",extra=[("Location","/rag-trace-study?id="+result)])
             if path in ("/unified-assessment-discover","/unified-assessment-work","/unified-assessment-lineage","/unified-assessment-compare") and method=="GET":
                 from . import unified_orchestration_web as orchestration
                 q=_query(env)
