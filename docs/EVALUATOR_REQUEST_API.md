@@ -102,3 +102,20 @@ The client connects only to the fixed literal loopback port, refuses redirects
 and proxies, and does not accept a caller-selected URL. Remote installations
 need a separately approved secure local bridge; this client is not a hosted
 MCP service. Use the existing human approval and local worker execution flow.
+
+## Direct institutional queue approval
+
+Administrators can now use Approve and queue assessment in the browser or:
+
+    clinical-ai-eval evaluator-api approve-queue /approved/workspace --request-id REQUEST_ID --confirm
+
+This creates one canonical job for the exact prepared assessment. Retrying an
+interrupted approval reuses the deterministic job ID rather than creating
+another job. A worker refuses a service-created job if its committed local
+approval audit or request binding is missing. Service-created jobs cannot be
+manually linked to a different request. The canonical worker still requires
+separate authorization for model calls. Revoking an API grant stops external
+access; it does not cancel an already approved canonical job. Cancel queued
+jobs separately using existing institutional controls. An interrupted queue
+whose grant has expired must be investigated or cancelled, not automatically
+reactivated.

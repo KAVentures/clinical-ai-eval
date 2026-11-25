@@ -132,6 +132,35 @@ class ServiceTests(unittest.TestCase):
             with self.assertRaises(access.AccessDenied):
                 api.verify_receipt(receipt,receipt["digest"])
 
+    def test_approval_recovers_interrupted_queue_without_duplicate(self):
+        row=api.submit(self.root,self.token,self.key)
+        rid=row["request_id"]
+        jid="job-service-"+rid
+        record={"assessment_id":self.aid,"mode":"demonstration","panel_id":"mock"}
+        with patch.object(api.assessment,"check",return_value=record),patch.object(api.assessment,"_panel",return_value=(b"",{"judges":[{"mock":True}]})):
+            with self.assertRaises(access.AccessDenied):
+                api.approve_queue(self.root,rid)
+            with access.db(self.root) as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                orphan=api.jobs.enqueue(self.root,self.aid,service_request=rid,conn=conn)
+            self.assertEqual(orphan["id"],jid)
+            with self.assertRaises(access.AccessDenied):
+                api.jobs.execute(self.root,jid)
+            with self.assertRaises(access.AccessDenied):
+                api.link(self.root,rid,jid,confirmed=True)
+            result=api.approve_queue(self.root,rid,confirmed=True)
+            self.assertEqual(result["job_id"],jid)
+            self.assertEqual(api.approve_queue(self.root,rid,confirmed=True)["status"],"already_approved")
+            self.assertEqual(len(api.jobs.list_jobs(self.root)),1)
+            self.assertEqual(api.require_queue_approval(self.root,jid),self.aid)
+            self.assertEqual(api.status(self.root,self.token,rid)["status"],"queued")
+        with access.db(self.root) as conn:
+            conn.execute("DELETE FROM audit WHERE action='evaluator-service-queue-approved'")
+        with self.assertRaises(access.AccessDenied):
+            api.jobs.execute(self.root,jid)
+        with self.assertRaises(access.AccessDenied):
+            api.status(self.root,self.token,rid)
+
     def test_expiry_disabled_owner_and_strict_fields(self):
         path="/v1/evaluation-requests"
         self.assertEqual(self.call("POST",path,{"idempotency_key":self.key,"assessment_id":"b"*64})["code"],"403 Forbidden")

@@ -1895,7 +1895,7 @@ def main(argv=None):
 
     from . import evaluator_service
     peval = sub.add_parser("evaluator-api", help="scoped institutional request and status service")
-    peval.add_argument("action",choices=["openapi","issue","revoke","inventory","link","serve","verify-receipt"])
+    peval.add_argument("action",choices=["openapi","issue","revoke","inventory","link","approve-queue","serve","verify-receipt"])
     peval.add_argument("path",nargs="?")
     peval.add_argument("--owner")
     peval.add_argument("--assessment-id")

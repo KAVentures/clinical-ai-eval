@@ -568,7 +568,7 @@ class InstitutionApp:
                 from . import evaluator_service_web
                 access.require(actor,"admin")
                 return respond("200 OK",evaluator_service_web.render(self.directory,actor))
-            if path in ("/evaluator-request-link","/evaluator-request-revoke") and method=="POST":
+            if path in ("/evaluator-request-link","/evaluator-request-revoke","/evaluator-request-approve") and method=="POST":
                 from . import evaluator_service_web
                 access.require(actor,"admin")
                 form=_form(env)

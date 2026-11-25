@@ -1,7 +1,7 @@
 """Institutional browser review of external evaluation requests.
 
-Machine grants cannot access this route. Browser administrators select only
-existing canonical jobs; no job creation or candidate/model calls occur here.
+Machine grants cannot access this route. Administrators may approve queue
+creation or select an existing canonical job. No candidate/model calls occur.
 """
 from . import evaluator_service as service, buyer_jobs as jobs, institution_access as access
 
@@ -12,7 +12,7 @@ def render(directory,actor):
     eligible=jobs.list_jobs(directory)
     linked={r["job_id"] for r in rows if r["job_id"] is not None}
     body="<p><a href='/'>Workspace</a> · <a href='/setup'>Prepare assessments and queue jobs</a></p>"
-    body+="<p>External applications can request a preapproved assessment. Only administrators may associate an existing exact assessment job. Linking never authorizes model calls or executes a job.</p>"
+    body+="<p>External applications can request a preapproved assessment. Only administrators may approve a new canonical queue entry or associate an existing exact assessment job. Neither action authorizes model calls or executes a job.</p>"
     if not rows:
         body+="<p>No external evaluation requests.</p>"
     for row in rows:
@@ -21,8 +21,10 @@ def render(directory,actor):
         if row["job_id"]:
             body+="<p>Linked job: "+esc(row["job_id"])+"</p>"
         elif row["grant_active"]:
+            body+="<form method='post' action='/evaluator-request-approve'>"+_hidden("csrf",actor["csrf"])+_hidden("request_id",row["request_id"])
+            body+="<label><input type='checkbox' name='confirm' value='yes' required> Approve this exact prepared assessment for the canonical queue. Execution requires a separate local worker.</label><button>Approve and queue assessment</button></form>"
             matching=[j for j in eligible if j["assessment_id"]==row["assessment_id"] and
-                      j["id"] not in linked and j["status"] in ("queued","running","completed")]
+                      j["id"] not in linked and not j["id"].startswith("job-service-") and j["status"] in ("queued","running","completed")]
             if matching:
                 body+="<form method='post' action='/evaluator-request-link'>"+_hidden("csrf",actor["csrf"])+_hidden("request_id",row["request_id"])
                 body+="<label>Existing matching job<select name='job_id' required><option value=''>Choose</option>"
@@ -39,6 +41,8 @@ def render(directory,actor):
 
 def dispatch(directory,actor,path,form):
     access.require(actor,"admin")
+    if path=="/evaluator-request-approve" and set(form)=={"request_id","confirm"} and form["confirm"]=="yes":
+        return service.approve_queue(directory,form["request_id"],confirmed=True,actor=actor)
     if path=="/evaluator-request-link" and set(form)=={"request_id","job_id","confirm"} and form["confirm"]=="yes":
         return service.link(directory,form["request_id"],form["job_id"],confirmed=True,actor=actor)
     if path=="/evaluator-request-revoke" and set(form)=={"grant_id","confirm"} and form["confirm"]=="yes":

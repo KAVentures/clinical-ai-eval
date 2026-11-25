@@ -183,10 +183,75 @@ def _admin(conn,actor):
         _fail()
 
 
+def _active_request(conn,rid):
+    if not isinstance(rid,str) or not ID.fullmatch(rid):
+        _fail()
+    row=conn.execute("SELECT r.*,g.owner,g.revoked,g.expires,g.assessment_id AS granted_assessment "
+                     "FROM evaluator_service_requests r JOIN evaluator_service_grants g ON r.grant_id=g.id "
+                     "WHERE r.id=?",(rid,)).fetchone()
+    if (not row or row["revoked"] or row["expires"]<=int(time.time())
+            or row["assessment_id"]!=row["granted_assessment"]):
+        _fail()
+    _owner(conn,row["owner"])
+    return row
+
+
+def approve_queue(directory,rid,*,confirmed=False,actor=None):
+    """Create one canonical queue entry after explicit local approval.
+
+    Deterministic job IDs permit retry after interruption between database
+    commits. The worker refuses execution without the committed approval audit.
+    """
+    if confirmed is not True:
+        _fail()
+    with access.db(directory) as conn:
+        _schema(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        if actor is not None:
+            _admin(conn,actor)
+        row=_active_request(conn,rid)
+        jid="job-service-"+rid
+        if row["job_id"] is not None:
+            if row["job_id"]!=jid:
+                _fail()
+            _queue_approval(conn,jid,row["assessment_id"])
+            return {"request_id":rid,"job_id":jid,"status":"already_approved","decision_grade":False}
+        job=jobs.enqueue(directory,row["assessment_id"],service_request=rid,conn=conn)
+        if job["id"]!=jid or job["assessment_id"]!=row["assessment_id"] or job["status"]!="queued":
+            _fail()
+        conn.execute("UPDATE evaluator_service_requests SET job_id=? WHERE id=?",(jid,rid))
+        access._audit(conn,actor["user_id"] if actor is not None else "local-admin",
+                      "evaluator-service-queue-approved",rid+":"+jid+":"+row["assessment_id"])
+        return {"request_id":rid,"job_id":jid,"status":"queued","decision_grade":False}
+
+
+def _queue_approval(conn,jid,assessment_id=None):
+    rid=jid[len("job-service-"):]
+    if not ID.fullmatch(rid):
+        _fail()
+    row=conn.execute("SELECT assessment_id,job_id FROM evaluator_service_requests WHERE id=?",(rid,)).fetchone()
+    if not row or row["job_id"]!=jid or (assessment_id is not None and row["assessment_id"]!=assessment_id):
+        _fail()
+    events=conn.execute("SELECT seq FROM audit WHERE action='evaluator-service-queue-approved' "
+                        "AND object_id=? AND outcome='ok'",(rid+":"+jid+":"+row["assessment_id"],)).fetchall()
+    if len(events)!=1:
+        _fail()
+    return row["assessment_id"]
+
+
+def require_queue_approval(directory,jid):
+    # Revocation stops client access, not an already approved canonical job.
+    with access.db(directory) as conn:
+        _schema(conn)
+        return _queue_approval(conn,jid)
+
+
 def link(directory,rid,job_id,*,confirmed=False,actor=None):
     if confirmed is not True or not isinstance(rid,str) or not ID.fullmatch(rid):
         _fail()
     manual._identifier(job_id)
+    if job_id.startswith("job-service-"):
+        _fail()
     if actor is not None:
         with access.db(directory) as conn:
             _admin(conn,actor)
@@ -222,6 +287,8 @@ def status(directory,token,rid):
         row=dict(_request(conn,grant["id"],rid))
         if row["assessment_id"]!=grant["assessment_id"]:
             _fail()
+        if row["job_id"] is not None and row["job_id"].startswith("job-service-"):
+            _queue_approval(conn,row["job_id"],row["assessment_id"])
     result=_summary(row)
     if row["job_id"] is not None:
         job=jobs.status(directory,row["job_id"])
@@ -241,6 +308,8 @@ def status(directory,token,rid):
         grant=_grant(conn,token)
         if dict(_request(conn,grant["id"],rid))!=row:
             _fail()
+        if row["job_id"] is not None and row["job_id"].startswith("job-service-"):
+            _queue_approval(conn,row["job_id"],row["assessment_id"])
         access._audit(conn,grant["owner"],"evaluator-service-status-read",rid)
     return result
 
@@ -417,6 +486,8 @@ def cli(args):
                 result=inventory(args.path)
             elif args.action=="link":
                 result=link(args.path,args.request_id,args.job_id,confirmed=args.confirm)
+            elif args.action=="approve-queue":
+                result=approve_queue(args.path,args.request_id,confirmed=args.confirm)
             else:
                 _fail()
         print(json.dumps({"ok":True,"result":result},allow_nan=False))
