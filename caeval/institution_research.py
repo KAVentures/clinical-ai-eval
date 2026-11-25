@@ -81,6 +81,7 @@ def _assigned(conn,actor,row):
 
 def _plan(directory,row):
     root=_path(directory,row["id"])
+    research._safe_tree(root)
     mod=MODULES[row["kind"]]
     plan=mod.verify_plan(formal._json(root/"plan.json"))
     if plan["plan_hash"]!=row["plan_hash"]:
@@ -236,6 +237,9 @@ def _review(directory,conn,row):
     if {p.name for p in (root/"pending").iterdir()}!=pending_expected:
         raise access.AccessDenied("pending submission inventory differs from ledger")
     for rid,r in roster.items():
+        expected_role=issued[rid]["reviewer_role"]
+        if r["role"]!=("clinical" if mod is not robustness else expected_role):
+            raise access.AccessDenied("review role changed")
         if r["pending_hash"]:
             pending=formal._json(root/"pending"/(rid+".json"))
             if buyer_plan._digest(pending)!=r["pending_hash"]:
