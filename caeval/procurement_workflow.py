@@ -197,6 +197,14 @@ def ingest_package(directory, vendor_id: str, workspace) -> dict:
         "package_digest": man.get("manifest_hash"),
         "verify_verdict": verdict,
     }
+    if state["conditions"].get("risk_activation") is not None:
+        from . import buyer_risk_activation as activation
+        from . import buyer_research
+        checked=buyer_research._preflight(ws)
+        if checked["manifest_hash"]!=man["manifest_hash"]:
+            raise ProcurementError("package manifest changed before risk verification")
+        bound=_json.loads(buyer_research.verified_bytes(ws,checked,"plan_binding"))
+        cells=activation.check_package(state,vendor_id,family_id,environment,bound,cells)
     return _record_result(directory, vendor_id, analysis["family_id"], cells, environment,
                           package=dict(environment,
                                        conformance=analysis.get("conformance_level"),
