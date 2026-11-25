@@ -183,3 +183,17 @@ combines scores, or approves network calls. The same intake answers are copied
 unchanged; operators must confirm these describe each specific profile before
 approval. Each existing worker retains its own execution approval. A missing
 or modified approved child plan is refused, not silently recreated.
+
+## Version-only retesting
+
+From Longitudinal regression monitoring, prepare a new-version reassessment
+from a verified completed baseline. The administrator reviews a digest binding
+the new version, approved connector, exact pack, unchanged prompts, judge panel,
+intended use and governance. Approval saves only a canonical plan and exchange;
+no candidate calls or schedule are authorized. The existing monitoring form
+then freezes cadence and a separate open lifecycle pilot for the new version.
+Risk-bound baselines retain their exact procurement conditions in retests;
+a new version not explicitly approved under those conditions is refused.
+Disabling the schedule or changing its eligible owner/pilot stops subsequent
+candidate calls (a call already in flight cannot be recalled). No new clinical
+validity or deployment claim is inferred from matched-cell changes.
