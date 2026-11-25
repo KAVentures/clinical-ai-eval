@@ -177,7 +177,10 @@ def _source(directory,conn,actor,req,plan,source_id):
     pid=plan["plan_id"]
     target=plan["target"]
     vid=plan["vendor_id"]
-    manual._identifier(source_id)
+    if kind=="imaging":
+        d._require(d._token(source_id),"invalid imaging study ID")
+    else:
+        manual._identifier(source_id)
     if kind=="text":
         row=jobs.status(directory,source_id)
         if row["status"]!="completed":
@@ -467,3 +470,45 @@ def cli(args):
         print(json.dumps(verify_export(d._read(args.file),args.expected_digest),allow_nan=False))
     except ERRORS:
         raise SystemExit("Unified assessment coverage verification refused.")
+
+
+def available_plans(directory,actor):
+    from . import institution_setup as setup
+    with access.db(directory) as conn:
+        _actor(conn,actor,"admin")
+        out=[]
+        for pid in setup._ids(directory,"plans"):
+            try:
+                out.append(_plan(bridge._buyer_plan(directory,pid)))
+            except ERRORS:
+                continue
+        return out
+
+
+def guided_spec(directory,actor,ident,choices):
+    """Derive supported canonical requirements from exact selected buyer plans.
+
+    Every selected noncanonical lane is explicit. Unsupported canonical suites
+    remain gaps; selecting imaging never silently fulfills a text requirement.
+    """
+    d._require(isinstance(choices,dict) and 1<=len(choices)<=MAX_PLANS,
+               "select one or more saved plans")
+    known={p["plan_id"]:p for p in available_plans(directory,actor)}
+    requirements=[]
+    for i,pid in enumerate(sorted(choices),1):
+        d._require(pid in known,"current saved plan required")
+        kinds=choices[pid]
+        d._require(isinstance(kinds,list) and len(set(kinds))==len(kinds)
+                   and set(kinds)<=set(KINDS)-{"text","conversation"},"invalid extra evidence selection")
+        for family in known[pid]["runnable_suites"]:
+            executor=executors.executor_for(family)
+            kind={executors.GENERIC_PAIRED_TEXT:"text",executors.PATIENT_EPISODE:"conversation"}.get(executor)
+            if kind:
+                requirements.append({"id":"p"+str(i)+"-"+family,"kind":kind,"plan_id":pid,"family":family})
+        for kind in sorted(kinds):
+            requirements.append({"id":"p"+str(i)+"-"+kind,"kind":kind,"plan_id":pid,"family":None})
+    spec={"programme_id":ident,"plans":sorted(choices),"requirements":requirements}
+    # The same exact validation and gap reconstruction applies to guided and
+    # advanced JSON inputs; the generated spec is never silently persisted.
+    _material(directory,spec)
+    return spec
