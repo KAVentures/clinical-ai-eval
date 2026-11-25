@@ -148,3 +148,5 @@ delivery but cannot retrieve already downloaded copies. MCP tools remain
 metadata-only. This is canonical manifest verification, not rerunning all
 model calls or independent clinical validation. Explicit export approval is
 not clinical deployment authorization.
+
+Grant issuance, request creation and both job approval paths are bound to their immutable audit digests. An edited request-to-job association or grant scope is refused even if the replacement references an otherwise valid assessment. These checks detect inconsistent stored state; they are not a cryptographic defense against an administrator capable of rewriting the entire database and audit history. The pre-release audit format is not compatible with prototype grants issued before these bindings; issue fresh grants in a clean release workspace.
