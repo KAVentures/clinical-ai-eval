@@ -464,6 +464,20 @@ class InstitutionApp:
                 else:
                     raise access.AccessDenied("unknown research action")
                 return respond("303 See Other",extra=[("Location","/research")])
+            if path=="/vendor-document-review" and method=="GET":
+                from . import vendor_document_review_web as documents
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("select one evidence document")
+                return respond("200 OK",documents.render(self.directory,actor,q["id"]))
+            if path=="/vendor-document-review-record" and method=="POST":
+                from . import vendor_document_review_web as documents
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                documents.dispatch(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/vendor-document-review?id="+form["id"])])
             if path=="/setup" and method=="GET":
                 from . import institution_setup_web as setup
                 return respond("200 OK",setup.render(self.directory,actor))
