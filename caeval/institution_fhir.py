@@ -38,7 +38,7 @@ def submit(directory,actor,plan_id,responses,*,confirmed=False):
              "package":package,"decision_grade":False}
         ident=buyer_plan._digest(doc)
         from . import institution_retention as retention
-        if any(r["id"]==ident for r in retention.tombstones(conn)):
+        if any(r["id"]==ident or (r["plan_id"]==plan_id and r["report_digest"]==package["report"]["digest"]) for r in retention.tombstones(conn)):
             raise access.AccessDenied("retention-deleted evidence cannot be silently restored")
         old=conn.execute("SELECT * FROM synthetic_fhir_reports WHERE id=?",(ident,)).fetchone()
         if old:
