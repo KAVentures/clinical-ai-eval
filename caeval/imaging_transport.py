@@ -311,6 +311,10 @@ def configure(parser):
     v.add_argument("exchange")
     v.add_argument("receipt")
     v.add_argument("--expected-digest")
+    p=sub.add_parser("verify-institution")
+    p.add_argument("package")
+    p.add_argument("study_evidence")
+    p.add_argument("--expected-digest")
     parser.set_defaults(func=cli)
 
 
@@ -321,6 +325,9 @@ def cli(args):
             result=openapi()
         elif action=="verify":
             result=verify(d._read(args.exchange),d._read(args.receipt),args.expected_digest)
+        elif action=="verify-institution":
+            from . import institution_imaging_transport
+            result=institution_imaging_transport.verify_package(d._read(args.package),d._read(args.study_evidence),args.expected_digest)
         else:
             ex=d._read(args.exchange)
             cfg={"url":args.url,"timeout_seconds":args.timeout}
