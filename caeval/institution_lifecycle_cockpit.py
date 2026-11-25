@@ -8,7 +8,7 @@ import sqlite3
 from . import diagnostic_imaging as d, unified_assessment as u
 from . import institution_access as access
 
-SECTIONS=("programmes","policies","monitors","successors")
+SECTIONS=("programmes","policies","monitors","successors","handoffs")
 STATES=("unlinked","stale_plan","source_available","source_changed","source_unavailable")
 LIMITATIONS=[
     "Independent source reads are not an atomic institutional snapshot.",
@@ -36,7 +36,7 @@ def _task(code,priority,route,role,subject=None):
     return {"code":code,"priority":priority,"route":route,"role":role,"subject":subject}
 
 
-def _vendor(status,vid,policies,monitors,successors,availability):
+def _vendor(status,vid,policies,monitors,successors,handoffs,availability):
     p=status["programme"]
     ident=p["programme_id"]
     plans=[r for r in p["plans"] if r["vendor_id"]==vid]
@@ -101,6 +101,27 @@ def _vendor(status,vid,policies,monitors,successors,availability):
             tasks.append(_task("monitor_schedule_ended","normal",dest,"admin"))
     elif status["state"]=="current":
         tasks.append(_task("optional_external_monitor_registration","normal","/cockpit-monitor-setup?programme="+ident+"&vendor="+vid,"admin"))
+    handoff=handoffs.get((ident,vid))
+    handoff_state="not_registered"
+    if availability["handoffs"]!="available":
+        handoff_state="unavailable"
+    elif mon is not None:
+        if handoff is None or handoff["monitor_id"]!=mon["id"]:
+            handoff_state="inconsistent_inventory"
+        else:
+            counts=[handoff[k] for k in ("n_reported_changes","n_linked","n_current_successors")]
+            d._require(all(type(n) is int and n>=0 for n in counts) and counts[2]<=counts[1]<=counts[0],
+                       "invalid handoff coverage")
+            if bool(counts[0])!=mon["version_reassessment_required"]:
+                handoff_state="inconsistent_inventory"
+            else:
+                handoff_state="available"
+                if counts[1]<counts[0]:
+                    tasks.append(_task("link_reported_version_changes","high","/monitor-reassessment?id="+mon["id"],"admin"))
+                if counts[2]<counts[1]:
+                    tasks.append(_task("review_stale_reassessment_successors","high","/monitor-reassessment?id="+mon["id"],"admin"))
+    if mon is not None and handoff_state in ("unavailable","inconsistent_inventory"):
+        tasks.append(_task("handoff_inventory_unavailable","high","/monitor-reassessment?id="+mon["id"],"admin"))
     # A monitor is optional until external authorization. Absence is never
     # interpreted as a missing deployment or as a safety blocker.
     lineage=[{"baseline_id":r["baseline_id"],"successor_id":r["successor_id"],
@@ -111,12 +132,13 @@ def _vendor(status,vid,policies,monitors,successors,availability):
     tasks.sort(key=lambda x:(order[x["priority"]],x["code"]))
     return {"programme_id":ident,"vendor_id":vid,"target":target,"programme_state":status["state"],
             "requirements":reqs,"source_counts":states,"canonical_gaps":gaps,
-            "policy":policy,"monitor":mon,"programme_lineage":lineage,"tasks":tasks,
+            "policy":policy,"monitor":mon,"handoff_state":handoff_state,
+            "handoff":handoff if handoff_state=="available" else None,"programme_lineage":lineage,"tasks":tasks,
             "decision_grade":False,"deployment_authorized":False}
 
 
 def project(inventories):
-    d._keys(inventories,"programmes policies monitors successors")
+    d._keys(inventories,"programmes policies monitors successors handoffs")
     availability={}
     for name,section in inventories.items():
         d._keys(section,"state records")
@@ -127,6 +149,7 @@ def project(inventories):
     policies=_map(inventories["policies"]["records"])
     monitors=_map(inventories["monitors"]["records"])
     successors=inventories["successors"]["records"]
+    handoffs=_map([{**r,"programme_id":r["baseline_id"]} for r in inventories["handoffs"]["records"]])
     out=[]
     seen=set()
     programme_ids=set()
@@ -135,29 +158,31 @@ def project(inventories):
         d._require(p["programme_id"] not in programme_ids,"duplicate programme")
         programme_ids.add(p["programme_id"])
         for vid in sorted({r["vendor_id"] for r in p["plans"]}):
-            row=_vendor(status,vid,policies,monitors,successors,availability)
+            row=_vendor(status,vid,policies,monitors,successors,handoffs,availability)
             seen.add(_key(row))
             out.append(row)
     unmatched={}
-    for name,by in (("policies",policies),("monitors",monitors)):
+    for name,by in (("policies",policies),("monitors",monitors),("handoffs",handoffs)):
         unmatched[name]=len(set(by)-seen)
     out.sort(key=lambda r:(r["programme_id"],r["vendor_id"]))
     return d._sealed({"schema":"institution-lifecycle-cockpit/1","source_availability":availability,
                       "unmatched_record_counts":unmatched,"vendors":out,
-                      "partial":any(v!="available" for v in availability.values()) or any(unmatched.values()),
+                      "partial":any(v!="available" for v in availability.values()) or any(unmatched.values()) or
+                          any(r["handoff_state"]=="inconsistent_inventory" for r in out),
                       "decision_grade":False,"deployment_authorized":False,"limitations":LIMITATIONS[:]})
 
 
 def overview(directory,actor):
     from . import institution_hospital_referral as referral, institution_lifecycle_monitor as monitor
-    from . import unified_successor as successor
+    from . import unified_successor as successor, monitor_reassessment
     # Authenticate before any potentially failing source call. A source error
     # must not turn an unauthorized caller into an authorized empty response.
     with access.db(directory) as conn:
         u._actor(conn,actor,"admin","operator","observer")
     inventories={}
     for name,fn in (("programmes",u.overview),("policies",referral.overview),
-                    ("monitors",monitor.overview),("successors",successor.inventory)):
+                    ("monitors",monitor.overview),("successors",successor.inventory),
+                    ("handoffs",monitor_reassessment.overview)):
         try:
             records=fn(directory,actor)
             inventories[name]={"state":"available","records":records}
