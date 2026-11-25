@@ -1,8 +1,8 @@
 """Source-bound vendor document review (no automated compliance claims).
 
-The original evidence remains content-addressed. Only UTF-8 text is parsed
-natively; binary formats require a governed external review, not guessed text.
-Offsets count Unicode codepoints in the exact decoded original, including CRLF.
+The original evidence remains content-addressed. UTF-8 originals and explicitly
+IT-staged PDF page text are supported. PDF citations bind the exact derived
+page text, not the visual PDF. Offsets count Unicode codepoints.
 """
 import hashlib
 import json
@@ -10,7 +10,7 @@ from datetime import date
 from pathlib import Path
 
 from . import buyer_agent as buyer, buyer_plan, buyer_manual as manual
-from . import institution_access as access, institution_setup as setup
+from . import institution_access as access, institution_setup as setup, pdf_source_review as pdf
 
 SCHEMA="vendor-document-review/1"
 MAX_TEXT=512*1024
@@ -41,25 +41,31 @@ def _record(directory,eid):
     return root,rows[0]
 
 
-def _source(root,record):
+def _source(root,record,conn):
     if buyer._verify_document(root,record)!="intact":
-        return "unavailable",None
+        return "unavailable",None,None
     path=root/"evidence"/record["sha256"]
-    if path.stat().st_size>MAX_TEXT:
-        return "too_large_for_text_review",None
     with path.open("rb") as handle:
+        header=handle.read(5)
+        if header==b"%PDF-":
+            extraction=pdf.load(root,record,conn)
+            if extraction is None:
+                return "unsupported_format",None,None
+            return "pdf_extracted_text","\n\n".join(p["text"] for p in extraction["pages"]),extraction
+        if path.stat().st_size>MAX_TEXT:
+            return "too_large_for_text_review",None,None
+        handle.seek(0)
         raw=handle.read(MAX_TEXT+1)
     if len(raw)>MAX_TEXT or hashlib.sha256(raw).hexdigest()!=record["sha256"]:
-        return "unavailable",None
+        return "unavailable",None,None
     try:
         text=raw.decode("utf-8")
     except UnicodeError:
-        return "unsupported_format",None
-    if (not text.strip() or text.startswith(("%PDF-","PK\x03\x04")) or
+        return "unsupported_format",None,None
+    if (not text.strip() or text.startswith("PK\x03\x04") or
             any(ord(c)<32 and c not in "\t\n\r" for c in text)):
-        return "unsupported_format",None
-    return "exact_utf8_text",text
-
+        return "unsupported_format",None,None
+    return "exact_utf8_text",text,None
 
 def _bounded(value,limit):
     if not isinstance(value,str) or not value.strip() or len(value)>limit:
@@ -122,10 +128,13 @@ def _history(conn,record):
     return result
 
 
-def _check_source(text,review):
-    if review["source_mode"]!="exact_utf8_text":
-        _fail("unsupported review mode")
-    if _spans(text,[s["quote"] for s in review["spans"]])!=review["spans"]:
+def _check_source(text,review,extraction=None):
+    if extraction is not None:
+        if (review["source_mode"]!="pdf_extracted_text" or review.get("extraction_digest")!=extraction["digest"] or
+                pdf.spans(extraction,[{"page":s["page"],"quote":s["quote"]} for s in review["spans"]])!=review["spans"]):
+            _fail("PDF extraction or page citation changed")
+    elif (review["source_mode"]!="exact_utf8_text" or "extraction_digest" in review or
+            _spans(text,[s["quote"] for s in review["spans"]])!=review["spans"]):
         _fail("source quotation offsets changed")
 
 
@@ -143,20 +152,20 @@ def inspect(directory,actor,eid):
         setup._actor(conn,actor)
         _schema(conn)
         root,record=_record(directory,eid)
-        mode,text=_source(root,record)
+        mode,text,extraction=_source(root,record,conn)
         history=_history(conn,record)
         if text is not None:
             for review in history:
-                _check_source(text,review)
+                _check_source(text,review,extraction)
         access._audit(conn,actor["user_id"],"vendor-document-review-opened",eid)
         return {"evidence_id":eid,"vendor_id":record["vendor_id"],"kind":record["kind"],
                 "title":record["title"],"source_sha256":record["sha256"],"source_mode":mode,
-                "text":text,"history":history,"freshness":_freshness(history[-1] if history else None,date.today()),
+                "text":text,"extraction":extraction,"history":history,"freshness":_freshness(history[-1] if history else None,date.today()),
                 "decision_grade":False}
 
 
 def record_review(directory,actor,eid,source_sha256,previous,claim,verdict,quotes,
-                  rationale,document_version,issued_on,valid_until,*,confirmed=False):
+                  rationale,document_version,issued_on,valid_until,*,confirmed=False,extraction_digest=None):
     if confirmed is not True:
         _fail("explicit source review confirmation required")
     if verdict not in VERDICTS:
@@ -177,16 +186,18 @@ def record_review(directory,actor,eid,source_sha256,previous,claim,verdict,quote
         root,record=_record(directory,eid)
         if record["sha256"]!=source_sha256:
             _fail("document changed since review opened")
-        mode,text=_source(root,record)
-        if mode!="exact_utf8_text":
-            _fail("exact supported original text required; external extraction not accepted")
+        mode,text,extraction=_source(root,record,conn)
+        if mode not in ("exact_utf8_text","pdf_extracted_text"):
+            _fail("exact supported source required; unstaged PDFs are not accepted")
+        if extraction_digest!=(extraction["digest"] if extraction is not None else None):
+            _fail("review does not bind current source extraction")
         history=_history(conn,record)
         prior=history[-1]["digest"] if history else None
         if (previous or None)!=prior or len(history)>=MAX_HISTORY:
             _fail("review history changed or limit reached; reopen document")
         for review in history:
-            _check_source(text,review)
-        spans=_spans(text,quotes)
+            _check_source(text,review,extraction)
+        spans=pdf.spans(extraction,quotes) if extraction is not None else _spans(text,quotes)
         if verdict in ("supports_documented_claim","contradicts_documented_claim") and not spans:
             _fail("support or contradiction requires exact source quotation")
         payload={"schema":SCHEMA,"evidence_id":eid,"vendor_id":record["vendor_id"],
@@ -195,6 +206,8 @@ def record_review(directory,actor,eid,source_sha256,previous,claim,verdict,quote
                  "spans":spans,"rationale":rationale,"document_version":document_version,
                  "issued_on":issued.isoformat() if issued else None,
                  "valid_until":expiry.isoformat() if expiry else None,"decision_grade":False}
+        if extraction is not None:
+            payload["extraction_digest"]=extraction["digest"]
         digest=buyer_plan._digest(payload)
         access._audit(conn,actor["user_id"],EVENT,eid+":"+digest)
         seq=conn.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -220,11 +233,11 @@ def committee_inventory(directory,actor):
             try:
                 history=_history(conn,record)
                 if history:
-                    mode,text=_source(root,record)
-                    if mode!="exact_utf8_text":
+                    mode,text,extraction=_source(root,record,conn)
+                    if mode not in ("exact_utf8_text","pdf_extracted_text"):
                         _fail("original source unavailable")
                     for review in history:
-                        _check_source(text,review)
+                        _check_source(text,review,extraction)
                     latest=history[-1]
                     row.update(source_review_status=latest["verdict"],
                                document_freshness=_freshness(latest,date.today()),
