@@ -1893,6 +1893,21 @@ def main(argv=None):
                      help="explicitly authorize sending all case prompts to the chosen provider")
     pra.set_defaults(func=cmd_reference_actions)
 
+    from . import evaluator_service
+    peval = sub.add_parser("evaluator-api", help="scoped institutional request and status service")
+    peval.add_argument("action",choices=["openapi","issue","revoke","inventory","link","serve"])
+    peval.add_argument("path",nargs="?")
+    peval.add_argument("--owner")
+    peval.add_argument("--assessment-id")
+    peval.add_argument("--ttl",type=int,default=3600)
+    peval.add_argument("--out",help="new private bearer token file outside the workspace")
+    peval.add_argument("--grant-id")
+    peval.add_argument("--request-id")
+    peval.add_argument("--job-id")
+    peval.add_argument("--port",type=int,default=8771)
+    peval.add_argument("--confirm",action="store_true",help="explicit approval of grant or existing job linkage")
+    peval.set_defaults(func=evaluator_service.cli)
+
     pcap = sub.add_parser("capabilities", help="what this build can actually run")
     pcap.add_argument("--json", action="store_true")
     pcap.add_argument("--check", action="store_true",
