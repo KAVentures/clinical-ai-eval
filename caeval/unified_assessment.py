@@ -377,3 +377,93 @@ def protected_fhir(conn):
             if req["kind"]=="fhir" and link:
                 ids.add(link["source"]["source_id"])
     return ids
+
+
+def _package(doc):
+    # Exact captured state, not a claim that a remote verifier can re-read
+    # private source records. No raw responses, labels or reviewer identities.
+    return d._sealed({"schema":"unified-assessment-coverage-export/1",
+                      "coverage":doc,"decision_grade":False})
+
+
+def export(directory,actor,ident,approval,*,confirmed=False):
+    if confirmed is not True:
+        raise access.AccessDenied("explicit programme coverage export required")
+    with access.db(directory) as conn:
+        _schema(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        _actor(conn,actor,"admin")
+        _inventory(conn)
+        doc=_package(_status(directory,conn,actor,ident))
+        if doc["digest"]!=approval:
+            raise access.AccessDenied("programme coverage changed since approval")
+        _audit(conn,actor,"unified-assessment-coverage-exported",ident+":"+doc["digest"])
+        return doc
+
+
+def export_preview(directory,actor,ident):
+    with access.db(directory) as conn:
+        _schema(conn)
+        conn.execute("BEGIN")
+        _actor(conn,actor,"admin")
+        _inventory(conn)
+        return _package(_status(directory,conn,actor,ident))
+
+
+def verify_export(package,expected_digest=None):
+    d._keys(package,"schema coverage decision_grade digest")
+    d._require(package["schema"]=="unified-assessment-coverage-export/1" and package["decision_grade"] is False
+               and d._digest({k:v for k,v in package.items() if k!="digest"})==package["digest"]
+               and (expected_digest is None or expected_digest==package["digest"]),"coverage export digest mismatch")
+    c=package["coverage"]
+    d._keys(c,"programme state requirements all_planned_sources_available canonical_requirements_satisfied decision_grade deployment_authorized")
+    d._require(c["decision_grade"] is False and c["canonical_requirements_satisfied"] is False
+               and c["deployment_authorized"] is False and c["state"] in ("current","stale_plan"),"invalid coverage claim")
+    p=c["programme"]
+    d._keys(p,"schema programme_id plans requirements unplanned_canonical_suites decision_grade limitations digest")
+    d._require(p["schema"]=="unified-assessment-programme/1" and p["decision_grade"] is False
+               and p["limitations"]==LIMITATIONS and d._digest({k:v for k,v in p.items() if k!="digest"})==p["digest"],
+               "programme content digest mismatch")
+    reqs,rows=p["requirements"],c["requirements"]
+    d._require(isinstance(reqs,list) and isinstance(rows,list) and 1<=len(reqs)==len(rows)<=MAX_REQUIREMENTS,
+               "coverage requirement inventory mismatch")
+    seen=set()
+    for req,row in zip(reqs,rows):
+        d._keys(req,"id kind plan_id family")
+        d._keys(row,"requirement vendor_id target state locked_source decision_grade")
+        d._require(row["requirement"]==req and d._token(req["id"]) and req["id"] not in seen
+                   and req["kind"] in KINDS and row["decision_grade"] is False,"invalid coverage row")
+        seen.add(req["id"])
+        _,plan=_requirement(p,req["id"])
+        d._require(row["vendor_id"]==plan["vendor_id"] and row["target"]==plan["target"],"coverage candidate mismatch")
+        allowed=("unlinked","source_available","source_changed","source_unavailable") if c["state"]=="current" else ("stale_plan",)
+        d._require(row["state"] in allowed,"invalid coverage state")
+        source=row["locked_source"]
+        if source is None:
+            d._require(row["state"] in ("unlinked","stale_plan"),"missing source metadata")
+        else:
+            required="kind source_id anchor evidence_digest mode claim scope"
+            if req["kind"]=="imaging":
+                required+=" reference_digest complete_roster"
+            d._keys(source,required)
+            d._require(source["kind"]==req["kind"] and d._hex(source["anchor"]) and d._hex(source["evidence_digest"])
+                       and isinstance(source["source_id"],str) and row["state"]!="unlinked","invalid locked source")
+    d._require(c["all_planned_sources_available"] is all(r["state"]=="source_available" for r in rows),
+               "coverage completeness mismatch")
+    return {"status":"COVERAGE_STRUCTURE_VERIFIED","digest":package["digest"],
+            "expected_digest_matched":expected_digest is not None,
+            "source_records_reverified":False,"decision_grade":False}
+
+
+def configure(parser):
+    parser.add_argument("action",choices=["verify-export"])
+    parser.add_argument("file")
+    parser.add_argument("--expected-digest")
+    parser.set_defaults(func=cli)
+
+
+def cli(args):
+    try:
+        print(json.dumps(verify_export(d._read(args.file),args.expected_digest),allow_nan=False))
+    except ERRORS:
+        raise SystemExit("Unified assessment coverage verification refused.")
