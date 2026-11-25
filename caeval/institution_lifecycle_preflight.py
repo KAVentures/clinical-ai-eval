@@ -5,6 +5,7 @@ opening review packets, running models, or changing evidence. A successful
 preflight is neither a full evidence replay nor clinical/deployment approval.
 """
 import sqlite3
+from contextlib import closing
 from . import institution_backup as backup, buyer_agent as buyer
 from . import institution_access as access
 
@@ -83,25 +84,27 @@ def check(directory,*,services_stopped=False,expect_restored=False):
     path=root/"institution"/"access.sqlite3"
     if not path.is_file() or path.is_symlink():
         raise access.AccessDenied("institutional access database is missing")
-    with sqlite3.connect(path.as_uri()+"?mode=ro",uri=True,timeout=1) as conn:
-        conn.row_factory=sqlite3.Row
-        conn.execute("PRAGMA query_only=ON")
-        conn.execute("BEGIN")
-        tables={r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if not {"users","sessions","audit"}<=tables:
-            raise access.AccessDenied("institutional access schema is incomplete")
-        foreign_keys_ok=conn.execute("PRAGMA foreign_key_check").fetchone() is None
-        ledgers=_check_groups(conn,tables)
-        authorization={
-            "stored_sessions":_count(conn,tables,"sessions"),
-            "unrevoked_agent_grants":_count(conn,tables,"agent_grants","revoked=0"),
-            "unrevoked_evaluator_grants":_count(conn,tables,"evaluator_service_grants","revoked=0"),
-            "unrevoked_monitor_ingestion_grants":_count(conn,tables,"lifecycle_ingestion_grants","revoked_seq IS NULL"),
-            "enabled_monitoring_schedules":_count(conn,tables,"monitoring_schedules","enabled=1"),
-        }
-        # Roll back the read transaction explicitly; never write to this DB.
-        conn.rollback()
-    conn.close()
+    try:
+        with closing(sqlite3.connect(path.as_uri()+"?mode=ro",uri=True,timeout=1)) as conn:
+            conn.row_factory=sqlite3.Row
+            conn.execute("PRAGMA query_only=ON")
+            conn.execute("BEGIN")
+            tables={r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if not {"users","sessions","audit"}<=tables:
+                raise access.AccessDenied("institutional access schema is incomplete")
+            foreign_keys_ok=conn.execute("PRAGMA foreign_key_check").fetchone() is None
+            ledgers=_check_groups(conn,tables)
+            authorization={
+                "stored_sessions":_count(conn,tables,"sessions"),
+                "unrevoked_agent_grants":_count(conn,tables,"agent_grants","revoked=0"),
+                "unrevoked_evaluator_grants":_count(conn,tables,"evaluator_service_grants","revoked=0"),
+                "unrevoked_monitor_ingestion_grants":_count(conn,tables,"lifecycle_ingestion_grants","revoked_seq IS NULL"),
+                "enabled_monitoring_schedules":_count(conn,tables,"monitoring_schedules","enabled=1"),
+            }
+            # Roll back the read transaction explicitly; never write to this DB.
+            conn.rollback()
+    except sqlite3.Error as exc:
+        raise access.AccessDenied("institutional lifecycle database could not be checked") from exc
     after=backup._inventory(root)
     if before!=after:
         raise access.AccessDenied("workspace inventory changed during preflight")
