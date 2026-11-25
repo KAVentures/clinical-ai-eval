@@ -200,5 +200,38 @@ class UnifiedAssessmentTests(unittest.TestCase):
         self.assertEqual(self.post("admin","/unified-assessment-guided-preview",{"programme_id":"guided-study","kind_"+pid+"_imaging":"yes"})["status"],"403 Forbidden")
 
 
+class CanonicalUnifiedTests(unittest.TestCase):
+    def test_real_synthetic_worker_and_locked_package_integrity(self):
+        from tests_unit.test_buyer_assessment import AssessmentHandoffTests
+        from caeval import buyer_assessment, buyer_jobs
+        AssessmentHandoffTests.setUp(self)
+        admin=access.provision(self.root,"admin","admin","Synthetic test password!")
+        observer=access.provision(self.root,"observer","observer","Synthetic test password!")
+        prepared=buyer_assessment.prepare(self.root,self.sub["submission_id"],"mock",self.gov)
+        pid=prepared["plan_id"]
+        bp=buyer_plan.load(self.root,pid)
+        families=bp["plan"]["selection"]["runnable_suites"]
+        spec={"programme_id":"worker-evidence","plans":[pid],"requirements":[
+            {"id":"text-"+f,"kind":"text","plan_id":pid,"family":f} for f in families]}
+        p=u.preview(self.root,admin,spec)
+        ident=u.freeze(self.root,admin,spec,p["digest"],confirmed=True)
+        job=buyer_jobs.enqueue(self.root,prepared["assessment_id"])
+        with self.assertRaises(access.AccessDenied):
+            u.link_preview(self.root,admin,ident,"text-"+families[0],job["id"])
+        finished=buyer_jobs.execute(self.root,job["id"])
+        self.assertEqual(finished["status"],"completed",finished)
+        for family in families:
+            rid="text-"+family
+            link=u.link_preview(self.root,admin,ident,rid,job["id"])
+            u.lock(self.root,admin,ident,rid,job["id"],link["approval_digest"],confirmed=True)
+        doc=u.status(self.root,observer,ident)
+        self.assertTrue(doc["all_planned_sources_available"])
+        self.assertFalse(doc["canonical_requirements_satisfied"])
+        self.assertTrue(all(r["locked_source"]["mode"]=="demonstration" for r in doc["requirements"]))
+        ws=self.root/"evaluation-jobs"/job["id"]/"out"/("run_"+families[0])
+        (ws/"final_report.md").write_text("modified")
+        self.assertFalse(u.status(self.root,observer,ident)["all_planned_sources_available"])
+
+
 if __name__=="__main__":
     unittest.main()
