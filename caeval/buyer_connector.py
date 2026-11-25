@@ -19,7 +19,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import adapters, buyer_agent as buyer, buyer_manual as manual, buyer_plan, candidate_protocol
+from . import adapters, buyer_agent as buyer, buyer_manual as manual, buyer_plan, candidate_protocol, citation_trace_protocol
 
 MAX_CONNECTOR_BYTES = 65536
 MAX_REPLY_BYTES = 256 * 1024
@@ -95,7 +95,7 @@ def _config(directory, connector_id):
     common={"vendor_id","target_name","target_version","url","headers","timeout_seconds"}
     if not isinstance(config,dict) or set(config) not in (common|{"prompt_field","answer_path"},common|{"protocol"}):
         raise buyer.BuyerError("invalid connector configuration fields")
-    if "protocol" in config and config["protocol"]!=candidate_protocol.PROTOCOL:
+    if "protocol" in config and config["protocol"] not in (candidate_protocol.PROTOCOL,citation_trace_protocol.PROTOCOL):
         raise buyer.BuyerError("unsupported candidate protocol")
     manual._identifier(config["vendor_id"])
     for k in ("target_name","target_version"):
@@ -140,6 +140,8 @@ def connectors(directory):
 def _binding(directory, exchange_id, connector_id):
     record=manual._load(directory,exchange_id)
     cfg=_config(directory,connector_id)
+    if cfg.get("protocol")==citation_trace_protocol.PROTOCOL:
+        raise buyer.BuyerError("structured citation connector requires a citation research study")
     if (record["vendor_id"]!=cfg["vendor_id"] or record["target"]["name"]!=cfg["target_name"]
             or record["target"]["version"]!=cfg["target_version"]):
         raise buyer.BuyerError("connector does not match the planned candidate and version")
@@ -241,6 +243,23 @@ def _call(cfg,prompt,headers):
     if not isinstance(value,str) or not value.strip() or len(value.encode("utf-8"))>MAX_ANSWER_BYTES:
         raise adapters.AdapterError("empty or oversized candidate response")
     return value
+
+
+def call_citation_trace(cfg,prompt,headers):
+    if cfg.get("protocol")!=citation_trace_protocol.PROTOCOL:
+        raise adapters.AdapterError("structured citation protocol required")
+    body=citation_trace_protocol.request({"name":cfg["target_name"],"version":cfg["target_version"]},prompt)
+    opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),_NoRedirect())
+    req=urllib.request.Request(_endpoint(cfg["url"]),method="POST",
+        data=buyer_plan._canonical(body),headers={"Content-Type":"application/json",**headers})
+    with opener.open(req,timeout=cfg["timeout_seconds"]) as response:
+        if response.status!=200 or response.headers.get_content_type()!="application/json":
+            raise adapters.AdapterError("citation trace requires HTTP 200 JSON")
+        raw=response.read(MAX_REPLY_BYTES+1)
+    parsed=citation_trace_protocol.parse_response(body,raw)
+    if parsed["status"]!="complete":
+        raise adapters.AdapterError("candidate explicitly unavailable")
+    return parsed["trace"]
 
 
 def execute(directory,identifier,approved_binding_hash,operator):

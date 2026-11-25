@@ -11,7 +11,7 @@ import time
 
 from . import (institution_research as studio, institution_access as access,
                buyer_connector as connector, buyer_manual as manual, buyer_plan,
-               formal_review as formal, adapters)
+               formal_review as formal, adapters, citation_trace_protocol)
 
 MAX_CALLS=200
 MAX_PROMPT_BYTES=64*1024
@@ -68,6 +68,9 @@ def _material(directory,row,connector_id):
     target=plan["spec"]["target"]
     if (cfg["target_name"],cfg["target_version"])!=(target["name"],target["version"]):
         raise access.AccessDenied("connector target/version does not match research plan")
+    structured=cfg.get("protocol")==citation_trace_protocol.PROTOCOL
+    if structured and mod is not studio.citation:
+        raise access.AccessDenied("structured citation connector requires citation study")
     prompts=_prompts(mod,plan)
     binding={"schema":"research-local-collection/1","study":row["id"],
              "plan_hash":row["plan_hash"],"kind":row["kind"],"owner":row["owner"],
@@ -75,6 +78,8 @@ def _material(directory,row,connector_id):
              "target":target,"n_expected":len(prompts),
              "prompt_inventory":[{"slot":s,"hash":buyer_plan._digest(p)} for s,p in prompts],
              "transport":"approved_literal_loopback_http","decision_grade":False}
+    if structured:
+        binding["candidate_protocol"]=citation_trace_protocol.PROTOCOL
     return root,mod,plan,cfg,prompts,binding
 
 
@@ -137,6 +142,17 @@ def _outcomes(conn,identifier,binding,*,complete=True):
     return result
 
 
+def _controlled_trace(plan,slot,trace):
+    citation_trace_protocol.validate_trace(trace)
+    q=next(q for q in plan["queries"] if q["query_id"]==slot)
+    catalog={s["source_id"]:s for s in plan["spec"]["sources"]}
+    expected=[{"source_id":sid,"source_version":catalog[sid]["version"],
+               "text":catalog[sid]["text"],"rank":i+1} for i,sid in enumerate(q["source_ids"])]
+    if trace["retrieved_chunks"]!=expected:
+        raise access.AccessDenied("reported retrieval differs from controlled context")
+    return trace
+
+
 def execute(directory,identifier,approved_binding,*,allow_candidate_calls=False):
     """Trusted worker entry point. No automatic retries or interrupted resume."""
     if allow_candidate_calls is not True:
@@ -183,7 +199,11 @@ def execute(directory,identifier,approved_binding,*,allow_candidate_calls=False)
         status,answer="not_attempted",""
         if not stopped:
             try:
-                answer=connector._call(cfg,prompt,headers)
+                if binding.get("candidate_protocol")==citation_trace_protocol.PROTOCOL:
+                    trace=_controlled_trace(plan,slot,connector.call_citation_trace(cfg,prompt,headers))
+                    answer=buyer_plan._canonical(trace).decode("utf-8")
+                else:
+                    answer=connector._call(cfg,prompt,headers)
                 if used+len(answer.encode("utf-8"))>MAX_TOTAL_BYTES:
                     stopped=True
                     raise adapters.AdapterError("response budget exceeded")
@@ -273,13 +293,18 @@ def draft(directory,conn,row,plan,mod):
     Unparseable native certificates stay explicit extraction failures.
     """
     rec=receipt(directory,conn,row)
+    structured=_job(conn,row["id"])["binding"].get("candidate_protocol")==citation_trace_protocol.PROTOCOL
     by={r["slot"]:r for r in rec["outcomes"]}
     doc=studio._citation_template(plan) if mod is studio.citation else mod.response_template(plan)
     if mod is studio.citation:
         for r in doc["traces"]:
             result=by[r["query_id"]]
-            r.update(model_status="complete" if result["status"]=="complete" else "provider_error",
-                     answer=result["answer"],atomic_claims=[])
+            if structured and result["status"]=="complete":
+                trace=_controlled_trace(plan,r["query_id"],manual._parse(result["answer"].encode("utf-8")))
+                r.update(trace,model_status="complete",atomic_claims=[])
+            else:
+                r.update(model_status="complete" if result["status"]=="complete" else "provider_error",
+                         answer=result["answer"],atomic_claims=[])
     else:
         for r in doc["responses"]:
             result=by[r["slot"]]

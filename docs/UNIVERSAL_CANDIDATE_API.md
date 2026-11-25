@@ -89,3 +89,24 @@ integration specification, not clinical validation or a deployment approval.
 ## Collection-to-assessment workflow
 
 After explicitly authorized collection completes, open Candidate response collections in the institutional browser. Select the staged judge panel and governance answers, and optionally the exact activated procurement conditions hash. Preview the frozen handoff digest, then approve it. The workflow uses the exact collection receipt, complete response inventory, prepared assessment digest and selected governance. It creates a canonical prepared assessment without network calls, queue creation or scoring. Incomplete responses cannot be promoted. The assessment remains available in the normal setup and evaluator-service workflows. A later panel or scientific definition change invalidates the preview. Unbound research is explicitly labelled; it is not a procurement comparison.
+
+## Structured controlled-citation adapter
+
+Export the optional, separately versioned contract with:
+
+    clinical-ai-eval buyer citation-trace-openapi
+
+Set protocol to clinical-ai-eval-citation-trace/1 in the staged connector config.
+The adapter receives the exact controlled citation prompt and correlation nonce;
+its response includes a structured trace (retrieval_query, retrieved_chunks,
+answer) instead of an answer string. Every chunk includes source_id,
+source_version, text and contiguous rank. Unavailable responses have null trace.
+Only citation research studies may use this connector. The collector validates
+the exact supplied source context; a differing context is an explicit failed
+collection, not silently repaired or scored. It preserves the reported rewrite,
+chunks and answer in canonical JSON; independent reviewers still annotate claims.
+The legacy text collector's context is authored/supplied by the protocol, not
+independently observed retrieval. The new adapter reports candidate-side data;
+this is not independent instrumentation or unrestricted real-world RAG recall
+assessment. A failed probe retains its supplied fixture context for denominator
+accounting, not as evidence of a successful retrieval.

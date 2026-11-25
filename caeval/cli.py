@@ -1342,13 +1342,16 @@ def cmd_buyer(args):
     from . import buyer_agent as buyer
 
     try:
-        if args.action not in ("contract","candidate-openapi") and not args.path:
+        if args.action not in ("contract","candidate-openapi","citation-trace-openapi") and not args.path:
             raise buyer.BuyerError("buyer workspace PATH is required")
         if args.action == "contract":
             result = buyer.contract()
         elif args.action == "candidate-openapi":
             from . import candidate_protocol
             result = candidate_protocol.openapi()
+        elif args.action == "citation-trace-openapi":
+            from . import citation_trace_protocol
+            result = citation_trace_protocol.openapi()
         elif args.action == "init":
             result = buyer.init(args.path, args.name or "",
                                 args.intended_use or "", args.setting or "",
@@ -1820,7 +1823,7 @@ def main(argv=None):
     pproc.set_defaults(func=cmd_procurement)
 
     pb = sub.add_parser("buyer", help="local-only buyer workspace (JSON for CLI agents)")
-    pb.add_argument("action", choices=["contract", "candidate-openapi", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research", "plan-preview", "plan-show", "rehearsal-run", "rehearsal-show", "manual-packs", "manual-prepare", "manual-template", "manual-import", "manual-responses", "assessment-panels", "assessment-prepare", "assessment-check", "job-enqueue", "job-list", "job-status", "job-cancel", "job-execute", "review-template", "review-submit", "review-inventory", "connector-list", "collection-queue", "collection-list", "collection-status", "collection-cancel", "collection-execute"])
+    pb.add_argument("action", choices=["contract", "candidate-openapi", "citation-trace-openapi", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research", "plan-preview", "plan-show", "rehearsal-run", "rehearsal-show", "manual-packs", "manual-prepare", "manual-template", "manual-import", "manual-responses", "assessment-panels", "assessment-prepare", "assessment-check", "job-enqueue", "job-list", "job-status", "job-cancel", "job-execute", "review-template", "review-submit", "review-inventory", "connector-list", "collection-queue", "collection-list", "collection-status", "collection-cancel", "collection-execute"])
     pb.add_argument("--plan-id", help="content-addressed draft scope plan identifier")
     pb.add_argument("--job-id", help="saved synthetic rehearsal identifier")
     pb.add_argument("--pack-id", help="operator-staged approved-packs directory identifier")
