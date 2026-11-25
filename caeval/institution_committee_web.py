@@ -53,9 +53,9 @@ def _evidence(payload):
     for v in payload["vendors"]:
         body+="<section><h2>"+esc(v["name"])+"</h2><p>Candidate ID: "+esc(v["vendor_id"])+"</p>"
         body+="<p>Missing evidence: "+esc(", ".join(v["missing_evidence_kinds"]) or "None recorded")+"</p>"
-        body+="<table><tr><th>Document</th><th>Kind</th><th>Integrity</th><th>Review</th></tr>"
+        body+="<table><tr><th>Document</th><th>Kind</th><th>Integrity</th><th>Review</th><th>Source finding</th><th>Declared freshness</th></tr>"
         for d in v["documents"]:
-            body+="<tr>"+"".join("<td>"+esc(d[k])+"</td>" for k in ("title","kind","integrity","review_status"))+"</tr>"
+            body+="<tr>"+"".join("<td>"+esc(d[k])+"</td>" for k in ("title","kind","integrity","review_status"))+"<td>"+esc(d.get("source_review_status","not recorded"))+"</td><td>"+esc(d.get("document_freshness","not recorded"))+"</td></tr>"
         body+="</table><h3>Self-reported vendor disclosures (unverified)</h3>"
         for d in v["disclosures_self_reported_unverified"]:
             body+="<p>"+esc(d.get("product_version_self_reported"))+" · "+esc(d.get("integrity"))+" · "+esc(d.get("schema_status"))+"</p>"
