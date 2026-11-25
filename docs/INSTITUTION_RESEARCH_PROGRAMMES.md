@@ -56,3 +56,7 @@ and study directory, with the existing stopped-service backup boundary.
 
 Run the synthetic browser/ledger acceptance suite:
     python -m unittest tests_unit.test_research_program
+
+## Committee evidence snapshots
+
+The procurement committee now includes aggregate programme coverage in its lifecycle inventory. All committee roles see the same restricted projection: vendor/version, frozen programme digest, module states, available report digests and canonical gaps. Owners, physician identities, responses, report summaries and protocol text are excluded. A changed programme or verified report invalidates the current status of an older committee snapshot. No clinical decision or procurement authority is inferred. Full replay remains a distinct administrator-authorized export.
