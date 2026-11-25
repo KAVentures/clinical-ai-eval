@@ -113,7 +113,48 @@ For each submitted candidate, report overall and predeclared subgroup:
   A submitted all-unavailable document is explicit; it does not establish coverage.
 
 Empty denominators produce null, not zero or a passing result. Every report and
-replay explicitly remains non-decision-grade. No browser, API/MCP execution,
-institutional audit linkage, DICOM/PACS transport, independent reference-review
-interface, population validation or deployment authorization is included in
-this offline module. Those are separate integration and validation milestones.
+replay explicitly remains non-decision-grade. The standalone offline module has no API/MCP execution, DICOM/PACS transport,
+independent reference-review interface, population validation or deployment
+authorization. Those remain separate integration and validation milestones.
+
+
+## Institution-controlled browser workflow
+
+The existing authenticated institutional application now exposes **Diagnostic
+imaging research** from its dashboard. No workstation installation is needed.
+The application must run on the approved hospital-controlled host, not on a
+public endpoint. It stores bounded structured metadata in the existing private
+institution access database; it does not store or transmit image bytes.
+
+1. An administrator pastes and previews the private study specification. The
+   confirmation binds its normalized content. The study ID is reserved once,
+   with a fresh private nonce, and cannot be replaced.
+2. Administrators and operators download candidate-specific exchanges and
+   response templates. These omit reference labels, strata, cluster IDs and
+   the private nonce. Operators must arrange external delivery of the exact
+   authorized image assets. Candidate identity is still self-declared.
+3. An operator pastes a complete structured prediction document for each
+   candidate and explicitly locks it. Exact retransmission is idempotent;
+   altered submissions are refused. Interim reference-derived metrics are not
+   released to any browser role.
+4. An administrator seals the exact current submission inventory. If a
+   candidate is absent, an additional explicit confirmation is required;
+   comparisons remain suppressed. A stale seal preview fails closed.
+5. Only administrators can view overall reference-derived metrics after the
+   seal or export the full private replayable package, using a separate
+   confirmation bound to the exact evidence digest. Operators and committee
+   observers see only study coverage and candidate submission status. Small
+   cohorts can reveal sensitive information in aggregate, so do not share the
+   restricted package or administrator view outside the authorized team.
+
+Study freezes, candidate exports, locked submissions, seals and private
+exports are recorded in the institutional audit store. Study, submission and
+seal inventories are checked against that audit store; replay also checks
+content digests and audit ordering. This is local consistency, not tamper-proof
+storage or independent attestation. Committee snapshots contain study coverage
+only and become stale when that inventory changes. Candidate-facing account
+access, independent physician reference adjudication, PACS/DICOM transport,
+study-specific operator assignment, and browser editing of the source cohort
+are not implemented. All active administrators/operators in the single-
+organisation workspace have the described role-level access; provision roles
+accordingly.
