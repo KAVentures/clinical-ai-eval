@@ -75,6 +75,8 @@ def _inventory(data):
     for row in data.get("unified_assessment_successors",[]):
         body+="<h3>Programme version reassessment</h3><p>"+esc(row["baseline_id"])+" → "+esc(row["successor_id"])+" · "+esc(row["digest"])+"</p>"
         body+="<p>No prior evidence transferred. No performance comparison authorized.</p>"
+    for row in data.get("rag_grounding_studies",[]):
+        body+="<h3>Experimental RAG grounding study "+esc(row["id"])+"</h3><p>"+esc(row["state"])+" · "+esc(row["n_traces_locked"])+" locked candidates · "+esc(row["n_reviews_locked"])+" independent reviews.</p>"
     for row in data.get("synthetic_rag_rehearsals",[]):
         body+="<h3>Synthetic RAG context rehearsal "+esc(row["id"])+"</h3><p>"+esc(row["state"])+" · "+esc(row.get("vendor_id","unavailable"))+" · "+esc(row.get("target_version","unavailable"))+"</p>"
         body+="<p>Fixed synthetic context and heuristic native flags only; no clinical or vendor retrieval validity.</p>"
@@ -82,7 +84,7 @@ def _inventory(data):
         body+="<h3>Diagnostic imaging study "+esc(row["id"])+"</h3><p>"+esc(row["state"])+" · "+esc(row.get("n_cases","unavailable"))+" cases; experimental evidence only.</p>"
     for row in data.get("diagnostic_imaging_reference_reviews",[]):
         body+="<h3>Independent imaging reference review "+esc(row["id"])+"</h3><p>"+esc(row["state"])+" · "+esc(row.get("n_primary_locked","unavailable"))+" primary reviews locked.</p>"
-    if not any(data.get(k,[]) for k in ("assessments","reviews","pilots","schedules","experimental_research_programmes","buyer_risk_protocols","synthetic_fhir_assessments","synthetic_hl7_assessments","synthetic_image_text_assessments","diagnostic_imaging_studies","diagnostic_imaging_reference_reviews","unified_assessment_programmes","synthetic_rag_rehearsals")):
+    if not any(data.get(k,[]) for k in ("assessments","reviews","pilots","schedules","experimental_research_programmes","buyer_risk_protocols","synthetic_fhir_assessments","synthetic_hl7_assessments","synthetic_image_text_assessments","diagnostic_imaging_studies","diagnostic_imaging_reference_reviews","unified_assessment_programmes","synthetic_rag_rehearsals","rag_grounding_studies")):
         body+="<p>No lifecycle evidence recorded.</p>"
     return body+"</section>"
 
