@@ -124,6 +124,10 @@ def _score_and_report(ws: Workspace, panel, keys, subject_spec, family, project=
         result["target_provenance"] = target_desc
         result["claim_authority"] = authority.as_dict()
         result["plan_binding"] = binding or {}
+        if _conditions_hash(project):
+            result["conditions_hash"] = _conditions_hash(project)
+            run_meta["conditions_hash"] = result["conditions_hash"]
+            ws.write_run_meta(run_meta)
     (ws.path / "analysis.json").write_text(json.dumps({k: v for k, v in result.items() if k != "_response_rows"}))
     pkg = report.build_evidence_package(result, family, str(ws.path))
     pkg["claim_label"] = (result.get("claim_authority") or {}).get("label", pkg["conformance_level"])
