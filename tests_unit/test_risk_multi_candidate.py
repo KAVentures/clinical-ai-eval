@@ -92,6 +92,15 @@ class MultiCandidateTests(unittest.TestCase):
         for entry in families:
             self.assertEqual(entry["comparison"]["comparability"]["status"],"INCOMPARABLE")
             self.assertTrue(entry["comparison"]["vendors_without_results"])
+            for hazard in entry["comparison"]["per_hazard"]:
+                self.assertEqual(len(hazard["products"]),2)
+                missing=[row for row in hazard["products"] if row["product_id"] in entry["comparison"]["vendors_without_results"]]
+                self.assertEqual(len(missing),1)
+                self.assertEqual(missing[0]["status"],"NO_EVIDENCE")
+                self.assertEqual(missing[0]["n_total"],len(active["binding"]["cell_inventory"][entry["family_id"]]))
+                self.assertEqual(missing[0]["n_missing"],missing[0]["n_total"])
+                self.assertFalse(hazard["meets"])
+                self.assertFalse(hazard["does_not_meet"])
             self.assertEqual(len(entry["verified_packages"]),1)
         second=self.completed(other,"2",condition)
         self.assertEqual(handoff.ingest(self.root,self.admin,second,condition,confirmed=True)["vendor_id"],"second")
@@ -103,6 +112,17 @@ class MultiCandidateTests(unittest.TestCase):
             self.assertFalse(comparison["claim_authority"]["decision_grade"])
         final=committee.overview(self.root,self.admin)
         self.assertTrue(all(len(e["verified_packages"])==2 for e in final["clinical_comparison"]["families"]))
+
+    def test_evaluator_config_digest_distinguishes_same_named_panel(self):
+        from caeval import pipeline
+        import copy
+        self.staged()
+        _,panel=assessment._panel(self.root,"mock")
+        changed=copy.deepcopy(panel)
+        changed["judges"][0]["mode"]="rubric_aware"
+        self.assertNotEqual(pipeline.execution_panel_digest(panel),pipeline.execution_panel_digest(changed))
+        reordered={k:panel[k] for k in reversed(list(panel))}
+        self.assertEqual(pipeline.execution_panel_digest(panel),pipeline.execution_panel_digest(reordered))
 
     def test_unbound_job_cannot_enter_study(self):
         self.staged()
