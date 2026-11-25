@@ -520,3 +520,7 @@ See [source-bound document review](VENDOR_DOCUMENT_REVIEW.md) for browser-based 
 ## Buyer-owned clinical risk planning
 
 Use the [buyer clinical risk protocol](BUYER_RISK_PROTOCOL.md) to freeze explicit hazard descriptions, proposed endpoints and acceptance criteria, missingness rules and governance against a saved evaluation plan. Coverage gaps remain explicit. This planning record does not activate canonical scoring or authorize execution or deployment.
+
+## Synthetic interoperability rehearsal
+
+The [synthetic FHIR readiness workflow](SYNTHETIC_FHIR_READINESS.md) tests fixed R4 observation extraction in an approved candidate test environment, with browser-based evidence capture and offline replay. It accepts no live EHR endpoint or arbitrary source record. It is not FHIR conformance certification or a clinical assessment.
