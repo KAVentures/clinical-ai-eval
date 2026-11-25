@@ -1297,6 +1297,11 @@ def cmd_institution(args):
                     result = backup.create(args.path,args.destination,services_stopped=args.confirm_services_stopped)
                 else:
                     result = backup.restore(args.path,args.destination,services_stopped=args.confirm_services_stopped)
+        elif args.action in ("pdf-stage","pdf-replay"):
+            from . import pdf_source_review as pdf
+            if not args.evidence_id:
+                raise access.AccessDenied("--evidence-id required")
+            result=pdf.stage(args.path,args.evidence_id,services_stopped=args.confirm_services_stopped,confirmed=args.confirm_pdf_extraction,replay=args.action=="pdf-replay")
         elif args.action in ("retention-preview","retention-apply"):
             from . import institution_retention as retention
             if args.action=="retention-preview":
@@ -1844,7 +1849,7 @@ def main(argv=None):
     pag.set_defaults(func=cmd_agent)
 
     pin = sub.add_parser("institution", help="trusted administrator: isolated institutional browser and account provisioning")
-    pin.add_argument("action", choices=["serve","account-create","account-disable","review-assign","backup-create","backup-check","backup-restore","retention-preview","retention-apply"])
+    pin.add_argument("action", choices=["serve","account-create","account-disable","review-assign","backup-create","backup-check","backup-restore","retention-preview","retention-apply","pdf-stage","pdf-replay"])
     pin.add_argument("path", help="one organisation-owned buyer workspace")
     pin.add_argument("--user-id")
     pin.add_argument("--role", choices=["admin","operator","observer","reviewer","vendor"])
@@ -1857,6 +1862,8 @@ def main(argv=None):
     pin.add_argument("--as-of",type=int,help="approved retention preview Unix timestamp")
     pin.add_argument("--approved-digest",help="exact retention preview digest")
     pin.add_argument("--confirm-deletion",action="store_true",help="explicitly approve previewed maintenance deletion")
+    pin.add_argument("--evidence-id",help="registered original PDF evidence identifier")
+    pin.add_argument("--confirm-pdf-extraction",action="store_true",help="confirm isolated, approved local PDF extraction")
     pin.set_defaults(func=cmd_institution)
 
     pra = sub.add_parser(
