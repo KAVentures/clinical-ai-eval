@@ -147,6 +147,8 @@ def _dashboard(directory, actor):
     if role in ("admin","operator"):
         body += "<p><a href='/diagnostic-imaging'>Diagnostic imaging research</a></p>"
         body += "<p><a href='/rag-trace'>Synthetic RAG context rehearsal</a></p>"
+    if role in ("admin","operator","reviewer"):
+        body += "<p><a href='/rag-grounding'>Independent RAG grounding research</a></p>"
     if role in ("admin","reviewer"):
         body += "<p><a href='/imaging-reference'>Independent imaging reference review</a></p>"
         body += "<p><a href='/formal'>Formal independent clinical review</a></p>"
@@ -647,6 +649,39 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=image_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
+            if path in ("/rag-grounding","/rag-grounding-study","/rag-grounding-candidate","/rag-grounding-review","/rag-grounding-review-download") and method=="GET":
+                from . import institution_rag_grounding as grounding, institution_rag_grounding_web as grounding_web, buyer_plan
+                q=_query(env)
+                if path=="/rag-grounding" and not q:
+                    access.require(actor,"admin","operator","reviewer")
+                    return respond("200 OK",grounding_web.home(self.directory,actor))
+                if path=="/rag-grounding-study" and set(q)=={"id"}:
+                    access.require(actor,"admin","operator")
+                    return respond("200 OK",grounding_web.study(self.directory,actor,q["id"]))
+                if path=="/rag-grounding-review" and set(q)=={"id"}:
+                    access.require(actor,"reviewer")
+                    return respond("200 OK",grounding_web.review_view(self.directory,actor,q["id"]))
+                if path=="/rag-grounding-candidate" and set(q)=={"id","candidate","kind"}:
+                    access.require(actor,"admin","operator")
+                    doc=grounding.candidate_download(self.directory,actor,q["id"],q["candidate"],q["kind"])
+                elif path=="/rag-grounding-review-download" and set(q)=={"id","kind"}:
+                    access.require(actor,"reviewer")
+                    doc=grounding.review_download(self.directory,actor,q["id"],q["kind"])
+                else:
+                    raise access.AccessDenied("invalid grounding request")
+                return respond("200 OK",buyer_plan._canonical(doc),extra=[("Content-Disposition",'attachment; filename="rag-grounding-exchange.json"')],content_type="application/json; charset=utf-8")
+            if path in ("/rag-grounding-preview","/rag-grounding-freeze","/rag-grounding-submit","/rag-grounding-review-lock","/rag-grounding-seal","/rag-grounding-evidence") and method=="POST":
+                from . import institution_rag_grounding_web as grounding_web,buyer_plan
+                roles=("reviewer",) if path=="/rag-grounding-review-lock" else ("admin","operator") if path=="/rag-grounding-submit" else ("admin",)
+                access.require(actor,*roles)
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/rag-grounding-preview":
+                    return respond("200 OK",grounding_web.preview(self.directory,actor,form))
+                result=grounding_web.dispatch(self.directory,actor,path,form)
+                if path=="/rag-grounding-evidence":
+                    return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="private-rag-grounding-evidence.json"')],content_type="application/json; charset=utf-8")
+                return respond("303 See Other",extra=[("Location","/rag-grounding" if path=="/rag-grounding-review-lock" else "/rag-grounding-study?id="+result)])
             if path in ("/rag-trace","/rag-trace-study","/rag-trace-download") and method=="GET":
                 from . import institution_rag as rag, institution_rag_web as rag_web, buyer_plan
                 access.require(actor,"admin","operator")
