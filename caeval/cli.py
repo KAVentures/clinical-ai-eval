@@ -718,7 +718,7 @@ def _require_generic_workspace(ws, command: str) -> dict:
             f"(cell_id / subject_spec / the one-shot judge contract) and would either "
             f"crash or re-score the run against a contract that does not describe it.\n"
             f"The run itself is complete and verifiable — check it with "
-            f"`clinical-ai-eval verify-package --workspace {ws.path}`.\n"
+            f"`clinical-ai-eval verify-package {ws.path}`.\n"
             f"Per-executor judge/report/adjudicate is not implemented in this build; "
             f"L2 adjudication is therefore unreachable for `{executor}` runs.")
     return meta
@@ -989,63 +989,116 @@ def cmd_connector_test(args):
 
 
 def _safe_extract(zf, dest):
-    """Extract a package archive without trusting its member names.
-
-    `extractall()` honours absolute paths, `..` traversal and symlinks, so a
-    hostile archive can write anywhere the process can — and this command exists
-    to be pointed at packages from OTHER parties, which is exactly the untrusted
-    case.
-    """
-    import os
-    from pathlib import Path as _P
-    dest = _P(dest).resolve()
-    seen = set()
-    for info in zf.infolist():
-        name = info.filename
-        if name.endswith("/"):
+    """Bounded extraction of untrusted evidence packages into a private root."""
+    import stat
+    from . import buyer_research
+    dest = Path(dest).resolve()
+    infos = zf.infolist()
+    if len(infos)>buyer_research.MAX_FILES:
+        raise ValueError("archive member limit exceeded")
+    total=0
+    seen=set()
+    files=set()
+    directories=set()
+    for info in infos:
+        directory=info.is_dir()
+        rel=info.filename[:-1] if directory else info.filename
+        if not buyer_research._relative(rel) or len(rel)>1024 or any(ord(c)<32 for c in rel):
+            raise ValueError("unsafe archive member path")
+        mode=stat.S_IFMT(info.external_attr>>16)
+        if mode not in (0,stat.S_IFDIR if directory else stat.S_IFREG) or info.flag_bits&1:
+            raise ValueError("linked, special or encrypted archive member")
+        key=rel.casefold()
+        if key in seen:
+            raise ValueError("duplicate archive member")
+        seen.add(key)
+        parents=["/".join(key.split("/")[:i]) for i in range(1,len(key.split("/")))]
+        if any(p in files for p in parents) or (not directory and key in directories):
+            raise ValueError("conflicting archive member paths")
+        directories.update(parents)
+        (directories if directory else files).add(key)
+        if directory and info.file_size:
+            raise ValueError("directory member carries data")
+        total+=info.file_size
+        if total>buyer_research.MAX_BYTES:
+            raise ValueError("archive expanded byte limit exceeded")
+    written=0
+    for info in infos:
+        target=dest/info.filename
+        if not target.resolve().is_relative_to(dest):
+            raise ValueError("archive member escapes extraction root")
+        if info.is_dir():
+            target.mkdir(parents=True,exist_ok=True)
             continue
-        # symlinks and devices: the high bits of external_attr carry st_mode
-        mode = (info.external_attr >> 16) & 0o170000
-        if mode == 0o120000:
-            raise SystemExit(f"refusing archive: {name!r} is a symlink")
-        p = _P(name)
-        if p.is_absolute() or any(part == ".." for part in p.parts):
-            raise SystemExit(f"refusing archive: unsafe member path {name!r}")
-        target = (dest / p).resolve()
-        if not str(target).startswith(str(dest) + os.sep):
-            raise SystemExit(f"refusing archive: {name!r} escapes the extraction root")
-        if str(target) in seen:
-            raise SystemExit(f"refusing archive: duplicate member {name!r}")
-        seen.add(str(target))
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with zf.open(info) as src_f, open(target, "wb") as out_f:
-            out_f.write(src_f.read())
+        target.parent.mkdir(parents=True,exist_ok=True)
+        size=0
+        with zf.open(info) as src_f,target.open("xb") as out_f:
+            while True:
+                block=src_f.read(65536)
+                if not block:
+                    break
+                size+=len(block)
+                written+=len(block)
+                if size>info.file_size or written>buyer_research.MAX_BYTES:
+                    raise ValueError("archive expanded byte limit exceeded")
+                out_f.write(block)
+        if size!=info.file_size:
+            raise ValueError("archive member size mismatch")
 
 
 def cmd_verify_package(args):
-    """Independently verify an evidence package — no trust in the producer.
+    """Verify evidence without trusting archive paths or manifest read scope."""
+    import hashlib
+    import tempfile
+    import zipfile
+    from . import buyer_research, manifest as man
+    src=Path(args.package)
+    expected=getattr(args,"expected_digest",None)
+    try:
+        if src.is_symlink():
+            raise ValueError("linked package refused")
+        if src.is_file() and src.suffix.lower()==".zip":
+            if src.stat().st_size>buyer_research.MAX_BYTES:
+                raise ValueError("archive byte limit exceeded")
+            with tempfile.TemporaryDirectory(prefix="caeval-verify-") as tmp:
+                root=Path(tmp)/"extracted"
+                root.mkdir()
+                snapshot=Path(tmp)/"snapshot.zip"
+                h=hashlib.sha256()
+                size=0
+                with src.open("rb") as handle,snapshot.open("xb") as out:
+                    while True:
+                        block=handle.read(65536)
+                        if not block:
+                            break
+                        size+=len(block)
+                        if size>buyer_research.MAX_BYTES:
+                            raise ValueError("archive byte limit exceeded")
+                        h.update(block)
+                        out.write(block)
+                if expected is not None and h.hexdigest()!=expected:
+                    raise ValueError("archive SHA-256 mismatch")
+                with zipfile.ZipFile(snapshot) as z:
+                    _safe_extract(z,root)
+                inner=list(root.rglob(man.MANIFEST_FILE))
+                if len(inner)!=1:
+                    raise ValueError("exactly one manifest required")
+                _verify_package_workspace(inner[0].parent,args)
+        else:
+            if expected is not None:
+                raise ValueError("expected archive digest requires a ZIP file")
+            _verify_package_workspace(src,args)
+    except (OSError,ValueError,RuntimeError,TypeError,KeyError,zipfile.BadZipFile,NotImplementedError):
+        print("VERDICT: INVALID (package unreadable, unsafe or outside supported verification bounds)")
+        raise SystemExit(1)
 
-    Recomputes every artifact hash, re-derives the claim authority from the
-    recorded axes, and re-checks the review packets. Exits non-zero unless VALID,
-    so it can gate a procurement pipeline.
-    """
-    import zipfile, tempfile
-    from . import manifest as man
+
+def _verify_package_workspace(ws,args):
+    from . import manifest as man,buyer_research
     from . import claim as claim_mod
-
-    src = Path(args.package)
-    tmp = None
-    if src.is_file() and src.suffix == ".zip":
-        tmp = Path(tempfile.mkdtemp())
-        with zipfile.ZipFile(src) as z:
-            _safe_extract(z, tmp)
-        inner = [d for d in tmp.rglob(man.MANIFEST_FILE)]
-        if not inner:
-            print(f"{man.INCOMPLETE}: archive contains no {man.MANIFEST_FILE}")
-            raise SystemExit(2)
-        ws = inner[0].parent
-    else:
-        ws = src
+    if ws.is_symlink() or not ws.is_dir():
+        raise ValueError("package directory required")
+    buyer_research._preflight(ws)
 
     res = man.verify_manifest(ws)
     print(f"package : {ws}")
@@ -1810,6 +1863,7 @@ def main(argv=None):
     pcd.set_defaults(func=run_committee_dossier)
     pvp = sub.add_parser("verify-package", help="independently verify an evidence package")
     pvp.add_argument("package"); pvp.add_argument("--verbose", action="store_true")
+    pvp.add_argument("--expected-digest",help="independently communicated SHA-256 of an exact ZIP archive")
     pvp.set_defaults(func=cmd_verify_package)
     pw = sub.add_parser("console", help="serve the local operator console (no auth; loopback)")
     pw.add_argument("--runs-dir", default="out")

@@ -117,17 +117,21 @@ def freeze(directory,actor,parent_id,digest,*,confirmed=False):
 
 def _generic(directory,lanes):
     result={p:[] for p in lanes}
+    if not lanes:
+        return result
     for stored in jobs.list_jobs(directory):
         if stored["status"]!="completed":
             continue
         try:
-            job=jobs.status(directory,stored["id"])
-            if job["status"]!="completed":
-                continue
-            b=manual._read(jobs._job_path(directory,job["id"])/"binding.json")
+            b=manual._read(jobs._job_path(directory,stored["id"])/"binding.json")
             pid=b["plan_id"]
             if pid not in lanes:
                 continue
+            job=jobs.status(directory,stored["id"])
+            if job["status"]!="completed":
+                continue
+            if manual._read(jobs._job_path(directory,job["id"])/"binding.json")!=b:
+                raise buyer.BuyerError("job binding changed during verification")
             if (b["assessment_id"]!=job["assessment_id"] or
                     buyer_plan._digest({k:v for k,v in b.items() if k!="assessment_id"})!=job["assessment_id"]):
                 raise buyer.BuyerError("job binding changed")
@@ -147,6 +151,8 @@ def _generic(directory,lanes):
 
 def _conversations(directory,lanes):
     result={p:[] for p in lanes}
+    if not lanes:
+        return result
     with access.db(directory) as conn:
         conversation._schema(conn)
         rows=[]
