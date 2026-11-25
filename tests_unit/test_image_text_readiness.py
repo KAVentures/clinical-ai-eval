@@ -4,6 +4,10 @@ import hashlib
 import json
 import struct
 import unittest
+import tempfile
+import threading
+from pathlib import Path
+from http.server import BaseHTTPRequestHandler,HTTPServer
 import zlib
 from caeval import image_text_readiness as image,buyer_agent as buyer
 
@@ -54,3 +58,66 @@ class ImageTextTests(unittest.TestCase):
         req["input"]["image"]["base64"]="AA=="
         with self.assertRaises(buyer.BuyerError):
             image.validate_request(req)
+
+    def test_missing_duplicate_and_tampered_evidence(self):
+        p=image.build(TARGET)
+        r=image.template(p)
+        with self.assertRaises(buyer.BuyerError):
+            image.assess(p,{**r,"responses":r["responses"][:-1]})
+        with self.assertRaises(buyer.BuyerError):
+            image.assess(p,{**r,"responses":[r["responses"][0]]*12})
+        with self.assertRaises(buyer.BuyerError):
+            image.assess(p,{**r,"target":{**TARGET,"version":"2"}})
+        pkg=image.package(p,r)
+        with self.assertRaises(buyer.BuyerError):
+            image.verify(pkg,"0"*64)
+        pkg["report"]["summary"]["exact_match"]=12
+        with self.assertRaises(buyer.BuyerError):
+            image.verify(pkg)
+
+    def test_real_loopback_failure_denominator_and_approval(self):
+        from caeval import buyer_plan,intake
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)/"workspace"
+            buyer.init(root,"Synthetic institution")
+            buyer.add_vendor(root,"fixture","Fixture")
+            p=buyer_plan.preview(root,{"vendor_id":"fixture","target_name":"Fixture","target_version":"1",
+                "profiles":["clinician_decision_support"],"answers":{q:"Fictional "+q for q in intake.INTAKE_QUESTIONS}})
+            calls=[]
+            class Handler(BaseHTTPRequestHandler):
+                def log_message(self,*args):
+                    pass
+                def do_POST(self):
+                    req=json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                    image.validate_request(req,expected_target=TARGET)
+                    calls.append(req)
+                    reply=image.response(req,target=TARGET,status="unavailable")
+                    self.send_response(200)
+                    self.send_header("Content-Type","application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps(reply).encode())
+            with HTTPServer(("127.0.0.1",0),Handler) as server:
+                t=threading.Thread(target=server.serve_forever,daemon=True)
+                t.start()
+                try:
+                    folder=root/"approved-connectors"
+                    folder.mkdir()
+                    (folder/"local.json").write_text(json.dumps({
+                        "vendor_id":"fixture","target_name":"Fixture","target_version":"1",
+                        "url":"http://127.0.0.1:"+str(server.server_port)+"/evaluate",
+                        "protocol":image.PROTOCOL,"headers":{},"timeout_seconds":5}))
+                    args=(root,p["plan_id"],"local")
+                    binding=image.preview(*args)
+                    with self.assertRaises(buyer.BuyerError):
+                        image.collect(*args,binding["digest"])
+                    with self.assertRaises(buyer.BuyerError):
+                        image.collect(*args,"0"*64,confirmed=True)
+                    self.assertFalse(calls)
+                    result=image.collect(*args,binding["digest"],confirmed=True)
+                    self.assertEqual(len(calls),3)
+                    self.assertEqual(len({x["request_id"] for x in calls}),3)
+                    self.assertEqual(result["receipt"]["not_attempted"],9)
+                    self.assertEqual(image.verify(result["evidence"])["summary"]["unavailable"],12)
+                finally:
+                    server.shutdown()
+                    t.join(timeout=5)
