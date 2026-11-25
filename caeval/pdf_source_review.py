@@ -111,7 +111,7 @@ def _path(root,record):
     return manual._directory(root,"pdf-extractions")/(manual._identifier(record["sha256"],digest=True)+".json")
 
 
-def load(root,record):
+def load(root,record,conn=None):
     path=_path(root,record)
     if path.is_symlink():
         _fail("linked extraction refused")
@@ -129,10 +129,16 @@ def load(root,record):
     if buyer_plan._canonical(doc)!=buyer_plan._canonical(expected):
         _fail("extracted page integrity mismatch")
     # The local extraction is an IT-attested derivative, not a signature.
-    with access.db(root) as conn:
-        if not conn.execute("SELECT 1 FROM audit WHERE actor='local-admin' AND action=? AND object_id=? AND outcome='ok'",
-                            (EVENT,doc["digest"])).fetchone():
-            _fail("extraction lacks trusted local staging event")
+    def audited(db):
+        return db.execute("SELECT 1 FROM audit WHERE actor='local-admin' AND action=? AND object_id=? AND outcome='ok'",
+                          (EVENT,doc["digest"])).fetchone()
+    if conn is None:
+        with access.db(root) as db:
+            exists=audited(db)
+    else:
+        exists=audited(conn)
+    if not exists:
+        _fail("extraction lacks trusted local staging event")
     return doc
 
 
