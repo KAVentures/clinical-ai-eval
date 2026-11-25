@@ -14,7 +14,7 @@ def _schema(conn):
     u._schema(conn)
     conn.execute("""CREATE TABLE IF NOT EXISTS hospital_referral_policies(
         id TEXT PRIMARY KEY,programme TEXT NOT NULL,vendor TEXT NOT NULL,payload TEXT NOT NULL,
-        digest TEXT NOT NULL,actor TEXT NOT NULL,audit_seq INTEGER NOT NULL UNIQUE)""")
+        digest TEXT NOT NULL,actor TEXT NOT NULL,audit_seq INTEGER NOT NULL UNIQUE,UNIQUE(programme,vendor))""")
     for table in ("hospital_referral_snapshots","hospital_referral_decisions"):
         conn.execute("CREATE TABLE IF NOT EXISTS "+table+"""(
             policy TEXT PRIMARY KEY REFERENCES hospital_referral_policies(id),
@@ -47,8 +47,9 @@ def _policy_preview(directory,conn,spec):
     p=h.policy(programme,spec)
     for gate in p["spec"]["gates"]:
         u._actor(conn,{"user_id":gate["reviewer"],"role":"reviewer"},"reviewer")
-    if conn.execute("SELECT 1 FROM hospital_referral_policies WHERE id=?",(spec["policy_id"],)).fetchone():
-        raise access.AccessDenied("policy ID already frozen")
+    if conn.execute("SELECT 1 FROM hospital_referral_policies WHERE id=? OR (programme=? AND vendor=?)",
+                    (spec["policy_id"],spec["programme_id"],spec["vendor_id"])).fetchone():
+        raise access.AccessDenied("policy ID or vendor programme already registered")
     # No target-vendor association before initial registration. A later
     # protocol needs a new programme; do not retrospectively select gates.
     for req in p["requirements"]:
@@ -262,8 +263,11 @@ def _decision_preview(directory,conn,actor,ident,kind,rationale):
     p,_,snap,ratings,prior=_get(conn,ident)
     if not snap or prior:
         raise access.AccessDenied("active undecided review required")
-    if kind=="refer_external_assessment" and not _current(directory,conn,actor,p,snap):
-        raise access.AccessDenied("stale review cannot be referred")
+    if kind=="refer_external_assessment":
+        if not _current(directory,conn,actor,p,snap):
+            raise access.AccessDenied("stale review cannot be referred")
+        for gate in p["spec"]["gates"]:
+            u._actor(conn,{"user_id":gate["reviewer"],"role":"reviewer"},"reviewer")
     # A stop/hold may still be recorded on stale or incomplete evidence.
     return h.disposition(p,snap,ratings,kind,rationale)
 
