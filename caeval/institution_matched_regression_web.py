@@ -52,7 +52,10 @@ def detail(directory,actor,ident):
     body="<p><a href='/matched-regression'>Matched studies</a></p><h2>Frozen protocol</h2><pre>"+esc(json.dumps(row["protocol"],indent=2))+"</pre>"
     result=row["result"]
     if result is None:
-        body+="<p>Successor evidence is not yet sealed. Complete the native collection, review and sealing workflow.</p>"
+        if row["coverage"]["state"]=="successor_roster_incomplete":
+            body+="<p>Successor sealed with an incomplete candidate roster. Comparison withheld.</p>"
+        else:
+            body+="<p>Successor evidence is not yet sealed. Complete the native collection, review and sealing workflow.</p>"
     else:
         body+="<h2>Descriptive version contrast</h2><p>Successor minus baseline, equal-cluster weighted. Bounds are missingness envelopes, not confidence intervals.</p><p>"+esc(result["descriptive_research_signal"])+"</p>"
         for endpoint in result["endpoints"]:
