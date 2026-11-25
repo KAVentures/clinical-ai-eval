@@ -101,6 +101,8 @@ def render(directory,actor):
                 body+=form("analyze",_hidden("id",ident)+checkbox("I approve descriptive analysis, not a clinical or procurement decision."),"Analyze")
             if state=="analyzed":
                 body+=link("/research-download","Download verified report",id=ident,kind="report")
+                if role=="admin":
+                    body+=form("replay-package",_hidden("id",ident)+checkbox("I authorize export of the complete sensitive research inputs, candidate responses and independent reviewer submissions to an approved recipient. No original signing keys are included."),"Export independently replayable evidence")
         if "summary" in row:
             body+="<h3>Descriptive results</h3><pre style='white-space:pre-wrap;overflow-wrap:anywhere'>"+esc(_json(row["summary"]))+"</pre>"
         body+="</section>"
