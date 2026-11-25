@@ -39,6 +39,7 @@ def render(directory,actor):
             body+="<p>Invalid plan.</p></section>"
             continue
         body+="<p>"+esc(plan["target"]["name"])+" "+esc(plan["target"]["version"])+" · "+("Current definitions" if plan["current"] else "Stale definitions")+"</p>"
+        body+="<p><a href='/version-reassessment?plan_id="+esc(plan["id"])+"'>Plan version reassessment and review history</a></p>"
         if plan["current"]:
             if len(plan["profiles"])>1:
                 body+="<p><a href='/mixed-evaluation?plan_id="+esc(plan["id"])+"'>Mixed-profile evaluation programme</a></p>"

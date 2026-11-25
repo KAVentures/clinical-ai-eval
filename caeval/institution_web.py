@@ -602,6 +602,20 @@ class InstitutionApp:
                 _csrf(actor,form)
                 evaluator_service_web.dispatch(self.directory,actor,path,form)
                 return respond("303 See Other",extra=[("Location","/evaluator-requests")])
+            if path=="/version-reassessment" and method=="GET":
+                from . import version_reassessment_web as version
+                q=_query(env)
+                if set(q)!={"plan_id"}:
+                    raise access.AccessDenied("select exact baseline plan")
+                return respond("200 OK",version.render(self.directory,actor,q["plan_id"]))
+            if path in ("/version-reassessment-preview","/version-reassessment-freeze") and method=="POST":
+                from . import version_reassessment_web as version
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/version-reassessment-preview":
+                    return respond("200 OK",version.preview(self.directory,actor,form))
+                version.freeze(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/version-reassessment?plan_id="+form["baseline_id"])])
             if path=="/mixed-evaluation" and method=="GET":
                 from . import mixed_evaluation_web as mixed
                 q=_query(env)

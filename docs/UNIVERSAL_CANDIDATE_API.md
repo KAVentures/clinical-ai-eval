@@ -183,3 +183,19 @@ combines scores, or approves network calls. The same intake answers are copied
 unchanged; operators must confirm these describe each specific profile before
 approval. Each existing worker retains its own execution approval. A missing
 or modified approved child plan is refused, not silently recreated.
+
+## Version reassessment
+
+From any valid saved plan, open Plan version reassessment and review history.
+Enter the exact successor version and review the copied scope and the scientific
+definition delta. An explicit digest approval creates a new immutable plan and
+audited association. Historical definitions can be inspected, but outdated
+packages are not counted as currently verified. Each version retains separate
+canonical package coverage and blocked suites. Exact staged connector matches
+are displayed without contacting any service. Previous scores, risk approvals,
+case packs, judge panels, credentials and clinical conclusions are never carried
+forward automatically. The user must confirm unchanged intended scope and intake;
+use a new scope plan for a change in intended use. No comparison is authorized
+by this operation, and it does not automatically detect vendor releases or run
+models. Existing guided collection, conversation, research and mixed-profile
+workflows can prepare the successor's separate execution approvals.
