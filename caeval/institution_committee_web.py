@@ -41,7 +41,11 @@ def _inventory(data):
                 body+="<p>"+esc(module["kind"])+" · "+esc(module["state"])+" · report "+esc(module["report_digest"] or "unavailable")+"</p>"
             for row in programme["coverage"]:
                 body+="<p>"+esc(row["suite"])+" · "+("Canonical runnable" if row["canonical_runnable"] else "Required but not run")+" · Experimental reports "+esc(", ".join(row["integrity_checked_reports"]) or "None")+"</p>"
-    if not any(data.get(k,[]) for k in ("assessments","reviews","pilots","schedules","experimental_research_programmes")):
+    for risk in data.get("buyer_risk_protocols",[]):
+        body+="<h3>Buyer risk protocol "+esc(risk["id"])+"</h3><p>"+esc(risk["state"])+" · Candidate "+esc(risk.get("vendor_id","unavailable"))+" · Version "+esc(risk.get("target_version","unavailable"))+"</p>"
+        if "hazard_count" in risk:
+            body+="<p>Hazards: "+esc(risk["hazard_count"])+" · Critical: "+esc(risk["critical_hazards"])+" · Measurement not verified</p><p>Uncovered suites: "+esc(", ".join(risk["uncovered_suites"]) or "None")+" · Blocked suites: "+esc(", ".join(risk["blocked_suites"]) or "None")+"</p>"
+    if not any(data.get(k,[]) for k in ("assessments","reviews","pilots","schedules","experimental_research_programmes","buyer_risk_protocols")):
         body+="<p>No lifecycle evidence recorded.</p>"
     return body+"</section>"
 
