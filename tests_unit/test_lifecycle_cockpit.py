@@ -7,7 +7,8 @@ from caeval import (institution_lifecycle_cockpit as cockpit,
                     institution_hospital_referral as referral,
                     institution_lifecycle_monitor as monitor,
                     hospital_referral as h,lifecycle_monitor as m,
-                    unified_assessment as u,institution_access as access)
+                    unified_assessment as u,institution_access as access,
+                    institution_reviewer_inbox as inbox)
 from tests_unit.test_unified_assessment import UnifiedAssessmentTests
 from tests_unit.test_hospital_referral import spec as policy_spec
 from tests_unit.test_lifecycle_monitor import spec as monitor_spec,incident
@@ -108,6 +109,38 @@ class BrowserCockpitTests(unittest.TestCase):
             self.assertEqual(doc["source_availability"]["policies"],"unavailable")
             self.assertIsNone(doc["vendors"][0]["policy"])
             self.assertEqual(self.request("admin",url)["status"],"200 OK")
+
+    def test_reviewer_inbox_own_pending_gates_only(self):
+        _,ident=self.prepare()
+        admin=self.actors["admin"]
+        s=policy_spec(ident)
+        p=referral.preview(self.root,admin,s)
+        policy_id=referral.freeze(self.root,admin,s,p["digest"],confirmed=True)
+        p=referral.snapshot_preview(self.root,admin,policy_id)
+        referral.start_review(self.root,admin,policy_id,p["approval"],confirmed=True)
+        actor=self.actors["doctor-a"]
+        for role in ("admin","operator","observer"):
+            self.assertEqual(self.request(role,"/my-independent-reviews")["status"],"403 Forbidden")
+        self.assertEqual(self.request("doctor-a","/my-independent-reviews")["status"],"200 OK")
+        self.assertEqual(self.request("doctor-a","/my-independent-reviews?vendor=a")["status"],"403 Forbidden")
+        def gates(who):
+            return next(x for x in inbox.overview(self.root,who)["sections"] if x["type"]=="hospital_gate")
+        self.assertEqual(gates(actor)["assignments"][0]["state"],"assigned")
+        self.assertEqual(gates(self.actors["doctor-c"])["assignments"],[])
+        own=referral.assigned(self.root,actor,policy_id)
+        for gate in own["gates"]:
+            referral.submit(self.root,actor,policy_id,{"gate_id":gate["id"],"snapshot_digest":own["snapshot"]["digest"],
+                             "verdict":"unresolved","artifact_digest":None,"rationale":"Synthetic review"},confirmed=True)
+        self.assertEqual(gates(actor)["assignments"][0]["state"],"submitted")
+        self.assertIsNone(gates(actor)["assignments"][0]["route"])
+        self.assertEqual(gates(self.actors["doctor-b"])["assignments"][0]["state"],"assigned")
+        doc=inbox.overview(self.root,actor)
+        self.assertNotIn("Synthetic review",json.dumps(doc))
+        self.assertNotIn("doctor-b",json.dumps(doc))
+        with patch.object(inbox,"_rag",side_effect=access.AccessDenied("synthetic unavailable")):
+            doc=inbox.overview(self.root,actor)
+            self.assertTrue(doc["partial"])
+            self.assertEqual(next(x for x in doc["sections"] if x["type"]=="rag_grounding")["state"],"unavailable")
 
     def test_guided_policy_and_monitor_lifecycle(self):
         pid,ident=self.prepare()
