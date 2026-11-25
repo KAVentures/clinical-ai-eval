@@ -13,7 +13,7 @@ import time
 from wsgiref.simple_server import make_server, WSGIRequestHandler
 from . import institution_access as access, unified_assessment as u
 from . import institution_lifecycle_monitor as monitor, diagnostic_imaging as d
-from . import buyer_manual
+from . import buyer_manual, buyer_agent
 
 MAX_GRANTS=200
 MAX_TTL=86400
@@ -265,7 +265,7 @@ class App:
                     raise ValueError("incomplete body")
                 return respond("200 OK",submit(self.directory,token,buyer_manual._parse(raw)))
             return respond("404 Not Found",{"error":"not_found"})
-        except (ValueError,RuntimeError,KeyError,TypeError,OSError,AttributeError,RecursionError):
+        except (buyer_agent.BuyerError,ValueError,RuntimeError,KeyError,TypeError,OSError,AttributeError,RecursionError):
             return respond("403 Forbidden",{"error":"request_refused"})
 
 
@@ -284,3 +284,46 @@ def configure(parser):
     parser.add_argument("directory")
     parser.add_argument("--port",type=int,default=8772)
     parser.set_defaults(func=lambda args:serve(args.directory,args.port))
+
+
+def openapi():
+    """Structural transport schema; native monitor rules are also enforced."""
+    def obj(fields):
+        return {"type":"object","properties":fields,"required":list(fields),"additionalProperties":False}
+    token={"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$"}
+    digest={"type":"string","pattern":"^[a-f0-9]{64}$"}
+    count={"type":"integer","minimum":0,"maximum":10000000}
+    target=obj({"name":{"type":"string"},"version":{"type":"string"}})
+    report=obj({"plan_digest":digest,"target":target,"window_index":{"type":"integer","minimum":0,"maximum":103},
+                "metrics":{"type":"array","minItems":1,"maxItems":12,"items":obj({"id":token,"numerator":count,"denominator":count})},
+                "source_digest":digest,"complete_aggregate_attested":{"const":True}})
+    incident=obj({"plan_digest":digest,"incident_id":token,"date":{"type":"string","format":"date"},
+                  "severity":{"enum":["low","moderate","serious","critical"]},
+                  "category":{"enum":["clinical_safety","data_quality","privacy_security","workflow","availability","version_change","other"]},
+                  "external_record_digest":digest,"observed_version":token})
+    envelope=obj({"schema":{"const":"lifecycle-ingestion/1"},"request_id":token,"confirmed":{"const":True},
+                  "events":{"type":"array","minItems":1,"maxItems":MAX_BATCH,"items":{"oneOf":[
+                      obj({"kind":{"const":"report"},"document":report}),
+                      obj({"kind":{"const":"incident"},"document":incident})]}}})
+    receipt=obj({"schema":{"const":"lifecycle-ingestion-receipt/1"},"grant_id":token,"request_id":token,
+                 "monitor_id":token,"event_digests":{"type":"array","minItems":1,"maxItems":MAX_BATCH,"items":digest},
+                 "decision_grade":{"const":False}})
+    feed=obj({"schema":{"const":"lifecycle-monitor-feed/1"},"monitor_id":token,"plan_digest":digest,
+              "as_of":{"type":"string","format":"date"},"alerts":{"type":"array","items":obj({
+                  "id":digest,"kind":token,"severity":{"enum":["low","moderate","serious","critical"]}})},
+              "attention_required":{"type":"boolean"},"decision_grade":{"const":False},"deployment_authorized":{"const":False}})
+    def replies(schema):
+        return {"200":{"description":"Scoped result","content":{"application/json":{"schema":schema}}},
+                "403":{"description":"Request refused"}}
+    return {"openapi":"3.1.0","info":{"title":"Local aggregate monitoring ingestion","version":"1.0.0"},
+            "servers":[{"url":"http://127.0.0.1:8772"}],
+            "components":{"securitySchemes":{"localGrant":{"type":"http","scheme":"bearer"}}},
+            "security":[{"localGrant":[]}],
+            "paths":{"/v1/monitor/ingest":{"post":{"operationId":"ingestMonitorEvents",
+                "requestBody":{"required":True,"content":{"application/json":{"schema":envelope}}},
+                "responses":replies(receipt)}},
+                     "/v1/monitor/check":{"get":{"operationId":"checkMonitorAlerts","responses":replies(feed)}}}}
+
+
+def configure_openapi(parser):
+    parser.set_defaults(func=lambda args:print(json.dumps(openapi(),indent=2)))
