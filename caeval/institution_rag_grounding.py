@@ -1,7 +1,7 @@
 """Institution-controlled prospective RAG grounding research ledger."""
 import json
 from . import (rag_grounding as g, diagnostic_imaging as d, institution_rag_collection as collection,
-               institution_access as access, unified_assessment as u)
+               institution_access as access, unified_assessment as u, institution_rag_comparison as comparison)
 
 FROZEN="rag-grounding-frozen"
 TRACE="rag-grounding-trace-locked"
@@ -23,6 +23,7 @@ def _schema(conn):
         study TEXT PRIMARY KEY REFERENCES rag_grounding_studies(id),digest TEXT NOT NULL,
         actor TEXT NOT NULL,audit_seq INTEGER NOT NULL UNIQUE)""")
     collection.schema(conn)
+    comparison.schema(conn)
 
 
 def _inventory(conn):
@@ -38,6 +39,7 @@ def _inventory(conn):
         if len(expected)!=len(rows) or actual!=expected:
             raise access.AccessDenied("RAG grounding audit inventory mismatch")
     collection.inventory(conn)
+    comparison.inventory(conn)
 
 
 def _roles(conn,plan):
@@ -64,6 +66,7 @@ def _get(conn,ident):
         seq=max(seq,r["audit_seq"])
     docs=g.locked_traces(plan,docs)
     collection.check(conn,plan,docs)
+    comparison.check(conn,plan)
     reviews={}
     packet=None
     last=seq
@@ -146,6 +149,7 @@ def overview(directory,actor):
             else:
                 state=_state(plan,docs,reviews,evidence)
                 state["collection_receipts"]=collection.coverage(conn,row["id"])
+                state["paired_comparison"]=comparison.coverage(conn,plan,evidence)
                 out.append(state)
         return out
 
@@ -159,6 +163,7 @@ def detail(directory,actor,ident):
         plan,docs,reviews,evidence=_get(conn,ident)
         state=_state(plan,docs,reviews,evidence)
         state["collection_receipts"]=collection.coverage(conn,ident)
+        state["paired_comparison"]=comparison.coverage(conn,plan,evidence)
         state["submitted_candidates"]=[x["candidate"]["id"] for x in docs]
         if evidence and actor["role"]=="admin":
             state["results"]=evidence["results"]
