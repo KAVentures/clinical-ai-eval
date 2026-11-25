@@ -1845,6 +1845,10 @@ def main(argv=None):
     from . import hospital_referral
     preferral = sub.add_parser("verify-hospital-referral", help="verify restricted administrative hospital gate evidence")
     hospital_referral.configure(preferral)
+
+    from . import lifecycle_monitor
+    pmonitor = sub.add_parser("verify-lifecycle-monitor", help="replay aggregate monitoring evidence")
+    lifecycle_monitor.configure(pmonitor)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")
