@@ -96,7 +96,7 @@ def inventory(directory,actor):
                 d=_read(directory,conn,row)
                 report=d["package"]["report"]
                 item.update(state="current" if d["scope_current"] else "stale",vendor_id=d["vendor_id"],
-                            target_version=report["target"]["version"],summary=report["summary"],
+                            plan_id=d["plan_id"],target_version=report["target"]["version"],summary=report["summary"],
                             report_digest=report["digest"])
             except (ValueError,RuntimeError,OSError,KeyError,TypeError,AttributeError):
                 pass
