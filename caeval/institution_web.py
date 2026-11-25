@@ -344,7 +344,10 @@ class InstitutionApp:
                 return respond("303 See Other",extra=[("Location","/patient-review")])
             if path=="/conversation" and method=="GET":
                 from . import institution_conversation_web as conversation
-                return respond("200 OK",conversation.render(self.directory,actor))
+                q=_query(env)
+                if set(q)-{"plan_id"}:
+                    raise access.AccessDenied("unexpected conversation setup query")
+                return respond("200 OK",conversation.render(self.directory,actor,q.get("plan_id","")))
             if path in ("/conversation-queue","/conversation-cancel") and method=="POST":
                 from . import institution_conversation_web as conversation
                 access.require(actor,"admin","operator")

@@ -158,7 +158,9 @@ def _conversations(directory,lanes):
             pid=b["plan_id"]
             if pid not in lanes or conversation.FAMILY not in lanes[pid]["runnable"]:
                 continue
-            if conversation._verify(directory,row)!=row["result"]:
+            current,_=conversation._material(directory,**{k:b[k] for k in
+                    ("plan_id","connector_id","pack_id","panel_id","governance")})
+            if current!=b or conversation._verify(directory,row)!=row["result"]:
                 continue
             result[pid].append({"job_id":row["id"],"suite":conversation.FAMILY,
                 "manifest_hash":row["result"]["manifest_hash"],"claim":row["result"]["claim"]})

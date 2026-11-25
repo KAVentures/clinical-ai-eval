@@ -16,7 +16,13 @@ def render(directory,actor,parent_id):
         body+="<p>Runnable: "+esc(lane["runnable"])+" · Required but not run: "+esc(lane["required_but_not_run"])+"</p>"
         if doc["frozen"]:
             pid=esc(lane["plan_id"])
-            body+="<p><a href='/guided-collection?plan_id="+pid+"'>Single-turn collection</a> · <a href='/conversations'>Patient conversation setup</a> · <a href='/research-buyer-coverage?plan_id="+pid+"'>Related research coverage</a></p>"
+            from . import executors, institution_conversation
+            body+="<p>"
+            if lane["executors"]==[executors.GENERIC_PAIRED_TEXT]:
+                body+="<a href='/guided-collection?plan_id="+pid+"'>Single-turn collection</a> · "
+            if lane["runnable"]==[institution_conversation.FAMILY]:
+                body+="<a href='/conversation?plan_id="+pid+"'>Patient conversation setup</a> · "
+            body+="<a href='/research-buyer-coverage?plan_id="+pid+"'>Related research coverage</a></p>"
             for e in lane["evidence"]:
                 body+="<p>"+esc(e["suite"])+" · "+esc(e["state"])+" · "+str(len(e["packages"]))+" packages · "+str(e["related_experimental_reports"])+" related research reports</p>"
         body+="</section>"
