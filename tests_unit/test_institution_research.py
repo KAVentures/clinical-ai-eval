@@ -1,5 +1,4 @@
 """Institutional research integration: native decision and blinded scribe workflow."""
-import copy
 import io
 import json
 import tempfile
@@ -10,7 +9,7 @@ from pathlib import Path
 from caeval import (buyer_agent as buyer, buyer_plan, institution_access as access,
                     institution_research as studio, institution_web as web)
 from caeval import scribe_assessment as scribe
-from tests_unit.test_scribe_assessment import fixture as scribe_fixture, ScribeTests
+from tests_unit.test_scribe_assessment import fixture as scribe_fixture
 from tests_unit.test_decision_assessment import fixture as decision_fixture, bind_raw
 from tests_unit.test_robustness_assessment import spec as robustness_spec
 from caeval import decision_assessment as decision
@@ -143,6 +142,36 @@ class StudioTests(unittest.TestCase):
         scribe.submit(self.root/"research-studies"/ident/"review","doctor-a",packet,"admin",confirmed=True)
         with self.assertRaises(access.AccessDenied):
             studio.download(self.root,self.actors["doctor-b"],ident,"review")
+
+    def test_citation_studio_import_and_independent_review(self):
+        from tests_unit.test_citation_assessment import CitationAssessmentTests
+        fixture=CitationAssessmentTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        ident=studio.create(self.root,self.actors["operator"],"citation",fixture.spec)
+        plan=studio.download(self.root,self.actors["operator"],ident,"plan")
+        exchange=studio.download(self.root,self.actors["operator"],ident,"exchange")
+        template=studio.download(self.root,self.actors["operator"],ident,"responses")
+        self.assertEqual(len(exchange["queries"]),4)
+        self.assertEqual(len(template["traces"]),4)
+        studio.collect(self.root,self.actors["operator"],ident,plan["plan_hash"],fixture.traces,confirmed=True)
+        studio.assign(self.root,self.actors["admin"],ident,["doctor-a","doctor-b"],[],confirmed=True)
+        for rid in ("doctor-a","doctor-b"):
+            doc=studio.download(self.root,self.actors[rid],ident,"review")
+            doc["submission"]["independent_review_confirmed"]=True
+            for row in doc["submission"]["coverage"]:
+                row["status"]="complete"
+            for row in doc["submission"]["support"]:
+                task=next(t for t in doc["request"]["claim_source_pairs"] if
+                          t["claim_id"]==row["claim_id"] and t["source_id"]==row["source_id"])
+                row["verdict"]="supports" if task["source_id"]=="GUIDE-NEW-2" else "does_not_support"
+                row["evidence_quote"]=task["source_text"] if row["verdict"]=="supports" else ""
+            digest=studio.lock_review(self.root,self.actors[rid],ident,doc)
+            studio.attest(self.root,self.actors["admin"],ident,rid,digest,confirmed=True)
+        studio.analyze(self.root,self.actors["admin"],ident,confirmed=True)
+        report=studio.download(self.root,self.actors["operator"],ident,"report")
+        self.assertEqual(report["summary"]["baseline"]["unsupported_rate_on_assessed"],0)
+        self.assertFalse(report["decision_grade"])
 
     def test_robustness_roles_and_roster(self):
         ident=studio.create(self.root,self.actors["admin"],"robustness",robustness_spec())
