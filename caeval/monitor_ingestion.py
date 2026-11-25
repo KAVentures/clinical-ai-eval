@@ -141,6 +141,25 @@ def revoke(directory,actor,gid):
             conn.execute("UPDATE lifecycle_ingestion_grants SET revoked_seq=? WHERE id=?",(seq,gid))
 
 
+def revoke_restored_grants(conn):
+    """Trusted stopped-service restore only, inside the restore transaction."""
+    tables={r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    ledger={"lifecycle_ingestion_grants","lifecycle_ingestion_requests"}
+    if not ledger<=tables:
+        if tables&ledger or conn.execute(
+                "SELECT 1 FROM audit WHERE action IN (?,?,?) LIMIT 1",(ISSUE,REVOKE,USE)).fetchone():
+            raise access.AccessDenied("incomplete restored ingestion ledger")
+        return 0
+    _inventory(conn)
+    rows=conn.execute("SELECT id FROM lifecycle_ingestion_grants WHERE revoked_seq IS NULL ORDER BY id").fetchall()
+    for row in rows:
+        access._audit(conn,"local-admin",REVOKE,row["id"])
+        seq=conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.execute("UPDATE lifecycle_ingestion_grants SET revoked_seq=? WHERE id=?",(seq,row["id"]))
+    _inventory(conn)
+    return len(rows)
+
+
 def grants(directory,actor):
     with access.db(directory) as conn:
         _schema(conn)
