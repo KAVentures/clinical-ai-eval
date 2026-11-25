@@ -646,6 +646,33 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=image_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
+            if path in ("/unified-assessment-discover","/unified-assessment-work","/unified-assessment-lineage","/unified-assessment-compare") and method=="GET":
+                from . import unified_orchestration_web as orchestration
+                q=_query(env)
+                if path=="/unified-assessment-discover" and set(q)=={"id","requirement"}:
+                    access.require(actor,"admin")
+                    return respond("200 OK",orchestration.discover(self.directory,actor,q["id"],q["requirement"]))
+                if path=="/unified-assessment-work" and set(q)=={"id"}:
+                    access.require(actor,"admin","operator")
+                    return respond("200 OK",orchestration.work_view(self.directory,actor,q["id"]))
+                if path=="/unified-assessment-lineage" and set(q)=={"id"}:
+                    access.require(actor,"admin","operator","observer")
+                    return respond("200 OK",orchestration.lineage(self.directory,actor,q["id"]))
+                if path=="/unified-assessment-compare" and set(q)=={"id"}:
+                    access.require(actor,"admin","operator","observer")
+                    return respond("200 OK",orchestration.compare(self.directory,actor,q["id"]))
+                raise access.AccessDenied("invalid orchestration request")
+            if path in ("/unified-assessment-batch-preview","/unified-assessment-batch-lock","/unified-assessment-successor-preview","/unified-assessment-successor-freeze") and method=="POST":
+                from . import unified_orchestration_web as orchestration
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/unified-assessment-batch-preview":
+                    return respond("200 OK",orchestration.batch_preview(self.directory,actor,form))
+                if path=="/unified-assessment-successor-preview":
+                    return respond("200 OK",orchestration.successor_preview(self.directory,actor,form))
+                result=orchestration.dispatch(self.directory,actor,path,form)
+                return respond("303 See Other",extra=[("Location","/unified-assessment-detail?id="+result)])
             if path in ("/unified-assessment","/unified-assessment-detail") and method=="GET":
                 from . import unified_assessment_web as programme
                 access.require(actor,"admin","operator","observer")
