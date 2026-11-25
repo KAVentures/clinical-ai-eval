@@ -1837,6 +1837,10 @@ def main(argv=None):
     from . import rag_paired_analysis
     pcomparison = sub.add_parser("rag-comparison", help="verify paired RAG research comparison")
     rag_paired_analysis.configure(pcomparison)
+
+    from . import matched_version_regression
+    pversionregression = sub.add_parser("verify-matched-regression", help="replay matched historical version research")
+    matched_version_regression.configure(pversionregression)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")
