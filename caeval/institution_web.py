@@ -142,6 +142,7 @@ def _dashboard(directory, actor):
     body += "<p>Research and clinical assessment remain experimental. No procurement or deployment approval.</p>"
     if role in ("admin","reviewer"):
         body += "<p><a href='/formal'>Formal independent clinical review</a></p>"
+        body += "<p><a href='/patient-review'>Patient transcript physician review</a></p>"
     if role == "reviewer":
         body += "<h2>Assigned blinded reviews</h2>"
         for row in access.assignments(directory, actor):
@@ -287,6 +288,25 @@ class InstitutionApp:
                 if result is not None:
                     return respond("200 OK",result)
                 return respond("303 See Other",extra=[("Location","/formal")])
+            if path=="/patient-review" and method=="GET":
+                from . import institution_patient_review_web as patient_review
+                return respond("200 OK",patient_review.render(self.directory,actor))
+            if path=="/patient-review-packet" and method=="GET":
+                from . import institution_patient_review_web as patient_review
+                access.require(actor,"reviewer")
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("select one patient review packet")
+                return respond("200 OK",patient_review.packet(self.directory,actor,q["id"]))
+            if path in ("/patient-review-prepare","/patient-review-lock","/patient-review-attest","/patient-review-analyze") and method=="POST":
+                from . import institution_patient_review_web as patient_review
+                access.require(actor,"reviewer" if path=="/patient-review-lock" else "admin")
+                form=_form(env)
+                _csrf(actor,form)
+                result=patient_review.dispatch(self.directory,actor,path,form)
+                if result is not None:
+                    return respond("200 OK",result)
+                return respond("303 See Other",extra=[("Location","/patient-review")])
             if path=="/conversation" and method=="GET":
                 from . import institution_conversation_web as conversation
                 return respond("200 OK",conversation.render(self.directory,actor))
