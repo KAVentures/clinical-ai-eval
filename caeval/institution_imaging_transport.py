@@ -38,13 +38,14 @@ def check(conn,plan,docs):
     ident=plan["spec"]["study_id"]
     by={doc["candidate"]["id"]:doc for doc in docs}
     result=[]
+    seal=conn.execute("SELECT audit_seq FROM diagnostic_imaging_seals WHERE study=?",(ident,)).fetchone()
     for row in conn.execute("SELECT * FROM diagnostic_imaging_collection_receipts WHERE study=? ORDER BY candidate",(ident,)):
         receipt=json.loads(row["payload"])
         cid=validate(plan,receipt)
         sub=conn.execute("SELECT actor,audit_seq FROM diagnostic_imaging_submissions WHERE study=? AND candidate=?",(ident,cid)).fetchone()
         if (cid!=row["candidate"] or cid not in by or d._digest(by[cid])!=d._digest(receipt["predictions"])
                 or receipt["digest"]!=row["digest"] or not sub or sub["actor"]!=row["actor"]
-                or sub["audit_seq"]>=row["audit_seq"]):
+                or sub["audit_seq"]>=row["audit_seq"] or (seal and row["audit_seq"]>=seal["audit_seq"])):
             raise access.AccessDenied("imaging receipt differs from locked submission")
         result.append(receipt)
     return result
