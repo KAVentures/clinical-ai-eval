@@ -66,7 +66,7 @@ def _form(env):
         raise access.AccessDenied("invalid form") from exc
 
 
-def _setup_upload(env):
+def _setup_upload(env, allowed=("csrf","vendor_id","kind","title","document")):
     """One bounded multipart document plus allowlisted scalar fields."""
     from email import policy
     from email.parser import BytesParser
@@ -87,7 +87,7 @@ def _setup_upload(env):
             if part.is_multipart() or part.defects or part.get_content_disposition()!="form-data":
                 raise ValueError()
             name=part.get_param("name",header="content-disposition")
-            if name in seen or name not in ("csrf","vendor_id","kind","title","document"):
+            if name in seen or name not in allowed:
                 raise ValueError()
             seen.add(name)
             payload=part.get_payload(decode=True)
@@ -140,6 +140,8 @@ def _dashboard(directory, actor):
     role = actor["role"]
     body = nav + "<p>Account: " + esc(actor["user_id"]) + " · " + esc(role) + "</p>"
     body += "<p>Research and clinical assessment remain experimental. No procurement or deployment approval.</p>"
+    if role in ("admin","operator","observer","reviewer"):
+        body += "<p><a href='/research'>Clinical research studio</a></p>"
     if role in ("admin","reviewer"):
         body += "<p><a href='/formal'>Formal independent clinical review</a></p>"
         body += "<p><a href='/patient-review'>Patient transcript physician review</a></p>"
@@ -317,6 +319,42 @@ class InstitutionApp:
                 _csrf(actor,form)
                 conversation.dispatch(self.directory,actor,path,form)
                 return respond("303 See Other",extra=[("Location","/conversation")])
+            if path=="/research" and method=="GET":
+                from . import institution_research_web as studio
+                return respond("200 OK",studio.render(self.directory,actor))
+            if path=="/research-review" and method=="GET":
+                from . import institution_research_web as studio
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("select one review")
+                return respond("200 OK",studio.review_page(self.directory,actor,q["id"]))
+            if path=="/research-download" and method=="GET":
+                import json
+                from . import institution_research as studio
+                q=_query(env)
+                if set(q)!={"id","kind"}:
+                    raise access.AccessDenied("select one study export")
+                payload=studio.download(self.directory,actor,q["id"],q["kind"])
+                raw=json.dumps(payload,ensure_ascii=False,indent=2,allow_nan=False).encode("utf-8")
+                if len(raw)>MAX_BODY:
+                    raise access.AccessDenied("research export too large")
+                return respond("200 OK",raw,extra=[("Content-Disposition",'attachment; filename="research-export.json"')],content_type="application/json; charset=utf-8")
+            if path.startswith("/research-") and method=="POST":
+                from . import institution_research_web as studio
+                action=path[len("/research-"):]
+                if action in ("create","collect","submit"):
+                    access.require(actor,* (("reviewer",) if action=="submit" else ("admin","operator")))
+                    fields,blob,_=_setup_upload(env,("csrf","kind","id","approve","confirm","document"))
+                    _csrf(actor,fields)
+                    studio.dispatch(self.directory,actor,action,fields,blob)
+                elif action in ("assign","attest","analyze","lock"):
+                    access.require(actor,"reviewer" if action=="lock" else "admin")
+                    form=_form(env)
+                    _csrf(actor,form)
+                    studio.dispatch(self.directory,actor,action,form)
+                else:
+                    raise access.AccessDenied("unknown research action")
+                return respond("303 See Other",extra=[("Location","/research")])
             if path=="/setup" and method=="GET":
                 from . import institution_setup_web as setup
                 return respond("200 OK",setup.render(self.directory,actor))
