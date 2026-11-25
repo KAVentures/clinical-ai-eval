@@ -655,13 +655,15 @@ class InstitutionApp:
                 if path=="/unified-assessment-detail" and set(q)=={"id"}:
                     return respond("200 OK",programme.detail(self.directory,actor,q["id"]))
                 raise access.AccessDenied("invalid programme request")
-            if path in ("/unified-assessment-preview","/unified-assessment-freeze","/unified-assessment-link-preview","/unified-assessment-lock","/unified-assessment-export") and method=="POST":
+            if path in ("/unified-assessment-preview","/unified-assessment-guided-preview","/unified-assessment-freeze","/unified-assessment-link-preview","/unified-assessment-lock","/unified-assessment-export") and method=="POST":
                 from . import unified_assessment_web as programme,buyer_plan
                 access.require(actor,"admin")
                 form=_form(env)
                 _csrf(actor,form)
                 if path=="/unified-assessment-preview":
                     return respond("200 OK",programme.preview(self.directory,actor,form))
+                if path=="/unified-assessment-guided-preview":
+                    return respond("200 OK",programme.guided_preview(self.directory,actor,form))
                 if path=="/unified-assessment-link-preview":
                     return respond("200 OK",programme.link_preview(self.directory,actor,form))
                 result=programme.dispatch(self.directory,actor,path,form)
