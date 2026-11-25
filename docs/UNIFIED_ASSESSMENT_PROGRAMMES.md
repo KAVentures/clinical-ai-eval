@@ -17,7 +17,7 @@ verdict or deployment authorization is produced.
    institutional dashboard. An administrator selects current saved plans and
    any additional research, imaging or interoperability requirements. The
    guided builder automatically includes supported runnable paired-text and
-   patient-conversation families. The advanced JSON interface can instead
+   patient-conversation families, plus a synthetic RAG context rehearsal. The advanced JSON interface can instead
    declare the precise requirement inventory. In both routes all omitted or
    unsupported required canonical suites remain visible as gaps.
 3. Preview and explicitly freeze the exact programme digest. This freezes
@@ -52,6 +52,7 @@ scientific comparisons still require their respective native study protocols.
 |---|---|---|
 | `text` | Completed canonical single-turn job ID | Reverify the job and exact family package; exact saved plan, vendor, name and version. Demonstration remains demonstration. |
 | `conversation` | Completed institutional conversation job ID | Rebuild current binding and reverify result, exact patient family, plan and product version. |
+| `rag` | Sealed synthetic RAG rehearsal ID | Exact saved plan, candidate version and native retrieval_failure trace replay. Demonstration-only context response behavior; no claim of clinical validity. |
 | `research` | Experimental research programme ID | Exact saved plan and target; all its planned report references integrity-checked. Not an independent replay in this coverage view. |
 | `imaging` | Sealed diagnostic imaging study ID | Candidate ID equals registered vendor ID; exact declared version; at least one scored prediction. Retain reference and transport receipt digests when present and complete-roster flag. Task relevance and actual model identity remain unverified. |
 | `fhir` | Synthetic FHIR rehearsal record digest | Replay exact saved plan and report. Synthetic extraction only. |
@@ -114,8 +115,7 @@ versions can still be confidential.
 
 This release does not add live PACS/DICOMweb, direct vendor dispatch, new clinical
 executors, external validation, production identity federation, or an automatic
-clinical purchasing decision. The RAG trace executor is not yet integrated
-as a canonical institutional programme source. Browser source discovery verifies eligible local records; it does not choose a best result or automatically lock evidence.
+clinical purchasing decision. The RAG trace executor is integrated for the bundled synthetic context rehearsal only; external corpora, independent citation adjudication and vendor-retriever validation remain outstanding. Browser source discovery verifies eligible local records; it does not choose a best result or automatically lock evidence.
 
 
 ## Evidence discovery and coordinated work
@@ -145,7 +145,7 @@ if any source, requirement or approval changes, the whole transaction is
 refused. No duplicate or already-locked requirement is allowed.
 
 **Native evaluation work and handoffs** is an operator/admin read-only view
-of exact-plan prepared text assessments and native text/conversation jobs.
+of exact-plan prepared text assessments, native text/conversation jobs and synthetic RAG rehearsal states.
 It distinguishes the native preparation, queue, execution and terminal
 states, without inferring that any job passed. A completed multi-family job
 can appear in more than one requirement. Navigation leads to the existing
@@ -177,3 +177,50 @@ comparison, equivalence or noninferiority analysis. Native reassessment
 audit records are rechecked when programme lineage is read, and committee
 snapshots include the lineage. Source evaluation and any scientific
 comparison must still follow the appropriate native assessment protocol.
+
+
+## Native retrieval-trace rehearsal
+
+For a saved buyer plan with runnable `retrieval_failure`, the programme
+supports a `rag` requirement with that exact family. The guided builder
+includes it automatically. Follow the native work link or open **Synthetic
+RAG context rehearsal** from the institutional dashboard.
+
+An administrator previews and freezes the exact bundled synthetic corpus,
+case pack, native definitions, product identity and four distinct probe
+prompts. An operator downloads the prompt exchange and fills every slot of the
+version-bound response template using the product under evaluation, outside
+the application. The browser accepts the complete response document and
+explicit confirmation, then locks and replays the native retrieval executor
+offline. No candidate or judge is called by the application. Missing or
+substituted responses and changed prompt digests are refused. This workflow
+does not permit overwriting the locked answers; a different run has a new
+study identifier.
+
+Only the administrator may view descriptive native flags and explicitly export
+the full private evidence package. The committee receives restricted coverage
+metadata. Discovery and programme association require a sealed, reverified
+rehearsal belonging to the exact buyer plan and product version.
+
+```sh
+clinical-ai-eval verify-rag-rehearsal private-rag-evidence.json --expected-digest DIGEST_FROM_TRUSTED_RECORD
+```
+
+Replay reconstructs the complete bundled corpus, native prompt inventory,
+source definitions, responses, trace records and descriptive summary. Native
+timestamps are omitted from the deterministic replay representation. Full
+corpus and native trace contents are bound by the separate rehearsal evidence
+digest; this is not a canonical assessment_manifest/1 package. Scientific
+definition drift is a hard refusal; retain the exact repository version for
+historical replay.
+
+The existing native retrieval perturbations depend on identifiers in the
+bundled synthetic fixture. Do not substitute arbitrary hospital corpora or
+interpret the evaluator's deterministic lexical retriever as the vendor's
+retrieval system. There is no positive-control baseline in the native
+retrieval-failure probe inventory. Native abstention flags are keyword-based;
+citation checks establish only limited identifier resolution and version
+status, not claim support. Responses are operator-attested, and the application
+does not verify model execution or the provenance of pasted text. The workflow
+is an explicitly demonstration-grade rehearsal, does not satisfy canonical
+clinical requirements and cannot support deployment or procurement conclusions.
