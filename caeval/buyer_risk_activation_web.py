@@ -16,6 +16,11 @@ def render(directory,actor,plan_id):
         body+="<label>"+label+"<select name='"+name+"' required><option value=''>Select</option>"+"".join("<option>"+esc(x)+"</option>" for x in options)+"</select></label>"
     for h in saved["protocol"]["hazards"]:
         body+="<label>"+esc(h["hazard_id"])+" · "+esc(h["suite"])+" · "+esc(h["endpoint"])+"<select name='map_"+esc(h["hazard_id"])+"'><option value=''>Not mapped</option>"+"".join("<option>"+esc(m)+"</option>" for m in activation.METRICS)+"</select></label>"
+    from . import institution_setup as setup
+    body+="<h2>Additional candidates (optional)</h2><p>Select saved plans for distinct products with exactly matching intake, scope and test selection. The primary risk protocol applies to every candidate.</p>"
+    for other in setup.overview(directory,actor)["plans"]:
+        if other["id"]!=plan_id and not other.get("invalid") and other["current"]:
+            body+="<label><input type='checkbox' name='candidate_"+esc(other["id"])+"' value='yes'> "+esc(other["target"]["name"])+" · "+esc(other["target"]["version"])+" · "+esc(other["id"][:12])+"</label>"
     body+="<button>Preview compiled conditions</button></form>"
     body+="<p>Only an administrator can activate a preview. Existing procurement studies cannot be replaced.</p>"
     return page("Activate buyer risk conditions",body)
@@ -25,17 +30,22 @@ def _inputs(form,*,activate=False):
     allowed={"plan_id","pack_id","panel_id"}
     if activate:
         allowed|={"approved_digest","confirm"}
-    if not allowed<=set(form) or any(not k.startswith("map_") for k in set(form)-allowed):
+    if not allowed<=set(form) or any(not k.startswith(("map_","candidate_")) for k in set(form)-allowed):
         raise access.AccessDenied("invalid conditions form")
-    return form["plan_id"],form["pack_id"],form["panel_id"],{k[4:]:v for k,v in form.items() if k.startswith("map_") and v}
+    if any(v!="yes" for k,v in form.items() if k.startswith("candidate_")):
+        raise access.AccessDenied("invalid selected candidate")
+    return (form["plan_id"],form["pack_id"],form["panel_id"],{k[4:]:v for k,v in form.items() if k.startswith("map_") and v},
+            sorted(k[len("candidate_"):] for k in form if k.startswith("candidate_")))
 
 
 def preview(directory,actor,form):
     from .institution_web import page,esc,_hidden
     args=_inputs(form)
-    doc=activation.preview(directory,actor,*args)
+    doc=activation.preview(directory,actor,*args[:4],additional_plans=args[4])
     body="<p><a href='/buyer-risk-activation?plan_id="+esc(args[0])+"'>Change selections</a></p>"
     body+="<p>Compiled digest "+esc(doc["digest"])+"</p><p>Case pack "+esc(doc["pack_id"])+" · Judge panel "+esc(doc["panel_id"])+"</p>"
+    for vid,entry in sorted(activation.candidates(doc).items()):
+        body+="<p>Candidate "+esc(vid)+" · "+esc(entry["target"]["name"])+" · "+esc(entry["target"]["version"])+"</p>"
     body+="<p>Unmapped hazards: "+esc(", ".join(doc["unmapped_hazards"]) or "None")+" · Required but not run: "+esc(", ".join(doc["required_but_not_run"]) or "None")+"</p>"
     for h in doc["hazards"]:
         criterion=h["acceptance_criterion"]
@@ -49,7 +59,8 @@ def preview(directory,actor,form):
 
 
 def freeze(directory,actor,form):
-    return activation.activate(directory,actor,*_inputs(form,activate=True),form["approved_digest"],confirmed=form["confirm"]=="yes")
+    args=_inputs(form,activate=True)
+    return activation.activate(directory,actor,*args[:4],form["approved_digest"],confirmed=form["confirm"]=="yes",additional_plans=args[4])
 
 
 def prepared(directory,actor,form):
@@ -77,7 +88,9 @@ def active(directory,actor):
     activation._check_conditions(state,doc)
     body="<p><a href='/setup'>Assessment setup</a> · <a href='/committee'>Committee</a></p><p>Active conditions "+esc(state["conditions_hash"])+" · "+esc(doc["digest"])+"</p>"
     body+="<p>Required but not run: "+esc(", ".join(doc["required_but_not_run"]) or "None")+"</p>"
-    body+="<p>Use an imported complete response submission from this exact plan and pack. No execution occurs here.</p>"
+    for vid,entry in sorted(activation.candidates(doc).items()):
+        body+="<p>Candidate "+esc(vid)+" · "+esc(entry["target"]["name"])+" · "+esc(entry["target"]["version"])+" · plan "+esc(entry["plan_id"][:12])+"</p>"
+    body+="<p>Use an imported complete response submission from any frozen candidate plan and the exact pack. No execution occurs here.</p>"
     body+="<form method='post' action='/buyer-risk-bound-prepare'>"+_hidden("csrf",actor["csrf"])+_hidden("conditions_hash",state["conditions_hash"])+_hidden("panel_id",doc["panel_id"])
     body+="<label>Complete submission ID<input name='submission_id' required maxlength='64'></label>"
     for k in project.MANDATORY_GOVERNANCE:
