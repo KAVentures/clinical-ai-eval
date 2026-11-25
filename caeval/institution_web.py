@@ -145,6 +145,7 @@ def _dashboard(directory, actor):
     if role in ("admin","operator"):
         body += "<p><a href='/diagnostic-imaging'>Diagnostic imaging research</a></p>"
     if role in ("admin","reviewer"):
+        body += "<p><a href='/imaging-reference'>Independent imaging reference review</a></p>"
         body += "<p><a href='/formal'>Formal independent clinical review</a></p>"
         body += "<p><a href='/validation'>Prospective validation cohorts</a></p>"
         body += "<p><a href='/patient-review'>Patient transcript physician review</a></p>"
@@ -643,6 +644,30 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=image_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
+            if path in ("/imaging-reference","/imaging-reference-review","/imaging-reference-finalize") and method=="GET":
+                from . import institution_imaging_reference_web as ref_web
+                q=_query(env)
+                if path=="/imaging-reference" and not q:
+                    access.require(actor,"admin","reviewer")
+                    return respond("200 OK",ref_web.home(self.directory,actor))
+                if path=="/imaging-reference-review" and set(q)=={"id"}:
+                    access.require(actor,"reviewer")
+                    return respond("200 OK",ref_web.review(self.directory,actor,q["id"]))
+                if path=="/imaging-reference-finalize" and set(q)=={"id"}:
+                    access.require(actor,"admin")
+                    return respond("200 OK",ref_web.final_preview(self.directory,actor,q["id"]))
+                raise access.AccessDenied("invalid imaging reference request")
+            if path in ("/imaging-reference-preview","/imaging-reference-freeze","/imaging-reference-lock","/imaging-reference-finalize","/imaging-reference-evidence") and method=="POST":
+                from . import institution_imaging_reference_web as ref_web, buyer_plan
+                access.require(actor,"reviewer" if path=="/imaging-reference-lock" else "admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/imaging-reference-preview":
+                    return respond("200 OK",ref_web.preview(self.directory,actor,form))
+                result=ref_web.dispatch(self.directory,actor,path,form)
+                if path=="/imaging-reference-evidence":
+                    return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="private-imaging-reference.json"')],content_type="application/json; charset=utf-8")
+                return respond("303 See Other",extra=[("Location","/imaging-reference")])
             if path in ("/diagnostic-imaging","/diagnostic-imaging-study","/diagnostic-imaging-download") and method=="GET":
                 from . import institution_imaging as imaging, institution_imaging_web as imaging_web, buyer_plan
                 access.require(actor,"admin","operator")
