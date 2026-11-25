@@ -33,3 +33,5 @@ both according to institutional policy.
 
 Run synthetic tests with `python -m pytest tests_unit/test_risk_multi_candidate.py`.
 These tests do not establish clinical validation or production readiness.
+
+Incomplete risk-bound comparisons include explicit NO_EVIDENCE rows for every absent candidate at each hazard, with the frozen planned-cell denominator. Threshold conclusions are withheld from the comparative summary until the roster is complete; standalone estimates remain descriptive.
