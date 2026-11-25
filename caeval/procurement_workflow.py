@@ -94,6 +94,9 @@ def add_vendor(directory, vendor_id: str, subject_spec: dict, blinded_label: str
     state = load(directory)
     if state["status"] != "open":
         raise ProcurementError(f"procurement is {state['status']}; cannot add vendors")
+    activation=state["conditions"].get("risk_activation")
+    if activation is not None and (state["vendors"] or vendor_id!=activation["vendor_id"] or subject_spec!=activation["target"]):
+        raise ProcurementError("risk-bound study admits only the exact registered candidate")
     if any(v["vendor_id"] == vendor_id for v in state["vendors"]):
         raise ProcurementError(f"vendor {vendor_id!r} already registered")
     label = blinded_label or f"Product {chr(ord('A') + len(state['vendors']))}"
@@ -234,6 +237,8 @@ def _record_result(directory, vendor_id: str, family_id: str, cells: list,
         raise ProcurementError(f"vendor {vendor_id!r} is not registered")
     if family_id not in state["conditions"]["families"]:
         raise ProcurementError(f"family {family_id!r} is outside the frozen procurement")
+    if state["conditions"].get("risk_activation") is not None and not package:
+        raise ProcurementError("risk-bound study requires verified evidence package ingestion")
     existing = state["results"].get(vendor_id, {}).get(family_id)
     if existing and existing.get("ingestion") == "verified_package":
         # An already observed vendor result must not be silently replaced with
