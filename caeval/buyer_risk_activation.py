@@ -193,6 +193,7 @@ def check_package(state,vendor_id,family,environment,plan_binding,cells):
     _check_conditions(state,b)
     candidate=candidates(b).get(vendor_id)
     if (candidate is None or family not in b["families"] or
+            environment.get("conditions_hash")!=state["conditions_hash"] or
             plan_binding.get("target_name")!=candidate["target"]["name"] or
             plan_binding.get("target_version")!=candidate["target"]["version"] or
             plan_binding.get("family_id")!=family or
