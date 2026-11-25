@@ -528,6 +528,30 @@ class InstitutionApp:
                 _csrf(actor,form)
                 risk_web.dispatch(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/buyer-risk?plan_id="+form["plan_id"])])
+            if path in ("/fhir","/fhir-download","/fhir-report","/fhir-evidence") and method=="GET":
+                from . import institution_fhir as service, institution_fhir_web as fhir_web, buyer_plan
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if path=="/fhir" and set(q)=={"plan_id"}:
+                    return respond("200 OK",fhir_web.render(self.directory,actor,q["plan_id"]))
+                if path=="/fhir-report" and set(q)=={"id"}:
+                    return respond("200 OK",fhir_web.report(self.directory,actor,q["id"]))
+                if path=="/fhir-download" and set(q)=={"plan_id","kind"} and q["kind"] in ("exchange","response_template"):
+                    doc=service.prepare(self.directory,actor,q["plan_id"])[q["kind"]]
+                    access.event(self.directory,actor["user_id"],"synthetic-fhir-fixture-exported",q["plan_id"])
+                elif path=="/fhir-evidence" and set(q)=={"id"}:
+                    doc=service.detail(self.directory,actor,q["id"])["package"]
+                    access.event(self.directory,actor["user_id"],"synthetic-fhir-evidence-exported",q["id"])
+                else:
+                    raise access.AccessDenied("invalid synthetic FHIR request")
+                return respond("200 OK",buyer_plan._canonical(doc),extra=[("Content-Disposition",'attachment; filename="synthetic-fhir.json"')],content_type="application/json; charset=utf-8")
+            if path=="/fhir-submit" and method=="POST":
+                from . import institution_fhir_web as fhir_web
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                ident=fhir_web.submit(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/fhir-report?id="+ident)])
             if path=="/setup" and method=="GET":
                 from . import institution_setup_web as setup
                 return respond("200 OK",setup.render(self.directory,actor))
