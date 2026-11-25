@@ -1734,6 +1734,21 @@ def main(argv=None):
     px.set_defaults(func=run_experimental_evidence)
     from . import project_experimental_cli
     project_experimental_cli.configure(sub.add_parser("experimental-project", help="project-bound experimental research execution (offline)"))
+    pfhir = sub.add_parser("fhir-readiness", help="synthetic FHIR R4 extraction assessment and offline replay")
+    fhir_sub=pfhir.add_subparsers(dest="action",required=True)
+    q=fhir_sub.add_parser("prepare")
+    q.add_argument("--target-name",required=True)
+    q.add_argument("--target-version",required=True)
+    q=fhir_sub.add_parser("assess")
+    q.add_argument("--plan",required=True)
+    q.add_argument("--responses",required=True)
+    q=fhir_sub.add_parser("verify")
+    q.add_argument("evidence")
+    q.add_argument("--expected-digest")
+    def run_fhir(args):
+        from . import fhir_readiness
+        return fhir_readiness.cli(args)
+    pfhir.set_defaults(func=run_fhir)
     pcd = sub.add_parser("verify-committee-dossier", help="verify frozen portable committee evidence offline")
     pcd.add_argument("dossier")
     pcd.add_argument("--expected-digest", help="independently communicated dossier digest")
