@@ -142,6 +142,8 @@ def _dashboard(directory, actor):
     body += "<p>Research and clinical assessment remain experimental. No procurement or deployment approval.</p>"
     if role in ("admin","operator","observer","reviewer"):
         body += "<p><a href='/research'>Clinical research studio</a></p>"
+    if role in ("admin","operator"):
+        body += "<p><a href='/diagnostic-imaging'>Diagnostic imaging research</a></p>"
     if role in ("admin","reviewer"):
         body += "<p><a href='/formal'>Formal independent clinical review</a></p>"
         body += "<p><a href='/validation'>Prospective validation cohorts</a></p>"
@@ -641,6 +643,29 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=image_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
+            if path in ("/diagnostic-imaging","/diagnostic-imaging-study","/diagnostic-imaging-download") and method=="GET":
+                from . import institution_imaging as imaging, institution_imaging_web as imaging_web, buyer_plan
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if path=="/diagnostic-imaging" and not q:
+                    return respond("200 OK",imaging_web.home(self.directory,actor))
+                if path=="/diagnostic-imaging-study" and set(q)=={"id"}:
+                    return respond("200 OK",imaging_web.study(self.directory,actor,q["id"]))
+                if path=="/diagnostic-imaging-download" and set(q)=={"id","candidate","kind"}:
+                    doc=imaging.download(self.directory,actor,q["id"],q["candidate"],q["kind"])
+                    return respond("200 OK",buyer_plan._canonical(doc),extra=[("Content-Disposition",'attachment; filename="imaging-candidate.json"')],content_type="application/json; charset=utf-8")
+                raise access.AccessDenied("invalid imaging request")
+            if path in ("/diagnostic-imaging-preview","/diagnostic-imaging-freeze","/diagnostic-imaging-submit","/diagnostic-imaging-seal","/diagnostic-imaging-evidence") and method=="POST":
+                from . import institution_imaging_web as imaging_web, buyer_plan
+                access.require(actor,*(("admin","operator") if path=="/diagnostic-imaging-submit" else ("admin",)))
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/diagnostic-imaging-preview":
+                    return respond("200 OK",imaging_web.preview(self.directory,actor,form))
+                result=imaging_web.dispatch(self.directory,actor,path,form)
+                if path=="/diagnostic-imaging-evidence":
+                    return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="private-imaging-evidence.json"')],content_type="application/json; charset=utf-8")
+                return respond("303 See Other",extra=[("Location","/diagnostic-imaging-study?id="+result)])
             if path=="/evaluator-requests" and method=="GET":
                 from . import evaluator_service_web
                 access.require(actor,"admin")
