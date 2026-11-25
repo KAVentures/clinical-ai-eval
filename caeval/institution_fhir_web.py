@@ -16,7 +16,7 @@ def render(directory,actor,plan_id):
     body+="<label><input type='checkbox' name='confirm' value='yes' required> I confirm this is exclusively the supplied synthetic fixture and contains no real patient information.</label><button>Evaluate and record synthetic responses</button></form>"
     body+="<h2>Saved synthetic rehearsals</h2>"
     for row in service.inventory(directory,actor):
-        if row.get("vendor_id")==doc["plan"].get("vendor_id") or row.get("target_version")==doc["plan"]["target"]["version"]:
+        if row.get("plan_id")==plan_id:
             body+="<p><a href='/fhir-report?id="+esc(row["id"])+"'>"+esc(row["id"][:12])+"</a> · "+esc(row["state"])+" · "+esc(row.get("summary",{}))+"</p>"
     return page("Synthetic FHIR interoperability rehearsal",body)
 
