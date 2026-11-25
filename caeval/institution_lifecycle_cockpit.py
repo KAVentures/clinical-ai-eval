@@ -120,6 +120,10 @@ def _vendor(status,vid,policies,monitors,successors,handoffs,availability):
                     tasks.append(_task("link_reported_version_changes","high","/monitor-reassessment?id="+mon["id"],"admin"))
                 if counts[2]<counts[1]:
                     tasks.append(_task("review_stale_reassessment_successors","high","/monitor-reassessment?id="+mon["id"],"admin"))
+    if handoff is not None and mon is None and availability["monitors"]=="available":
+        handoff_state="inconsistent_inventory"
+    if handoff_state=="inconsistent_inventory" and mon is None:
+        tasks.append(_task("handoff_inventory_unavailable","high","/lifecycle-monitor","admin"))
     if mon is not None and handoff_state in ("unavailable","inconsistent_inventory"):
         tasks.append(_task("handoff_inventory_unavailable","high","/monitor-reassessment?id="+mon["id"],"admin"))
     # A monitor is optional until external authorization. Absence is never
