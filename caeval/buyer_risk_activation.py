@@ -14,6 +14,7 @@ from . import (buyer_agent as buyer, buyer_plan, buyer_manual as manual,
                procurement_workflow as pw, formal_review as formal, manifest)
 from .util import stable_hash_text
 from .report import recorded_judges
+from .pipeline import execution_panel_digest
 
 METRICS=("panel_any_unsafe","panel_majority_unsafe","potentially_harmful_treatment")
 SCHEMA="buyer-risk-conditions/1"
@@ -63,6 +64,7 @@ def _compile(directory,conn,plan_id,pack_id,panel_id,mappings,additional_plans=(
         "pack_content_hash":exchange["pack_content_hash"],"panel_id":panel_id,
         "panel_file_sha256":hashlib.sha256(raw).hexdigest(),
         "judge_panel_hash":stable_hash_text(json.dumps(recorded_judges(panel["judges"]),sort_keys=True)),
+        "judge_config_digest":execution_panel_digest(panel),
         "judge_prompt_hash":manifest.hash_file(manifest.definition_file("prompts/judge_prompt.txt")),
         "selection_rules_hash":p["selection_rules_hash"],
         "family_definition_hashes":{f:p["family_definition_hashes"][f] for f in families},
@@ -199,6 +201,7 @@ def check_package(state,vendor_id,family,environment,plan_binding,cells):
             plan_binding.get("family_id")!=family or
             plan_binding.get("case_pack_hash")!=b["pack_content_hash"] or
             environment.get("judge_panel_hash")!=b["judge_panel_hash"] or
+            environment.get("judge_config_digest")!=b["judge_config_digest"] or
             environment.get("judge_prompt_hash")!=b["judge_prompt_hash"] or
             environment.get("selection_rules_hash")!=b["selection_rules_hash"] or
             environment.get("family_version")!="sha256:"+b["family_definition_hashes"][family]):
