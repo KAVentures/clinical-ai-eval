@@ -91,7 +91,7 @@ class RiskActivationTests(unittest.TestCase):
         b=active["binding"]
         state=pw.load(self.root/"assessment")
         family=b["families"][0]
-        env={"judge_panel_hash":b["judge_panel_hash"],"judge_prompt_hash":b["judge_prompt_hash"],
+        env={"conditions_hash":active["conditions_hash"],"judge_panel_hash":b["judge_panel_hash"],"judge_prompt_hash":b["judge_prompt_hash"],
              "selection_rules_hash":b["selection_rules_hash"],
              "family_version":"sha256:"+b["family_definition_hashes"][family]}
         bound={"target_name":b["target"]["name"],"target_version":b["target"]["version"],
@@ -110,6 +110,8 @@ class RiskActivationTests(unittest.TestCase):
             activation.check_package(state,b["vendor_id"],family,env,{**bound,"target_version":"different"},cells)
         with self.assertRaises(access.AccessDenied):
             activation.check_package(state,b["vendor_id"],family,{**env,"judge_panel_hash":"different"},bound,cells)
+        with self.assertRaises(access.AccessDenied):
+            activation.check_package(state,b["vendor_id"],family,{**env,"conditions_hash":"different"},bound,cells)
         with self.assertRaises(pw.ProcurementError):
             pw.record_result(self.root/"assessment",b["vendor_id"],family,cells,
                              {"conditions_hash":active["conditions_hash"],"case_pack_hash":b["pack_content_hash"]})
