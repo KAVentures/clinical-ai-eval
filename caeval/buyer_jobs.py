@@ -178,6 +178,10 @@ def _verify(directory, row):
                                 claim.pack_authority(desc),"real")
         if binding.get("conditions_hash") and (analysis.get("conditions_hash")!=binding["conditions_hash"] or run_meta.get("conditions_hash")!=binding["conditions_hash"] or cfg.data.get("procurement",{}).get("conditions_hash")!=binding["conditions_hash"]):
             raise buyer.BuyerError("run did not preserve approved procurement conditions")
+        if binding.get("conditions_hash"):
+            expected_config=pipeline.execution_panel_digest(panel)
+            if analysis.get("judge_config_digest")!=expected_config or run_meta.get("judge_config_digest")!=expected_config:
+                raise buyer.BuyerError("run evaluator settings differ from staged panel")
         if (analysis["family_id"] != family or run_meta["family_id"] != family
                 or analysis.get("plan_binding") != bound
                 or analysis.get("case_pack",{}).get("content_hash") != desc["content_hash"]
