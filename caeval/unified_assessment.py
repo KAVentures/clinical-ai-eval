@@ -225,7 +225,7 @@ def _source(directory,conn,actor,req,plan,source_id):
                 "mode":"experimental_integrity_checked","claim":"not_canonical",
                 "scope":"exact_buyer_plan"}
     elif kind=="imaging":
-        from . import institution_imaging as imaging, institution_imaging_reference as reference
+        from . import institution_imaging as imaging, institution_imaging_reference as reference, institution_imaging_transport as transport
         imaging._schema(conn)
         imaging._inventory(conn)
         private,docs,evidence=imaging._get(conn,source_id)
@@ -239,9 +239,11 @@ def _source(directory,conn,actor,req,plan,source_id):
         if not m["counts"]["scored"]:
             raise access.AccessDenied("imaging candidate has no scored outputs")
         ref_digest=reference.check_link(conn,private)
+        transport_rows=[r for r in transport.status(conn,source_id) if r["candidate_id"]==vid]
         result={"anchor":private["digest"],"evidence_digest":evidence["digest"],
                 "mode":"experimental_imaging","claim":"not_canonical",
                 "scope":"vendor_id_and_version_only","reference_digest":ref_digest,
+                "transport_receipt_digest":transport_rows[0]["receipt_digest"] if transport_rows else None,
                 "complete_roster":evidence["report"]["roster_complete"]}
     else:
         from . import institution_fhir as fhir, institution_hl7 as hl7, institution_image_text as image
@@ -447,7 +449,7 @@ def verify_export(package,expected_digest=None):
         else:
             required="kind source_id anchor evidence_digest mode claim scope"
             if req["kind"]=="imaging":
-                required+=" reference_digest complete_roster"
+                required+=" reference_digest transport_receipt_digest complete_roster"
             d._keys(source,required)
             d._require(source["kind"]==req["kind"] and d._hex(source["anchor"]) and d._hex(source["evidence_digest"])
                        and isinstance(source["source_id"],str) and row["state"]!="unlinked","invalid locked source")
