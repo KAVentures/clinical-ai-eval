@@ -143,6 +143,7 @@ def _dashboard(directory, actor):
     if role in ("admin","reviewer"):
         body += "<p><a href='/formal'>Formal independent clinical review</a></p>"
         body += "<p><a href='/patient-review'>Patient transcript physician review</a></p>"
+        body += "<p><a href='/world-review'>Patient-world validity review</a></p>"
     if role == "reviewer":
         body += "<h2>Assigned blinded reviews</h2>"
         for row in access.assignments(directory, actor):
@@ -289,6 +290,25 @@ class InstitutionApp:
                 if result is not None:
                     return respond("200 OK",result)
                 return respond("303 See Other",extra=[("Location","/formal")])
+            if path=="/world-review" and method=="GET":
+                from . import institution_patient_validity_web as validity
+                return respond("200 OK",validity.render(self.directory,actor))
+            if path=="/world-review-packet" and method=="GET":
+                from . import institution_patient_validity_web as validity
+                access.require(actor,"reviewer")
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("select one validity packet")
+                return respond("200 OK",validity.packet(self.directory,actor,q["id"]))
+            if path in ("/world-review-create","/world-review-lock","/world-review-attest","/world-review-analyze") and method=="POST":
+                from . import institution_patient_validity_web as validity
+                access.require(actor,"reviewer" if path=="/world-review-lock" else "admin")
+                form=_form(env)
+                _csrf(actor,form)
+                result=validity.dispatch(self.directory,actor,path,form)
+                if result is not None:
+                    return respond("200 OK",result)
+                return respond("303 See Other",extra=[("Location","/world-review")])
             if path=="/patient-review" and method=="GET":
                 from . import institution_patient_review_web as patient_review
                 return respond("200 OK",patient_review.render(self.directory,actor))
