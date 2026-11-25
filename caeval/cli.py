@@ -1813,6 +1813,10 @@ def main(argv=None):
     from . import diagnostic_imaging
     pdiag = sub.add_parser("diagnostic-imaging", help="offline exploratory diagnostic imaging study")
     diagnostic_imaging.configure(pdiag)
+
+    from . import imaging_transport
+    ptransport = sub.add_parser("imaging-transport", help="approved local exact-asset imaging collection")
+    imaging_transport.configure(ptransport)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")
