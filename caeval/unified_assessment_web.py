@@ -15,7 +15,7 @@ def home(directory,actor):
             for p in plans:
                 pid=p["plan_id"]
                 body+="<section><label><input type='checkbox' name='plan_"+esc(pid)+"' value='yes'> "+esc(p["vendor_id"])+" · "+esc(p["target"]["version"])+" · "+esc(", ".join(p["profiles"]))+"</label>"
-                for kind in ("research","imaging","fhir","hl7","image_text"):
+                for kind in ("research","imaging","fhir","hl7","image_text","rag_grounding"):
                     body+="<label><input type='checkbox' name='kind_"+esc(pid)+"_"+kind+"' value='yes'> "+esc(kind.replace("_"," "))+"</label>"
                 body+="</section>"
             body+="<button>Preview selected plans</button></form></section>"
