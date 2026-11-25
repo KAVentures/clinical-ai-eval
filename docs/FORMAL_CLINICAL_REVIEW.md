@@ -147,3 +147,7 @@ coverage is not a population-representative sample, and only one family is
 included per cohort. Do not enter real patient identifiers.
 
 The prospective guarantee applies only to the full case inventory and reviewer roster. The completed job and evaluator configuration are selected afterwards and are not prospectively fixed by this protocol. Report this limitation in any research use; do not treat the cohort as a confirmatory preregistered validation study.
+
+### Panel-bound cohort revision
+
+New cohorts require an approved panel ID and freeze the exact panel bytes, parsed evaluator configuration digest, and scientific definition hashes before exchange preparation. After response collection and assessment preparation, reserve a single dedicated deterministic job; its committed institutional approval is required by the worker before execution. Only that completed job can be attached. Failed or cancelled reserved jobs cannot be replaced or retried. Legacy cohorts retain their weaker explicitly labelled protocol. Candidate submission selection is not prospectively bound; local ordering and the reserved job do not rule out prior tests elsewhere, selective submission, runtime provider changes or unrecorded exposure. The earlier limitation about evaluator and job selection applies only to legacy cohorts. No clinical claim is promoted.

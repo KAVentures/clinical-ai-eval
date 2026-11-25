@@ -294,7 +294,7 @@ class InstitutionApp:
                 q=_query(env)
                 if set(q)!={"id"}:raise access.AccessDenied("select exact cohort")
                 return respond("200 OK",validation.review(self.directory,actor,q["id"]))
-            if path in ("/validation-preview","/validation-freeze","/validation-attach","/validation-submit","/validation-attest","/validation-analyze") and method=="POST":
+            if path in ("/validation-preview","/validation-freeze","/validation-reserve","/validation-attach","/validation-submit","/validation-attest","/validation-analyze") and method=="POST":
                 from . import validation_cohort_web as validation
                 form=_form(env)
                 _csrf(actor,form)

@@ -6,7 +6,12 @@ from caeval import (validation_cohort as c,buyer_manual as manual,buyer_assessme
 from tests_unit import test_buyer_manual as fixture
 
 class CohortTests(unittest.TestCase):
-    setUp=fixture.ManualExchangeTests.setUp
+    def setUp(self):
+        fixture.ManualExchangeTests.setUp(self)
+        panels=self.root/"approved-panels"
+        panels.mkdir()
+        self.panel=panels/"mock.toml"
+        self.panel.write_bytes((repo_root()/"configs"/"judge_panel.toml").read_bytes())
     prepare_exchange=fixture.ManualExchangeTests.prepare
     fill=fixture.ManualExchangeTests.fill
     submit_exchange=fixture.ManualExchangeTests.submit
@@ -17,22 +22,22 @@ class CohortTests(unittest.TestCase):
         admin={"user_id":"admin","role":"admin"}
         family=self.plan["plan"]["selection"]["runnable_suites"][0]
         args=(self.root,admin,self.plan["plan_id"],"fixture",family,["a","b"],"v")
-        p=c.preview(*args)
-        with self.assertRaises(access.AccessDenied):c.freeze(*args,p["digest"])
-        ident=c.freeze(*args,p["digest"],confirmed=True)
-        self.assertEqual(ident,c.freeze(*args,p["digest"],confirmed=True))
+        p=c.preview(*args,panel_id="mock")
+        with self.assertRaises(access.AccessDenied):c.freeze(*args,p["digest"],panel_id="mock")
+        ident=c.freeze(*args,p["digest"],panel_id="mock",confirmed=True)
+        self.assertEqual(ident,c.freeze(*args,p["digest"],panel_id="mock",confirmed=True))
         exchange=self.prepare_exchange()
         self.submit_exchange(self.fill(exchange))
         # Another family cannot be newly frozen after local exchange creation.
         other=next(x for x in self.plan["plan"]["selection"]["runnable_suites"] if x!=family)
         later=(self.root,admin,self.plan["plan_id"],"fixture",other,["a","b"],"v")
-        p2=c.preview(*later)
-        with self.assertRaises(access.AccessDenied):c.freeze(*later,p2["digest"],confirmed=True)
+        p2=c.preview(*later,panel_id="mock")
+        with self.assertRaises(access.AccessDenied):c.freeze(*later,p2["digest"],panel_id="mock",confirmed=True)
         with self.assertRaises(access.AccessDenied):c.analyze(self.root,admin,ident)
         self.assertEqual(c.inventory(self.root,{"user_id":"other","role":"reviewer"}),[])
         self.assertEqual(c.inventory(self.root,{"user_id":"a","role":"reviewer"}),[{"id":ident,"linked":False}])
         with access.db(self.root) as conn:conn.execute("DELETE FROM validation_cohorts")
-        with self.assertRaises(access.AccessDenied):c.freeze(*args,p["digest"],confirmed=True)
+        with self.assertRaises(access.AccessDenied):c.freeze(*args,p["digest"],panel_id="mock",confirmed=True)
 
 
     def test_complete_mock_execution_and_review_attestation(self):
@@ -41,16 +46,23 @@ class CohortTests(unittest.TestCase):
         admin={"user_id":"admin","role":"admin"}
         family=self.plan["plan"]["selection"]["runnable_suites"][0]
         args=(self.root,admin,self.plan["plan_id"],"fixture",family,["a","b"],"v")
-        preview=c.preview(*args)
-        ident=c.freeze(*args,preview["digest"],confirmed=True)
+        preview=c.preview(*args,panel_id="mock")
+        ident=c.freeze(*args,preview["digest"],panel_id="mock",confirmed=True)
         sub=self.submit_exchange(self.fill(self.prepare_exchange()))
-        panels=self.root/"approved-panels"
-        panels.mkdir()
-        (panels/"mock.toml").write_bytes((repo_root()/"configs"/"judge_panel.toml").read_bytes())
         gov={"influences_diagnosis_or_treatment":"yes","clinician_reviews_every_response":"yes",
              "regulated_medical_device":"unsure","deployment_jurisdictions":"SE"}
         bound=assessment.prepare(self.root,sub["submission_id"],"mock",gov)
-        job=jobs.enqueue(self.root,bound["assessment_id"])
+        ordinary=jobs.enqueue(self.root,bound["assessment_id"])
+        with self.assertRaises(access.AccessDenied):
+            c.attach(self.root,admin,ident,ordinary["id"],confirmed=True)
+        with self.assertRaises(access.AccessDenied):
+            c.reserve(self.root,admin,ident,bound["assessment_id"])
+        orphan=jobs.enqueue(self.root,bound["assessment_id"],cohort_job="job-cohort-"+ident[:48],conn=True)
+        with self.assertRaises(access.AccessDenied):
+            jobs.execute(self.root,orphan["id"])
+        job=c.reserve(self.root,admin,ident,bound["assessment_id"],confirmed=True)
+        self.assertEqual(job["id"],orphan["id"])
+        self.assertEqual(job["id"],c.reserve(self.root,admin,ident,bound["assessment_id"],confirmed=True)["id"])
         with self.assertRaises(access.AccessDenied):
             c.attach(self.root,admin,ident,job["id"],confirmed=True)
         completed=jobs.execute(self.root,job["id"])
@@ -84,6 +96,8 @@ class CohortTests(unittest.TestCase):
         self.assertEqual(out["calibration"]["n_locked_review_cells"],len(preview["cohort"]["variant_ids"]))
         self.assertEqual(out["calibration"]["n_locked_review_cells"],out["calibration"]["n_full_run_variant_cells"])
         self.assertFalse(out["decision_grade"])
+        self.assertTrue(out["evaluator_and_job_prospectively_bound"])
+        self.assertFalse(out["candidate_submission_prospectively_bound"])
         with access.db(self.root) as conn:
             conn.execute("DELETE FROM validation_cohort_attestations WHERE reviewer='a'")
         with self.assertRaises(access.AccessDenied):

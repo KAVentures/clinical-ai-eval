@@ -8,10 +8,12 @@ import json
 from . import (buyer_plan as plans,buyer_manual as manual,buyer_jobs as jobs,
                buyer_research as research,buyer_agent as buyer,
                institution_access as access,institution_setup as setup,
-               formal_review as formal,manifest,pipeline,review_calibration)
+               formal_review as formal,manifest,pipeline,review_calibration,
+               buyer_assessment as assessment,adjudicate)
 
 EVENT="validation-cohort-frozen"
 LINK="validation-cohort-job-linked"
+RESERVE="validation-cohort-job-reserved"
 SUBMIT="validation-cohort-review-locked"
 ATTEST="validation-cohort-review-attested"
 MAX_COHORTS=100
@@ -21,6 +23,10 @@ MAX_ITEMS=1000
 def _schema(c):
     c.execute("""CREATE TABLE IF NOT EXISTS validation_cohorts(
         id TEXT PRIMARY KEY, payload TEXT NOT NULL, digest TEXT NOT NULL,
+        audit_seq INTEGER NOT NULL UNIQUE)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS validation_cohort_reservations(
+        cohort TEXT PRIMARY KEY REFERENCES validation_cohorts(id),
+        job TEXT NOT NULL UNIQUE, assessment_id TEXT NOT NULL,
         audit_seq INTEGER NOT NULL UNIQUE)""")
     c.execute("""CREATE TABLE IF NOT EXISTS validation_cohort_jobs(
         cohort TEXT PRIMARY KEY REFERENCES validation_cohorts(id), job TEXT NOT NULL,
@@ -56,7 +62,7 @@ def _write_audit(c,actor,action,obj):
     return c.execute("SELECT last_insert_rowid()").fetchone()[0]
 
 
-def _material(directory,plan_id,pack_id,family,reviewers,validity_reviewer):
+def _material(directory,plan_id,pack_id,family,reviewers,validity_reviewer,*,panel_id):
     exchange=manual._build(directory,plan_id,pack_id)
     if family not in exchange["family_ids"]:
         raise buyer.BuyerError("choose a runnable canonical text family")
@@ -68,8 +74,17 @@ def _material(directory,plan_id,pack_id,family,reviewers,validity_reviewer):
         raise buyer.BuyerError("invalid or oversized full variant cohort")
     if set(r["cell_id"] for r in rows)!={k for k,v in exchange["slots"].items() if family in v["families"]}:
         raise buyer.BuyerError("generated family differs from exchange")
+    raw,panel=assessment._panel(directory,panel_id)
+    definitions={rel:manifest.hash_file(manifest.definition_file(rel))
+                 for rel in (*manifest.DEFINITION_SOURCES,*manifest.EXECUTOR_DEFINITION_SOURCES["generic_paired_text"])}
+    if not all(definitions.values()):
+        raise buyer.BuyerError("scientific definitions unavailable")
     ident=plans._digest([plan_id,pack_id,family])
-    d={"schema":"prospective-validation-cohort/1","id":ident,"plan_id":plan_id,
+    d={"schema":"prospective-validation-cohort/2",
+       "evaluator":{"panel_id":panel_id,"panel_sha256":assessment._sha(raw),
+                    "configuration_digest":pipeline.execution_panel_digest(panel),
+                    "scientific_definitions":definitions},
+       "execution_policy":"one_reserved_job_no_retry","id":ident,"plan_id":plan_id,
        "pack_id":pack_id,"family_id":family,"exchange_id":exchange["exchange_id"],
        "pack_content_hash":exchange["pack_content_hash"],"reviewers":reviewers,
        "validity_reviewer":validity_reviewer,"variant_ids":ids,
@@ -95,23 +110,23 @@ def _roster(d):
     return d["reviewers"]+[d["validity_reviewer"]]
 
 
-def preview(directory,actor,plan_id,pack_id,family,reviewers,validity_reviewer):
+def preview(directory,actor,plan_id,pack_id,family,reviewers,validity_reviewer,*,panel_id):
     with access.db(directory) as c:
         _schema(c)
         _actor(c,actor,"admin")
-        d=_material(directory,plan_id,pack_id,family,reviewers,validity_reviewer)
+        d=_material(directory,plan_id,pack_id,family,reviewers,validity_reviewer,panel_id=panel_id)
         for rid in _roster(d):
             _actor(c,{"role":"reviewer","user_id":rid},"reviewer")
         return {"cohort":d,"digest":plans._digest(d)}
 
 
-def freeze(directory,actor,plan_id,pack_id,family,reviewers,validity_reviewer,digest,*,confirmed=False):
+def freeze(directory,actor,plan_id,pack_id,family,reviewers,validity_reviewer,digest,*,panel_id,confirmed=False):
     if confirmed is not True:raise access.AccessDenied("explicit prospective cohort confirmation required")
     with access.db(directory) as c:
         _schema(c)
         c.execute("BEGIN IMMEDIATE")
         _actor(c,actor,"admin")
-        d=_material(directory,plan_id,pack_id,family,reviewers,validity_reviewer)
+        d=_material(directory,plan_id,pack_id,family,reviewers,validity_reviewer,panel_id=panel_id)
         if plans._digest(d)!=digest:raise access.AccessDenied("cohort differs from preview")
         for rid in _roster(d):
             _actor(c,{"role":"reviewer","user_id":rid},"reviewer")
@@ -136,6 +151,82 @@ def freeze(directory,actor,plan_id,pack_id,family,reviewers,validity_reviewer,di
         return d["id"]
 
 
+def _job_id(d):
+    return "job-cohort-"+d["id"][:48]
+
+
+def _matches(d,b):
+    e=d["evaluator"]
+    if (b["plan_id"]!=d["plan_id"] or b["exchange_id"]!=d["exchange_id"]
+            or b["pack_content_hash"]!=d["pack_content_hash"] or b["panel_id"]!=e["panel_id"]
+            or b["file_sha256"]["panel.toml"]!=e["panel_sha256"]
+            or b["scientific_definitions"]!=e["scientific_definitions"]):
+        raise access.AccessDenied("assessment differs from frozen cohort or evaluator")
+
+
+def _reservation(c,d):
+    r=c.execute("SELECT * FROM validation_cohort_reservations WHERE cohort=?",(d["id"],)).fetchone()
+    if not r:
+        _event(c,RESERVE,d["id"]+":")
+        return None
+    if r["job"]!=_job_id(d):
+        raise access.AccessDenied("reserved job identity changed")
+    _event(c,RESERVE,d["id"]+":",(r["audit_seq"],plans._digest([r["job"],r["assessment_id"]])))
+    return dict(r)
+
+
+def reserve(directory,actor,ident,assessment_id,*,confirmed=False):
+    """Reserve one canonical job before that job can yield any scores.
+
+    Separate worker authorization remains mandatory. An interrupted queue
+    may be recovered only with the identical assessment and deterministic ID.
+    """
+    if confirmed is not True:
+        raise access.AccessDenied("explicit single execution reservation required")
+    with access.db(directory) as c:
+        _schema(c)
+        c.execute("BEGIN IMMEDIATE")
+        _actor(c,actor,"admin")
+        d=_read(c,ident)
+        if not d or d.get("schema")!="prospective-validation-cohort/2":
+            raise access.AccessDenied("new panel-bound cohort required")
+        b=assessment.check(directory,assessment_id,conn=c)
+        _matches(d,b)
+        raw,panel=assessment._panel(directory,b["panel_id"])
+        if pipeline.execution_panel_digest(panel)!=d["evaluator"]["configuration_digest"]:
+            raise access.AccessDenied("parsed evaluator configuration changed")
+        prior=_reservation(c,d)
+        jid=_job_id(d)
+        if prior:
+            if prior["assessment_id"]!=assessment_id:
+                raise access.AccessDenied("cannot replace reserved assessment")
+            return jobs.status(directory,jid)
+        if _link(c,d):
+            raise access.AccessDenied("source already linked")
+        row=jobs.enqueue(directory,assessment_id,cohort_job=jid,conn=c)
+        seq=_write_audit(c,actor["user_id"],RESERVE,ident+":"+plans._digest([jid,assessment_id]))
+        c.execute("INSERT INTO validation_cohort_reservations VALUES(?,?,?,?)",(ident,jid,assessment_id,seq))
+        return row
+
+
+def require_queue_approval(directory,jid):
+    with access.db(directory) as c:
+        _schema(c)
+        row=c.execute("SELECT cohort FROM validation_cohort_reservations WHERE job=?",(jid,)).fetchone()
+        if not row:
+            raise access.AccessDenied("committed cohort reservation required")
+        d=_read(c,row["cohort"])
+        if not d or d.get("schema")!="prospective-validation-cohort/2":
+            raise access.AccessDenied("panel-bound cohort required")
+        res=_reservation(c,d)
+        b=assessment.check(directory,res["assessment_id"],conn=c)
+        _matches(d,b)
+        _,panel=assessment._panel(directory,b["panel_id"])
+        if pipeline.execution_panel_digest(panel)!=d["evaluator"]["configuration_digest"]:
+            raise access.AccessDenied("parsed evaluator configuration changed")
+        return res["assessment_id"]
+
+
 def _source(directory,d,job_id):
     manual._identifier(job_id)
     job=jobs.status(directory,job_id)
@@ -144,6 +235,12 @@ def _source(directory,d,job_id):
     b=manual._read(folder/"binding.json")
     if b["plan_id"]!=d["plan_id"] or b["exchange_id"]!=d["exchange_id"] or b["pack_content_hash"]!=d["pack_content_hash"]:
         raise access.AccessDenied("job differs from prospective cohort")
+    if d.get("schema")=="prospective-validation-cohort/2":
+        if job_id!=_job_id(d):raise access.AccessDenied("only the reserved job is eligible")
+        _matches(d,b)
+        _,panel_config,_,_,_=jobs._read_inputs(folder,b)
+        if pipeline.execution_panel_digest(panel_config)!=d["evaluator"]["configuration_digest"]:
+            raise access.AccessDenied("execution evaluator differs from prospective configuration")
     packages=[p for p in job["result"]["packages"] if p["family_id"]==d["family_id"]]
     if len(packages)!=1:raise access.AccessDenied("exact family package required")
     pkg=packages[0]
@@ -185,6 +282,10 @@ def attach(directory,actor,ident,job_id,*,confirmed=False):
         _actor(c,actor,"admin")
         d=_read(c,ident)
         if not d:raise access.AccessDenied("unknown cohort")
+        if d.get("schema")=="prospective-validation-cohort/2":
+            res=_reservation(c,d)
+            if not res or res["job"]!=job_id or jobs.status(directory,job_id)["assessment_id"]!=res["assessment_id"]:
+                raise access.AccessDenied("exact reserved execution required")
         digest,*_=_source(directory,d,job_id)
         prior=_link(c,d)
         if prior:
@@ -200,6 +301,10 @@ def _context(directory,c,ident):
     if not d:raise access.AccessDenied("unknown cohort")
     link=_link(c,d)
     if not link:raise access.AccessDenied("no verified source attached")
+    if d.get("schema")=="prospective-validation-cohort/2":
+        res=_reservation(c,d)
+        if not res or res["job"]!=link["job"] or jobs.status(directory,link["job"])["assessment_id"]!=res["assessment_id"]:
+            raise access.AccessDenied("linked execution differs from reservation")
     digest,responses,results,panel=_source(directory,d,link["job"])
     if digest!=link["manifest"]:raise access.AccessDenied("linked manifest changed")
     return d,link,responses,results,panel
@@ -330,7 +435,10 @@ def inventory(directory,actor):
                             _event(c,ATTEST,d["id"]+":"+rid+":",(att["audit_seq"],att["digest"]))
                         else:_event(c,ATTEST,d["id"]+":"+rid+":")
                         receipts.append({"reviewer":rid,"digest":prior[1] if prior else None,"attested":att is not None})
-                out.append({"id":d["id"],"plan_id":d["plan_id"],"family":d["family_id"],"n_variants":len(d["variant_ids"]),"linked":link is not None,"reviews":receipts})
+                reservation=_reservation(c,d) if d.get("schema")=="prospective-validation-cohort/2" else None
+                out.append({"id":d["id"],"plan_id":d["plan_id"],"family":d["family_id"],"n_variants":len(d["variant_ids"]),
+                            "linked":link is not None,"reviews":receipts,"panel_bound":d.get("schema")=="prospective-validation-cohort/2",
+                            "reserved_job":jobs.status(directory,reservation["job"]) if reservation else None})
         return out
 
 
@@ -351,11 +459,16 @@ def analyze(directory,actor,ident):
                 "n_expected":len(d["variant_ids"]),"min_reviewers_per_cell":2}
         calibration=review_calibration.analyze(locked,list(results.values()),panel["names"],
             [{cid:r["verdict"] for cid,r in labels[rid].items()} for rid in d["reviewers"]],
-            labels[d["validity_reviewer"]],synthetic=panel.get("all_mock",True) or panel.get("mock_in_headline",False))
+            labels[d["validity_reviewer"]],synthetic=not adjudicate.panel_can_anchor_l2(panel))
         calibration["limitations"]=[x for x in calibration["limitations"] if not x.startswith("The locked review queue is enriched")]
         calibration["limitations"].insert(0,"All variants of a single fixed family and staged case pack were reviewed; not a random patient-population sample.")
-        calibration["limitations"].append("The cohort inventory and roster were frozen before exchange, but the evaluator configuration and completed source job were not prospectively selected by this protocol.")
+        panel_bound=d.get("schema")=="prospective-validation-cohort/2"
+        if panel_bound:
+            calibration["limitations"].append("Evaluator configuration and scientific definitions were frozen before exchange. One assessment was reserved before its dedicated job ran; candidate submission selection, prior external tests and provider state are not independently controlled.")
+        else:
+            calibration["limitations"].append("Legacy cohort: evaluator and source job were not prospectively bound.")
         out={"schema":"prospective-cohort-calibration/1","cohort":ident,"source_manifest":link["manifest"],
              "calibration":calibration,"decision_grade":False,"independent_credentials_verified_by_software":False,
-             "evaluator_and_job_prospectively_bound":False}
+             "evaluator_and_job_prospectively_bound":panel_bound,
+             "candidate_submission_prospectively_bound":False}
         return {**out,"digest":plans._digest(out)}
