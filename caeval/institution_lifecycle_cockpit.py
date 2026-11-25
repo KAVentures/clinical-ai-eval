@@ -4,6 +4,7 @@ Join verified administrative inventories by exact programme, vendor and
 declared target. Independent source reads are not a transaction across the
 whole institution. No workflow is executed and no evidence is promoted.
 """
+import sqlite3
 from . import diagnostic_imaging as d, unified_assessment as u
 from . import institution_access as access
 
@@ -72,7 +73,8 @@ def _vendor(status,vid,policies,monitors,successors,availability):
     if availability["policies"]!="available":
         tasks.append(_task("policy_inventory_unavailable","high","/hospital-referral","admin"))
     elif policy is None:
-        tasks.append(_task("consider_local_referral_policy","normal","/hospital-referral","admin"))
+        if status["state"]=="current" and not any(r["locked_source"] is not None for r in rows):
+            tasks.append(_task("consider_local_referral_policy","normal","/cockpit-policy-setup?programme="+ident+"&vendor="+vid,"admin"))
     elif policy["state"]=="registered":
         tasks.append(_task("prepare_policy_evidence_review","normal","/hospital-referral-detail?id="+policy["id"],"admin"))
     elif not policy["snapshot_current"]:
@@ -97,6 +99,8 @@ def _vendor(status,vid,policies,monitors,successors,availability):
             tasks.append(_task("missing_reporting_windows","high",dest,"operator"))
         if mon["schedule_ended"]:
             tasks.append(_task("monitor_schedule_ended","normal",dest,"admin"))
+    elif status["state"]=="current":
+        tasks.append(_task("optional_external_monitor_registration","normal","/cockpit-monitor-setup?programme="+ident+"&vendor="+vid,"admin"))
     # A monitor is optional until external authorization. Absence is never
     # interpreted as a missing deployment or as a safety blocker.
     lineage=[{"baseline_id":r["baseline_id"],"successor_id":r["successor_id"],
@@ -157,6 +161,8 @@ def overview(directory,actor):
         try:
             records=fn(directory,actor)
             inventories[name]={"state":"available","records":records}
-        except u.ERRORS:
+        except u.ERRORS+(sqlite3.Error,):
             inventories[name]={"state":"unavailable","records":[]}
+    with access.db(directory) as conn:
+        u._actor(conn,actor,"admin","operator","observer")
     return project(inventories)
