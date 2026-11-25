@@ -1817,6 +1817,10 @@ def main(argv=None):
     from . import imaging_transport
     ptransport = sub.add_parser("imaging-transport", help="approved local exact-asset imaging collection")
     imaging_transport.configure(ptransport)
+
+    from . import unified_assessment
+    punified = sub.add_parser("unified-assessment", help="verify portable administrative programme coverage")
+    unified_assessment.configure(punified)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")
