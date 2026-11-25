@@ -501,6 +501,27 @@ class InstitutionApp:
             if path=="/committee" and method=="GET":
                 from . import institution_committee_web as committee
                 return respond("200 OK",committee.render(self.directory,actor))
+            if path=="/committee-portable-export" and method=="POST":
+                from . import committee_portable as portable
+                form=_form(env)
+                _csrf(actor,form)
+                if not {"id","confirm"}<=set(form) or form["confirm"]!="yes":
+                    raise access.AccessDenied("explicit export approval required")
+                docs,reports=[],[]
+                for k,value in form.items():
+                    if k in ("id","confirm"):
+                        continue
+                    if value!="yes":
+                        raise access.AccessDenied("invalid selected attachment")
+                    if k.startswith("doc_"):
+                        docs.append(k[4:])
+                    elif k.startswith("report_"):
+                        reports.append(k[7:])
+                    else:
+                        raise access.AccessDenied("invalid dossier form")
+                doc=portable.export(self.directory,actor,form["id"],docs,reports,confirmed=True)
+                raw=portable.encode(doc)
+                return respond("200 OK",raw,extra=[("Content-Disposition",'attachment; filename="committee-portable-dossier.json"')],content_type="application/json; charset=utf-8")
             if path=="/committee-export" and method=="GET":
                 import json
                 from . import institution_committee as committee
