@@ -489,6 +489,13 @@ class InstitutionApp:
                 from . import buyer_risk_activation_web as risk
                 access.require(actor,"admin","operator")
                 return respond("200 OK",risk.active(self.directory,actor))
+            if path=="/buyer-risk-ingest" and method=="POST":
+                from . import buyer_risk_activation_web as risk
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                risk.ingest(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/buyer-risk-active")])
             if path in ("/buyer-risk-activation-preview","/buyer-risk-activation-freeze","/buyer-risk-bound-prepare") and method=="POST":
                 from . import buyer_risk_activation_web as risk
                 access.require(actor,"admin","operator")
