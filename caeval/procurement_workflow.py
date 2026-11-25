@@ -321,6 +321,10 @@ def compare(directory, family_id: str) -> dict:
     out["vendors_without_results"] = sorted(
         v["blinded_label"] for v in state["vendors"]
         if family_id not in state["results"].get(v["vendor_id"], {}))
+    if state["conditions"].get("risk_activation") is not None and out["vendors_without_results"]:
+        out["comparability"]["status"]=procurement.INCOMPARABLE
+        out["comparability"]["reasons"].append("Frozen candidate roster has missing verified results.")
+        out["comparability"]["note"]="Incomplete candidate roster; measured rates are descriptive only."
     return out
 
 
