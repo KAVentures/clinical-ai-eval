@@ -79,6 +79,10 @@ def _derive(directory, actor):
                                    "moderate","One or more scheduled regression intervals missed","/monitoring"))
             if state=="completed":
                 report=occurrence["report"]
+                if not isinstance(report,dict) or not report.get("families"):
+                    out.append(_notice("monitoring_invalid",ident,version,owner,"high",
+                                       "Completed regression assessment lacks verified results","/monitoring"))
+                    continue
                 statuses={metric["status"] for metrics in report["families"].values() for metric in metrics.values()}
                 if "investigate_increase" in statuses:
                     out.append(_notice("monitoring_deterioration",ident,version,owner,"high",
