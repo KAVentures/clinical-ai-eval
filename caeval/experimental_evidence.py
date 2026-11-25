@@ -133,7 +133,7 @@ def verify(package, *, expected_digest=None):
                 "expected_digest_matched":expected_digest is not None,
                 "encoded_sha256":hashlib.sha256(raw).hexdigest(),
                 "decision_grade":False, "limitations":LIMITATIONS[:]}
-    except (KeyError,TypeError,ValueError,OverflowError,RecursionError,OSError) as exc:
+    except (KeyError,IndexError,AttributeError,TypeError,ValueError,OverflowError,RuntimeError,OSError) as exc:
         if isinstance(exc,buyer.BuyerError):
             raise
         raise buyer.BuyerError("malformed or unreplayable experimental evidence") from exc
