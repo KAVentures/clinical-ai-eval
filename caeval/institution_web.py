@@ -692,6 +692,22 @@ class InstitutionApp:
                 forms._confirm(form)
                 monitor_ingestion.revoke(self.directory,actor,form["id"])
                 return respond("303 See Other",extra=[("Location","/lifecycle-ingestion-grants")])
+            if path=="/monitor-reassessment" and method=="GET":
+                from . import monitor_reassessment_web as handoff
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("invalid reassessment handoff query")
+                return respond("200 OK",handoff.render(self.directory,actor,q["id"]))
+            if path in ("/monitor-reassessment-preview","/monitor-reassessment-lock") and method=="POST":
+                from . import monitor_reassessment_web as handoff
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/monitor-reassessment-preview":
+                    return respond("200 OK",handoff.preview(self.directory,actor,form))
+                ident=handoff.lock(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/monitor-reassessment?id="+ident)])
             if path in ("/lifecycle-monitor","/lifecycle-monitor-detail") and method=="GET":
                 from . import institution_lifecycle_monitor_web as monitor
                 q=_query(env)
