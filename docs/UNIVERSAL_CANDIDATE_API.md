@@ -224,3 +224,19 @@ verdicts. Imported outcomes are operator-attested, not verified model calls.
 The ledger only accepts bounded three-digit synthetic readings and statuses;
 it is not a general-purpose patient image repository. The FHIR-specific
 retention policy does not automatically delete these fixed synthetic records.
+
+## Matched procurement contrasts
+
+The frozen risk-bound procurement comparison now reports exploratory paired
+binary endpoint contrasts only when all candidates in the frozen roster have
+verified packages and matching conditions, exact cell inventory and judge
+configuration. Pairing is by cell ID with identical base-case cluster identity.
+All planned opportunities remain in the denominator. Missing values contribute
+worst/best-case binary difference bounds; no p-value is emitted for incomplete
+pairs. Complete pairs use an exact sign-flip test on case-cluster sums, not an
+independent-cell McNemar test. The test assumes independent case clusters and
+exchangeable product labels under a sharp null; evidence integrity alone does
+not establish those assumptions. Holm adjustment includes every declared
+hazard/product pair within the family, including unavailable tests. There is no
+across-family multiplicity adjustment, clinical equivalence or recommendation.
+The committee view and Markdown dossier expose these exploratory results.

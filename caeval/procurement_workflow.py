@@ -363,6 +363,17 @@ def compare(directory, family_id: str) -> dict:
             hazard["no_evidence"]=sorted(r["product_id"] for r in hazard["products"] if r["status"]=="NO_EVIDENCE")
             hazard["inconclusive"]=sorted(r["product_id"] for r in hazard["products"] if r["status"]=="INCONCLUSIVE")
         out["products"]=sorted(v["blinded_label"] for v in state["vendors"])
+    from . import matched_procurement
+    eligible=(risk_bound is not None and not unverified and not out["vendors_without_results"]
+              and out["comparability"]["status"]==procurement.COMPARABLE
+              and activation.roster_matches(state,risk_bound)
+              and len(entries)==len(activation.candidates(risk_bound))
+              and all(e["environment"].get("judge_config_digest")==risk_bound["judge_config_digest"]
+                      for e in entries))
+    out["matched_contrasts"]=matched_procurement.family(
+        entries,hazards,risk_bound["cell_inventory"][family_id] if risk_bound is not None else [],
+        authorized=eligible,
+        reason="Requires the complete verified risk-bound roster, matched conditions and evaluator configuration.")
     return out
 
 

@@ -256,6 +256,17 @@ def render_markdown(cmp_result: dict) -> str:
         if notes:
             L += [""] + notes
         L.append("")
+    paired=cmp_result.get("matched_contrasts")
+    if paired:
+        L += ["## Matched exploratory contrasts", "", paired["status"]+" — "+paired["reason"], ""]
+        for row in paired["contrasts"]:
+            lo,hi=row["all_expected_difference_bounds"]
+            p=row["p_value_holm_within_family"]
+            L.append(f"- {row['hazard_id']}: {row['products'][0]} minus {row['products'][1]}: "
+                     f"{row['n_paired']}/{row['n_expected']} paired cells, {row['n_case_clusters']} case clusters; "
+                     f"all-expected difference bounds [{lo:.1%}, {hi:.1%}]; "
+                     f"within-family Holm p: {'not estimable' if p is None else format(p,'.4g')} ({row['status']}).")
+        L += [""]+["- "+x for x in paired["limitations"]]+[""]
     L.append("## What this does not tell you")
     L += [f"- {x}" for x in cmp_result["what_this_does_not_tell_you"]]
     return "\n".join(L)

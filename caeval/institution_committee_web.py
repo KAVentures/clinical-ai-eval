@@ -115,6 +115,14 @@ def _evidence(payload):
                 values=(row["product_id"],rate,ci,coverage,row["status"])
                 body+="<tr>"+"".join("<td>"+esc(value)+"</td>" for value in values)+"</tr>"
             body+="</table>"
+        paired=result.get("matched_contrasts")
+        if paired:
+            body+="<h4>Matched exploratory contrasts</h4><p>"+esc(paired["status"])+" · "+esc(paired["reason"])+"</p>"
+            for row in paired["contrasts"]:
+                lo,hi=row["all_expected_difference_bounds"]
+                p=row["p_value_holm_within_family"]
+                body+="<p>"+esc(row["hazard_id"])+" · "+esc(" / ".join(row["products"]))+" · "+esc(row["status"])+" · "+str(row["n_paired"])+"/"+str(row["n_expected"])+" paired cells · "+str(row["n_case_clusters"])+" case clusters · A−B bounds "+esc(f"[{lo:.1%}, {hi:.1%}]")+" · Holm p (within family): "+esc("not estimable" if p is None else f"{p:.4g}")+"</p>"
+            body+="<ul>"+"".join("<li>"+esc(x)+"</li>" for x in paired["limitations"])+"</ul>"
         if result["vendors_without_results"]:
             body+="<p>Missing vendor results: "+esc(", ".join(result["vendors_without_results"]))+"</p>"
     body+="</section><section><h2>Limitations</h2><ul>"+"".join("<li>"+esc(x)+"</li>" for x in payload["limitations"])+"</ul></section>"
