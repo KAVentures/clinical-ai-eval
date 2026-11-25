@@ -89,3 +89,7 @@ The optional [supervised collection worker](RESEARCH_SUPERVISED_COLLECTION.md) s
 ## Matched cross-product research comparison
 
 See [Matched clinical research comparisons](MATCHED_CLINICAL_RESEARCH_COMPARISONS.md). The browser compares analyzed studies with identical protocols, review rosters and collection modes; it preserves fixed opportunity denominators and missingness. Results remain exploratory and separate from procurement evidence.
+
+## Independent evidence replay
+
+Administrators can export complete analyzed experimental evidence for independent offline reproduction of the full scientific report. See [Experimental evidence replay](EXPERIMENTAL_EVIDENCE_REPLAY.md) for the CLI, approved-sharing boundary, and distinction between report replay and original identity/provenance verification. No canonical-family or procurement gate is upgraded.
