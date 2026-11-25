@@ -136,7 +136,7 @@ def _sqlite_check(root):
             if conn.execute("PRAGMA quick_check").fetchall()!=[("ok",)]:
                 raise buyer.BuyerError("workspace database failed integrity check")
             if rel=="institution/access.sqlite3":
-                for name,column in (("conversation_jobs","status"),("monitoring_occurrences","state")):
+                for name,column in (("conversation_jobs","status"),("monitoring_occurrences","state"),("research_collections","state")):
                     if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(name,)).fetchone():
                         if conn.execute("SELECT count(*) FROM "+name+" WHERE "+column+"='running'").fetchone()[0]:
                             raise buyer.BuyerError("running institutional work; investigate before checkpoint")
@@ -320,6 +320,9 @@ def restore(backup,destination,*,services_stopped=False):
                     conn.execute("UPDATE agent_grants SET revoked=1")
                 if "monitoring_schedules" in tables:
                     conn.execute("UPDATE monitoring_schedules SET enabled=0")
+                if "research_collections" in tables:
+                    conn.execute("UPDATE research_studies SET state='collection_cancelled' WHERE id IN (SELECT study FROM research_collections WHERE state='queued')")
+                    conn.execute("UPDATE research_collections SET state='cancelled' WHERE state='queued'")
                 access._audit(conn,"local-admin","workspace-restored",doc["backup_id"])
         _sqlite_check(stage)
         buyer.load(stage)
