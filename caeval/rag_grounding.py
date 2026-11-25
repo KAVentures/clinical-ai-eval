@@ -13,7 +13,8 @@ MAX_CASES=40
 MAX_CANDIDATES=6
 MAX_TEXT=16000
 MAX_CLAIMS=20
-MAX_TOTAL=2000000
+MAX_TOTAL=1000000
+MAX_TRACE_BYTES=1000000
 CONDITIONS=("supported","support_removed")
 LABELS=("supported","unsupported","uncertain")
 LIMITATIONS=[
@@ -171,6 +172,8 @@ def _validate(plan,doc):
                        and bool(row["answer"][a:b].strip()),"invalid or overlapping claim span")
             end=b
             d._require(d._unique_tokens(claim["citations"],0,MAX_DOCS),"invalid citation inventory")
+    import json
+    d._require(len(json.dumps(doc,ensure_ascii=True).encode("ascii"))<=MAX_TRACE_BYTES,"candidate trace byte limit")
     return c["id"]
 
 
@@ -192,6 +195,7 @@ def review_packet(plan,documents,reviewer):
     d._require(len(docs)==len(plan["spec"]["candidates"]),"complete candidate roster required before review")
     corpus={x["id"]:x for x in plan["spec"]["documents"]}
     units=[]
+    included=set()
     for doc in docs:
         cid=doc["candidate"]["id"]
         for row in doc["traces"]:
@@ -202,16 +206,19 @@ def review_packet(plan,documents,reviewer):
             # Reviewer sees query, supplied corpus and answer, not declared
             # candidate identity, condition, reference IDs, or peer ratings.
             claim_units=[]
+            included.update(x["id"] for x in row["retrieved"])
             for i,claim in enumerate(row["claims"]):
+                included.update(x for x in claim["citations"] if x in allowed)
                 claim_units.append({"claim_id":d._digest([plan["private_nonce"],row["slot"],i]),
                                     "text":row["answer"][claim["start"]:claim["end"]],
-                                    "citations":[{"id":x,"document":corpus[x] if x in allowed else None}
+                                    "citations":[{"id":x,"available_in_case":x in allowed}
                                                  for x in claim["citations"]]})
             units.append({"unit_id":d._digest([plan["private_nonce"],"review",row["slot"]]),
                           "query":q["query"],"answer":row["answer"],"claims":claim_units,
-                          "retrieved":[corpus[x["id"]] for x in row["retrieved"]]})
+                          "retrieved":[x["id"] for x in row["retrieved"]]})
     return {"schema":"rag-grounding-review-packet/1","plan_digest":plan["digest"],
-            "trace_inventory_digest":d._digest(docs),"units":sorted(units,key=lambda r:r["unit_id"])}
+            "trace_inventory_digest":d._digest(docs),"documents":[corpus[x] for x in sorted(included)],
+            "units":sorted(units,key=lambda r:r["unit_id"])}
 
 
 def review_template(packet):
@@ -224,7 +231,7 @@ def review_template(packet):
 def _review(packet,doc):
     d._keys(doc,"schema packet_digest units")
     d._require(doc["schema"]=="rag-grounding-review/1" and doc["packet_digest"]==d._digest(packet),"review packet mismatch")
-    expected={u["unit_id"]:{c["claim_id"] for c in u["claims"]} for u in packet["units"]}
+    expected={u["unit_id"]:{c["claim_id"]:c for c in u["claims"]} for u in packet["units"]}
     seen={}
     d._require(isinstance(doc["units"],list) and len(doc["units"])==len(expected),"complete review inventory required")
     for row in doc["units"]:
@@ -238,6 +245,9 @@ def _review(packet,doc):
             d._keys(r,"claim_id label")
             cid=r["claim_id"]
             d._require(d._hex(cid) and cid in expected[uid] and cid not in claims and r["label"] in LABELS,"invalid claim review")
+            if r["label"]=="supported":
+                d._require(any(c["available_in_case"] for c in expected[uid][cid]["citations"]),
+                           "support requires at least one available cited document")
             claims[cid]=r["label"]
         seen[uid]=(row["claim_coverage"],claims)
     return seen
@@ -258,7 +268,7 @@ def _summary(plan,doc,reviews):
     for condition in CONDITIONS:
         stats={"n_cases":0,"n_available":0,"n_answered":0,"n_abstained":0,
                "n_support_hit":0,"n_all_reference_retrieved":0,"n_withdrawn_retrieved":0,
-               "n_claims":0,"n_uncited_claims":0,"n_unknown_citation_claims":0,
+               "n_claims":0,"n_uncited_claims":0,"n_outside_corpus_citation_claims":0,
                "n_nonretrieved_citation_claims":0,"n_withdrawn_citation_claims":0,
                "n_review_supported":0,"n_review_unsupported":0,"n_review_unresolved":0,
                "n_review_disagreements":0,"n_answer_claim_inventory_complete":0}
@@ -285,7 +295,7 @@ def _summary(plan,doc,reviews):
                 stats["n_claims"]+=1
                 cited=set(claim["citations"])
                 stats["n_uncited_claims"]+=not cited
-                stats["n_unknown_citation_claims"]+=bool(cited-allowed)
+                stats["n_outside_corpus_citation_claims"]+=bool(cited-allowed)
                 stats["n_nonretrieved_citation_claims"]+=bool(cited-retrieved)
                 stats["n_withdrawn_citation_claims"]+=any(corpus[x]["state"]=="withdrawn" for x in cited&allowed)
                 cid=d._digest([plan["private_nonce"],row["slot"],i])
