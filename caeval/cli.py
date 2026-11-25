@@ -1399,6 +1399,16 @@ def cmd_buyer(args):
                 if not args.submission_id:
                     raise buyer.BuyerError("--submission-id is required")
                 result = buyer_manual.responses(args.path, args.submission_id)
+        elif args.action in ("collection-assessment-preview","collection-assessment-prepare"):
+            from . import collection_assessment as handoff, buyer_manual as manual
+            if not args.file:
+                raise buyer.BuyerError("--file must contain the approved governance JSON")
+            from pathlib import Path
+            governance=manual._read(Path(args.file))
+            if args.action=="collection-assessment-preview":
+                result=handoff.preview(args.path,args.collection_id or "",args.panel_id or "",governance,args.conditions_hash)
+            else:
+                result=handoff.prepare(args.path,args.collection_id or "",args.panel_id or "",governance,args.conditions_hash,args.approve_binding or "",confirmed=args.confirm_handoff)
         elif args.action in ("connector-list", "collection-queue", "collection-list", "collection-status", "collection-cancel", "collection-execute"):
             from . import buyer_connector as connector
             if args.action == "connector-list":
@@ -1820,13 +1830,15 @@ def main(argv=None):
     pproc.set_defaults(func=cmd_procurement)
 
     pb = sub.add_parser("buyer", help="local-only buyer workspace (JSON for CLI agents)")
-    pb.add_argument("action", choices=["contract", "candidate-openapi", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research", "plan-preview", "plan-show", "rehearsal-run", "rehearsal-show", "manual-packs", "manual-prepare", "manual-template", "manual-import", "manual-responses", "assessment-panels", "assessment-prepare", "assessment-check", "job-enqueue", "job-list", "job-status", "job-cancel", "job-execute", "review-template", "review-submit", "review-inventory", "connector-list", "collection-queue", "collection-list", "collection-status", "collection-cancel", "collection-execute"])
+    pb.add_argument("action", choices=["contract", "candidate-openapi", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research", "plan-preview", "plan-show", "rehearsal-run", "rehearsal-show", "manual-packs", "manual-prepare", "manual-template", "manual-import", "manual-responses", "assessment-panels", "assessment-prepare", "assessment-check", "job-enqueue", "job-list", "job-status", "job-cancel", "job-execute", "review-template", "review-submit", "review-inventory", "connector-list", "collection-queue", "collection-list", "collection-status", "collection-cancel", "collection-execute", "collection-assessment-preview", "collection-assessment-prepare"])
     pb.add_argument("--plan-id", help="content-addressed draft scope plan identifier")
     pb.add_argument("--job-id", help="saved synthetic rehearsal identifier")
     pb.add_argument("--pack-id", help="operator-staged approved-packs directory identifier")
     pb.add_argument("--exchange-id", help="manual prompt exchange digest")
     pb.add_argument("--connector-id", help="administrator-staged local candidate connector")
     pb.add_argument("--collection-id", help="saved candidate collection job")
+    pb.add_argument("--conditions-hash",help="exact activated procurement conditions")
+    pb.add_argument("--confirm-handoff",action="store_true",help="approve exact collection-to-assessment preparation")
     pb.add_argument("--approve-binding", help="explicit approval of exact queued collection binding hash")
     pb.add_argument("--operator", help="operator responsible for collection")
     pb.add_argument("--submission-id", help="manual response submission digest")

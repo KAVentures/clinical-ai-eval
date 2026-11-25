@@ -132,15 +132,17 @@ def _base(directory):
     return manual._directory(directory, "prepared-assessments")
 
 
-def prepare(directory, submission_id, panel_id, governance, *, conditions_hash=None):
-    record, files = _material(directory, submission_id, panel_id, governance, conditions_hash=conditions_hash)
+def prepare(directory, submission_id, panel_id, governance, *, conditions_hash=None, expected_assessment_id=None, conn=None):
+    record, files = _material(directory, submission_id, panel_id, governance, conditions_hash=conditions_hash, conn=conn)
+    if expected_assessment_id is not None and record["assessment_id"]!=expected_assessment_id:
+        raise buyer.BuyerError("prepared inputs changed since explicit approval")
     base = _base(directory)
     base.mkdir(mode=0o700, exist_ok=True)
     dest = base / record["assessment_id"]
     if dest.is_symlink():
         raise buyer.BuyerError("assessment directory must not be a symbolic link")
     if dest.exists():
-        return check(directory, record["assessment_id"])
+        return check(directory, record["assessment_id"], conn=conn)
     if sum(1 for _ in base.iterdir()) >= MAX_ASSESSMENTS:
         raise buyer.BuyerError("prepared assessment limit reached")
     # Publish only after validating the complete private staging directory.
@@ -165,7 +167,7 @@ def prepare(directory, submission_id, panel_id, governance, *, conditions_hash=N
             if not dest.is_dir() or dest.is_symlink():
                 raise
             # Concurrent identical publication is permitted only after check().
-    return check(directory, record["assessment_id"])
+    return check(directory, record["assessment_id"], conn=conn)
 
 
 def check(directory, assessment_id, *, conn=None):
