@@ -149,7 +149,7 @@ def overview(directory, actor, *, committee=False):
         result = []
         for row in conn.execute("SELECT id FROM diagnostic_imaging_studies ORDER BY audit_seq").fetchall():
             try:
-                result.append(_status(*_get(conn, row["id"]), committee=committee))
+                result.append(_status(*_get(conn, row["id"]), committee=committee or actor["role"] != "admin"))
             except (ValueError, KeyError, TypeError, AttributeError, RuntimeError):
                 result.append({"id": row["id"], "state": "unavailable", "decision_grade": False})
         return result
@@ -160,7 +160,7 @@ def detail(directory, actor, ident):
         _actor(conn, actor, "admin", "operator")
         _schema(conn)
         _inventory(conn)
-        return _status(*_get(conn, ident))
+        return _status(*_get(conn, ident), committee=actor["role"] != "admin")
 
 
 def download(directory, actor, ident, candidate, kind):
