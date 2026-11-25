@@ -8,6 +8,7 @@ treatment or diagnosis is inferred.
 import copy
 import json
 import math
+import re
 from pathlib import Path
 
 from . import buyer_plan, buyer_manual as manual, buyer_agent as buyer
@@ -123,7 +124,7 @@ def template(plan):
 
 
 def _verify_plan(plan):
-    if not isinstance(plan,dict) or plan!=build(plan["target"]):
+    if not isinstance(plan,dict) or buyer_plan._canonical(plan)!=buyer_plan._canonical(build(plan["target"])):
         _fail("fixture plan differs from pinned synthetic definitions")
 
 
@@ -134,7 +135,7 @@ def _facts(values):
     for fact in values:
         _strict(fact,("source_id","code_system","code","value","unit_system","unit_code"))
         for k in ("source_id","code_system","code","unit_system","unit_code"):
-            if not isinstance(fact[k],str) or not fact[k] or len(fact[k])>200:
+            if not isinstance(fact[k],str) or not re.fullmatch(r"[A-Za-z0-9._:/%+@~#()\\[\\]{}*-]{1,200}",fact[k]):
                 _fail("invalid structured observation field")
         n=fact["value"]
         if type(n) not in (int,float) or abs(n)>1e12 or not math.isfinite(n):
@@ -197,7 +198,7 @@ def package(plan,responses):
 
 def verify(doc,expected_digest=None):
     _strict(doc,("schema","plan","responses","report","decision_grade","digest"))
-    if doc!=package(doc["plan"],doc["responses"]) or (expected_digest is not None and doc["digest"]!=expected_digest):
+    if buyer_plan._canonical(doc)!=buyer_plan._canonical(package(doc["plan"],doc["responses"])) or (expected_digest is not None and doc["digest"]!=expected_digest):
         _fail("synthetic FHIR evidence differs from deterministic replay or expected digest")
     return {"status":"REPLAY_VERIFIED","digest":doc["digest"],"summary":doc["report"]["summary"],
             "expected_digest_matched":expected_digest is not None,"decision_grade":False,
