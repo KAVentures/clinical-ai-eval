@@ -57,6 +57,14 @@ def _inventory(conn):
     expected={ISSUE:set(),REVOKE:set(),USE:set()}
     by={r["id"]:r for r in grants}
     for r in grants:
+        scopes=json.loads(r["scopes"])
+        issued=conn.execute("SELECT at FROM audit WHERE seq=?",(r["audit_seq"],)).fetchone()
+        if (not isinstance(scopes,list) or not scopes or any(x not in SCOPES for x in scopes)
+                or len(set(scopes))!=len(scopes) or not 1<=r["max_uses"]<=MAX_USES
+                or not issued or not 0<r["expires"]-issued["at"]<=MAX_TTL):
+            raise access.AccessDenied("invalid stored grant bounds")
+        if not conn.execute("SELECT 1 FROM lifecycle_monitors WHERE id=?",(r["monitor"],)).fetchone():
+            raise access.AccessDenied("grant refers to missing monitor")
         expected[ISSUE].add((r["audit_seq"],r["issued_by"],r["id"]+":"+_binding(r)))
         if r["revoked_seq"] is not None:
             if r["revoked_seq"]<=r["audit_seq"]:
@@ -86,10 +94,11 @@ def _inventory(conn):
                 or not 1<=len(payload["event_digests"])<=MAX_BATCH):
             raise access.AccessDenied("invalid receipt binding")
         for digest in payload["event_digests"]:
-            event=conn.execute("SELECT 1 FROM lifecycle_monitor_events WHERE monitor=? AND digest=? AND kind IN ('report','incident') AND audit_seq<?",
-                               (grant["monitor"],digest,r["audit_seq"])).fetchone()
-            if not event:
-                raise access.AccessDenied("receipt references unavailable monitor event")
+            events=conn.execute("SELECT kind FROM lifecycle_monitor_events WHERE monitor=? AND digest=? AND kind IN ('report','incident') AND audit_seq<?",
+                                (grant["monitor"],digest,r["audit_seq"])).fetchall()
+            scopes=json.loads(grant["scopes"])
+            if len(events)!=1 or events[0]["kind"] not in scopes:
+                raise access.AccessDenied("receipt references unavailable or out-of-scope monitor event")
         expected[USE].add((r["audit_seq"],grant["owner"],r["grant_id"]+":"+r["request_id"]+":"+r["request_digest"]+":"+r["digest"]))
     for event,wanted in expected.items():
         actual={(r["seq"],r["actor"],r["object_id"]) for r in conn.execute(
