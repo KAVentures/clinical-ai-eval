@@ -9,6 +9,7 @@ LABELS={
     "associate_verified_sources":"Associate verified evidence",
     "collect_native_evidence":"Collect native evaluation evidence",
     "policy_inventory_unavailable":"Investigate unavailable policy inventory",
+    "optional_external_monitor_registration":"Register monitoring if operational use is externally authorized",
     "consider_local_referral_policy":"Consider registering a local referral policy",
     "prepare_policy_evidence_review":"Prepare the frozen gate review",
     "policy_snapshot_stale":"Review stale gate snapshot",
