@@ -496,3 +496,11 @@ interoperability, security and production acceptance remain mandatory.
 - [Formal independent clinical review](FORMAL_CLINICAL_REVIEW.md) and [browser coordination](FORMAL_REVIEW_BROWSER.md).
 - [Longitudinal regression monitoring](LONGITUDINAL_MONITORING.md).
 - [Scoped live agent metadata](LIVE_AGENT_BROKER.md).
+
+## Completion workflows and acceptance
+
+- [Independent patient transcript review](PATIENT_TRANSCRIPT_REVIEW.md).
+- [Independent patient-world validity review](PATIENT_WORLD_VALIDITY.md).
+- [Institutional escalation inbox](INSTITUTIONAL_ESCALATION.md).
+- [Approved external HTTPS candidate gateway](APPROVED_HTTPS_BRIDGE.md).
+- [Institutional release acceptance runbook](INSTITUTIONAL_RELEASE_ACCEPTANCE.md).

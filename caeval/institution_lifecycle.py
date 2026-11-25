@@ -192,6 +192,21 @@ def transition(directory,actor,pilot_id,expected_revision,state,reason):
 
 
 def _evidence(directory, job_id, pilot):
+    buyer_manual._identifier(job_id)
+    if job_id.startswith("conversation-"):
+        from . import institution_conversation as conversation, buyer_plan
+        with access.db(directory) as db:
+            conversation._schema(db)
+            row=conversation._row(db,job_id)
+            b=row["binding"]
+            if (b["vendor_id"]!=pilot["vendor_id"] or b["target"]["version"]!=pilot["product_version"]
+                    or row["status"]!="completed" or conversation._verify(directory,row)!=row["result"]):
+                raise access.AccessDenied("verified conversation assessment for exact pilot vendor and version required")
+            # The canonical manifest alone does not cover every episode
+            # auxiliary. Preserve both it and the complete verified receipt.
+            result=row["result"]
+            return {conversation.FAMILY:{"manifest_hash":result["manifest_hash"],
+                    "job_binding":row["digest"],"receipt_hash":buyer_plan._digest(result)}}
     row=buyer_jobs.status(directory,job_id)
     if row["status"]!="completed" or not row["result"].get("packages"):
         raise access.AccessDenied("completed verified assessment required")
@@ -245,6 +260,7 @@ def overview(directory,actor):
                 except (OSError,ValueError,RuntimeError,KeyError,TypeError):
                     e["integrity"]="unavailable"
                 e["family_count"]=len(recorded)
+                e["assessment_type"]="patient_conversation" if e["job_id"].startswith("conversation-") else "single_turn"
             today=dt.date.today().isoformat()
             r["overdue"]=r["state"]!="closed" and (r["review_date"]<today or any(i["state"]=="open" and i["due"]<today for i in items))
             r["blocking_open"]=sum(i["state"]=="open" and (i["severity"] in ("high","critical") or i["kind"]=="version_change") for i in items)
