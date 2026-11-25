@@ -1,15 +1,10 @@
 """Read-only plan-aware work coordination; native workflow owns execution."""
-from . import unified_assessment as u, diagnostic_imaging as d
+from . import unified_assessment as u
 from . import institution_access as access, institution_setup as setup
 from . import buyer_assessment as assessment, buyer_jobs as jobs
 from . import buyer_manual as manual
 
 MAX_RECORDS=200
-NATIVE_ROUTES={
-    "text":"/setup", "conversation":"/conversation-jobs",
-    "research":"/research", "imaging":"/diagnostic-imaging",
-    "fhir":"/fhir", "hl7":"/hl7", "image_text":"/image-text",
-}
 
 
 def _text_work(directory,conn,plan):
