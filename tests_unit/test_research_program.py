@@ -130,6 +130,35 @@ class ProgrammeTests(unittest.TestCase):
         with self.assertRaises(access.AccessDenied):
             programs.status(self.root,self.actors["operator"],ident)
 
+    def test_committee_snapshot_tracks_programme_without_private_material(self):
+        from caeval import institution_committee as committee, institution_committee_web as view
+        self.setup_programme()
+        ident=self.freeze({"decision":self.study})
+        prior=committee.freeze(self.root,self.actors["operator"])["snapshot_id"]
+        self.assertTrue(committee.snapshot(self.root,self.actors["observer"],prior)["current"])
+        self.finish()
+        doc=committee.overview(self.root,self.actors["observer"])
+        rows=doc["lifecycle_inventory"]["experimental_research_programmes"]
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0]["id"],ident)
+        self.assertEqual(rows[0]["state"],"reports_available")
+        self.assertEqual(rows[0]["unplanned_related_modules"],["robustness"])
+        self.assertTrue(all(not x["canonical_requirement_satisfied"] for x in rows[0]["coverage"]))
+        self.assertFalse(rows[0]["decision_grade"])
+        raw=json.dumps(rows)
+        for secret in ("operator","doctor-a","research_question","summary","raw_response","responses"):
+            self.assertNotIn(secret,raw)
+        self.assertEqual(rows,committee.overview(self.root,self.actors["admin"])["lifecycle_inventory"]["experimental_research_programmes"])
+        self.assertIn("Experimental research programme",view._evidence(doc))
+        self.assertFalse(committee.snapshot(self.root,self.actors["observer"],prior)["current"])
+        with self.assertRaises(access.AccessDenied):
+            programs.status(self.root,self.actors["observer"],ident)
+        with self.assertRaises(access.AccessDenied):
+            committee.overview(self.root,self.actors["doctor-a"])
+        after=committee.freeze(self.root,self.actors["admin"])["snapshot_id"]
+        self.assertTrue(committee.snapshot(self.root,self.actors["observer"],after)["current"])
+
+
 
 if __name__=="__main__":
     unittest.main()
