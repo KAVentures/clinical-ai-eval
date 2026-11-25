@@ -55,6 +55,13 @@ def _binary(x):
     return x
 
 
+def _full_pack(report):
+    report["status"]="descriptive_full_pack"
+    report["limitations"]=[x for x in report["limitations"] if not x.startswith("The locked review queue is enriched")]
+    report["limitations"].insert(0,"All variants of one fixed staged family and case pack; not a random patient-population sample.")
+    return report
+
+
 def project(locked,results,judges,reviewers,validity,*,synthetic):
     """Reduce a full canonical variant cohort to the sufficient label inventory."""
     original=cal.analyze(locked,results,judges,reviewers,validity,synthetic=synthetic)
@@ -82,7 +89,7 @@ def project(locked,results,judges,reviewers,validity,*,synthetic):
     # Ensure projection preserves the actual statistics, including denominators.
     for i,report in enumerate(original["comparisons"][:len(judges)]):
         report["name"]="judge-"+str(i+1)
-    if replay(inputs)!=original:
+    if replay(inputs)!=_full_pack(original):
         raise ValueError("portable projection changed the calibration")
     return inputs
 
@@ -135,8 +142,8 @@ def replay(inputs):
                         "evaluation_complete":row["complete"],
                         "judge_scores":{j:{"unsafe_overconfident":x} for j,x in zip(judges,row["judges"])},
                         "panel_any_unsafe":row["panel"][0],"panel_majority_unsafe":row["panel"][1]})
-    return cal.analyze({"expected_cells":locked,"n_expected":len(rows),"min_reviewers_per_cell":minimum},
-                       results,judges,reviewers,validity,synthetic=inputs["synthetic"])
+    return _full_pack(cal.analyze({"expected_cells":locked,"n_expected":len(rows),"min_reviewers_per_cell":minimum},
+                       results,judges,reviewers,validity,synthetic=inputs["synthetic"]))
 
 
 def build(inputs,provenance):

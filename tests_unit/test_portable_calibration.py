@@ -36,6 +36,8 @@ class PortableTests(unittest.TestCase):
         raw=p.encode(pkg).decode()
         for x in ("secret-case","other-case","private-judge-name","private-response","private-prompt"):
             self.assertNotIn(x,raw)
+        self.assertEqual(result["calibration"]["status"],"descriptive_full_pack")
+        self.assertFalse(any("queue is enriched" in x for x in result["calibration"]["limitations"]))
         row=result["calibration"]["comparisons"][0]
         self.assertEqual(row["n_reference_eligible"],3)
         self.assertEqual(row["n_paired"],2)
@@ -58,7 +60,7 @@ class PortableTests(unittest.TestCase):
 
     def test_reject_partial_automated_labels(self):
         pkg=self.package()
-        pkg["inputs"]["rows"][2]["judges"]=[1]
+        next(row for row in pkg["inputs"]["rows"] if not row["complete"])["judges"]=[1]
         with self.assertRaises(ValueError):p.build(pkg["inputs"],pkg["provenance"])
 
     def test_reject_enriched_or_partial_cohort(self):
