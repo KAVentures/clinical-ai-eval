@@ -1833,6 +1833,10 @@ def main(argv=None):
     from . import rag_collection
     prcollection = sub.add_parser("rag-collection", help="approved local RAG trace collection and verification")
     rag_collection.configure(prcollection)
+
+    from . import rag_paired_analysis
+    pcomparison = sub.add_parser("rag-comparison", help="verify paired RAG research comparison")
+    rag_paired_analysis.configure(pcomparison)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")
