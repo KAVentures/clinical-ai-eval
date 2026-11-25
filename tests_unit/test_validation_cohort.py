@@ -1,5 +1,7 @@
 """Real mock workflow: prospectively frozen cohort, review roster and replay."""
 import unittest
+import json
+from unittest.mock import patch
 from caeval.util import repo_root
 from caeval import (validation_cohort as c,buyer_manual as manual,buyer_assessment as assessment,
                     buyer_jobs as jobs,institution_access as access,buyer_plan as plans)
@@ -126,3 +128,80 @@ class CohortTests(unittest.TestCase):
             conn.execute("DELETE FROM validation_cohort_attestations WHERE reviewer='a'")
         with self.assertRaises(access.AccessDenied):
             c.analyze(self.root,admin,ident)
+
+
+    def _controlled(self):
+        from caeval import buyer_connector as connector
+        for uid,role in (("admin","admin"),("a","reviewer"),("b","reviewer"),("v","reviewer")):
+            access.provision(self.root,uid,role,"Synthetic long password")
+        admin={"user_id":"admin","role":"admin"}
+        folder=self.root/"approved-connectors"
+        folder.mkdir()
+        path=folder/"fixture.json"
+        path.write_text(json.dumps({"vendor_id":"vendor","target_name":"Example product",
+            "target_version":"1.2","url":"http://127.0.0.1:8769/evaluate",
+            "protocol":"clinical-ai-eval-candidate/1","headers":{},"timeout_seconds":5}))
+        family=self.plan["plan"]["selection"]["runnable_suites"][0]
+        args=(self.root,admin,self.plan["plan_id"],"fixture",family,["a","b"],"v")
+        p=c.preview(*args,panel_id="mock",connector_id="fixture")
+        ident=c.freeze(*args,p["digest"],panel_id="mock",connector_id="fixture",confirmed=True)
+        return admin,p,ident,path
+
+    def test_controlled_collection_and_no_substitution(self):
+        from caeval import buyer_connector as connector
+        admin,p,ident,path=self._controlled()
+        d=p["cohort"]
+        self.assertEqual(d["schema"],c.CONTROLLED)
+        with self.assertRaises(access.AccessDenied):
+            c.reserve_collection(self.root,admin,ident)
+        manual.prepare(self.root,d["plan_id"],d["pack_id"])
+        orphan=connector.queue(self.root,d["exchange_id"],"fixture",
+            expected_binding=d["collection_binding_hash"],cohort_id=c._collection_id(d))
+        with patch.object(connector,"_call",side_effect=AssertionError("must not call")) as call:
+            with self.assertRaises(access.AccessDenied):
+                connector.execute(self.root,orphan["id"],orphan["binding_hash"],"operator")
+            call.assert_not_called()
+        original=path.read_text()
+        cfg=json.loads(original)
+        path.write_text(json.dumps({**cfg,"timeout_seconds":6}))
+        with self.assertRaises(access.AccessDenied):
+            c.reserve_collection(self.root,admin,ident,confirmed=True)
+        path.write_text(original)
+        row=c.reserve_collection(self.root,admin,ident,confirmed=True)
+        self.assertEqual(row["id"],orphan["id"])
+        self.assertEqual(row,c.reserve_collection(self.root,admin,ident,confirmed=True))
+        with patch.object(connector,"_call",return_value="Synthetic collected response") as call:
+            completed=connector.execute(self.root,row["id"],row["binding_hash"],"operator")
+            self.assertEqual(completed["state"],"complete_unscored")
+            self.assertEqual(call.call_count,d["collection_binding"]["n_expected"])
+            with self.assertRaises(access.AccessDenied):
+                connector.execute(self.root,row["id"],row["binding_hash"],"operator")
+        gov={"influences_diagnosis_or_treatment":"yes","clinician_reviews_every_response":"yes",
+             "regulated_medical_device":"unsure","deployment_jurisdictions":"SE"}
+        alternative=self.submit_exchange(self.fill(self.prepare_exchange()))
+        other=assessment.prepare(self.root,alternative["submission_id"],"mock",gov)
+        with self.assertRaises(access.AccessDenied):
+            c.reserve(self.root,admin,ident,other["assessment_id"],confirmed=True)
+        actual=assessment.prepare(self.root,completed["receipt"]["submission_id"],"mock",gov)
+        with access.db(self.root) as conn:
+            conn.execute("DELETE FROM audit WHERE action=?",(c.SEALED,))
+        with self.assertRaises(access.AccessDenied):
+            c.reserve(self.root,admin,ident,actual["assessment_id"],confirmed=True)
+
+    def test_incomplete_collection_remains_terminal(self):
+        from caeval import buyer_connector as connector
+        admin,p,ident,path=self._controlled()
+        row=c.reserve_collection(self.root,admin,ident,confirmed=True)
+        with patch.object(connector,"_call",side_effect=ValueError("unavailable")) as call:
+            result=connector.execute(self.root,row["id"],row["binding_hash"],"operator")
+            self.assertEqual(call.call_count,3)
+            self.assertEqual(result["state"],"incomplete")
+            self.assertEqual(c.reserve_collection(self.root,admin,ident,confirmed=True),result)
+            with self.assertRaises(access.AccessDenied):
+                connector.execute(self.root,row["id"],row["binding_hash"],"operator")
+        alternative=self.submit_exchange(self.fill(self.prepare_exchange()))
+        gov={"influences_diagnosis_or_treatment":"yes","clinician_reviews_every_response":"yes",
+             "regulated_medical_device":"unsure","deployment_jurisdictions":"SE"}
+        other=assessment.prepare(self.root,alternative["submission_id"],"mock",gov)
+        with self.assertRaises(access.AccessDenied):
+            c.reserve(self.root,admin,ident,other["assessment_id"],confirmed=True)

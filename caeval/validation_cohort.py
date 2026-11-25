@@ -247,6 +247,17 @@ def seal_collection(directory,identifier,receipt):
         c.execute("BEGIN IMMEDIATE")
         d=_by_collection(c,identifier)
         approved=_collection_event(c,d,COLLECT)
+        row=_collection_status(directory,c,d)
+        if not row or row["state"]!="running":
+            raise access.AccessDenied("running reserved collection required")
+        sub=manual.submission_status(directory,receipt["submission_id"])
+        n=d["collection_binding"]["n_expected"]
+        if (sub["exchange_id"]!=d["exchange_id"] or sub["n_expected"]!=n
+                or sub["n_provided"]!=receipt["n_provided"] or receipt["n_expected"]!=n
+                or any(type(receipt[k]) is not int for k in ("n_expected","n_provided","n_attempted","n_failed"))
+                or not 0<=receipt["n_provided"]<=receipt["n_attempted"]<=n
+                or receipt["n_attempted"]!=receipt["n_provided"]+receipt["n_failed"]):
+            raise access.AccessDenied("collection receipt inventory mismatch")
         if (_collection_event(c,d,START)!=approved or receipt["binding_hash"]!=approved
                 or plans._digest({k:v for k,v in receipt.items() if k!="receipt_hash"})!=receipt["receipt_hash"]):
             raise access.AccessDenied("receipt differs from reserved attempt")
