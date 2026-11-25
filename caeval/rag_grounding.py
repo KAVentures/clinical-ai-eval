@@ -46,6 +46,8 @@ def _doc_hash(doc):
 def freeze(spec,*,nonce=None,confirmed=False):
     d._require(confirmed is True,"explicit prospective study approval required")
     d._keys(spec,"study_id corpus_id corpus_version documents questions candidates reviewers attestations")
+    import json
+    d._require(len(json.dumps(spec,ensure_ascii=True,allow_nan=False))<=800000,"study specification byte limit")
     d._require(all(d._token(spec[k]) for k in ("study_id","corpus_id","corpus_version")),"invalid study identity")
     att=spec["attestations"]
     d._keys(att,"authorized_corpus independently_reviewed_references no_patient_identifiers prospective isolated_case_execution")
@@ -75,7 +77,6 @@ def freeze(spec,*,nonce=None,confirmed=False):
                    and not set(q["reference_ids"])&set(q["distractor_ids"])
                    and all(by[x]["state"]=="current" for x in q["reference_ids"]),
                    "current reference and disjoint nonempty distractor corpus required")
-        import json
         exchange_bytes+=2*len(q["query"].encode("utf-8"))+sum(len(json.dumps(by[x],ensure_ascii=True)) + 128 for x in q["reference_ids"])+2*sum(len(json.dumps(by[x],ensure_ascii=True))+128 for x in q["distractor_ids"])+512
         d._require(exchange_bytes<=MAX_EXCHANGE_BYTES,"repeated candidate corpus exchange exceeds budget")
     candidates=spec["candidates"]
@@ -344,3 +345,19 @@ def verify(evidence,expected_digest=None):
                "RAG grounding evidence replay mismatch")
     return {"status":"REPLAY_VERIFIED","digest":rebuilt["digest"],"expected_digest_matched":expected_digest is not None,
             "decision_grade":False}
+
+
+def configure(parser):
+    sub=parser.add_subparsers(dest="grounding_action",required=True)
+    v=sub.add_parser("verify")
+    v.add_argument("evidence")
+    v.add_argument("--expected-digest")
+    parser.set_defaults(func=cli)
+
+
+def cli(args):
+    import json
+    try:
+        print(json.dumps(verify(d._read(args.evidence),args.expected_digest),allow_nan=False))
+    except (ValueError,RuntimeError,KeyError,TypeError,OSError,AttributeError,RecursionError):
+        raise SystemExit("RAG grounding evidence verification refused.")
