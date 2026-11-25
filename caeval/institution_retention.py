@@ -220,6 +220,8 @@ def apply(directory,as_of,approved_digest,*,services_stopped=False,confirmed=Fal
 def tombstones(conn):
     """Restricted metadata preserves explicit deletion history, not raw evidence."""
     if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='synthetic_fhir_retention_tombstones'").fetchone():
+        if conn.execute("SELECT 1 FROM audit WHERE action='synthetic-fhir-retention-deleted' AND outcome='ok' LIMIT 1").fetchone():
+            _fail("synthetic deletion ledger missing")
         return []
     rows=conn.execute("SELECT * FROM synthetic_fhir_retention_tombstones ORDER BY id").fetchall()
     events=conn.execute("SELECT seq,object_id FROM audit WHERE action='synthetic-fhir-retention-deleted' AND outcome='ok'").fetchall()
