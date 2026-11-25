@@ -69,6 +69,8 @@ def snapshot(p,status):
         adequate=available and (not canonical or (
             req["kind"] in ("text","conversation") and source["mode"]=="internal_regression"
             and source["claim"]=="internal_regression" and source["scope"]=="exact_buyer_plan"))
+        if req["kind"]=="imaging" and available:
+            adequate=adequate and source.get("complete_roster") is True
         conditions.append({"requirement_id":req["id"],"kind":req["kind"],"family":req["family"],
                            "state":r["state"],"source":source,"administrative_condition_met":bool(adequate)})
     return d._sealed({"schema":"hospital-referral-review-snapshot/1","policy_digest":p["digest"],
