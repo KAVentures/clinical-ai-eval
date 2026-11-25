@@ -1809,6 +1809,10 @@ def main(argv=None):
         pimage.add_argument("--"+key)
     pimage.add_argument("--confirm-candidate-calls",action="store_true")
     pimage.set_defaults(func=image_text_readiness.cli)
+
+    from . import diagnostic_imaging
+    pdiag = sub.add_parser("diagnostic-imaging", help="offline exploratory diagnostic imaging study")
+    diagnostic_imaging.configure(pdiag)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")
