@@ -126,6 +126,21 @@ class IngestionTests(unittest.TestCase):
             self.assertEqual(row["token_hash"],api._hash(self.token))
             self.assertNotEqual(row["token_hash"],self.token)
 
+    def test_receipt_event_must_match_historical_grant_scope(self):
+        self.prepare(scopes=("report","check"))
+        api.submit(self.root,self.token,self.batch(("report",report(self.p))))
+        # Simulate inconsistent restored grant metadata, including its
+        # issuance digest, to exercise the independent receipt/scope check.
+        with access.db(self.root) as conn:
+            gid=self.grant["grant_id"]
+            conn.execute("UPDATE lifecycle_ingestion_grants SET scopes=? WHERE id=?",
+                         (json.dumps(["check"]),gid))
+            row=conn.execute("SELECT * FROM lifecycle_ingestion_grants WHERE id=?",(gid,)).fetchone()
+            conn.execute("UPDATE audit SET object_id=? WHERE seq=?",
+                         (gid+":"+api._binding(row),row["audit_seq"]))
+        with self.assertRaises(access.AccessDenied):
+            api.grants(self.root,self.admin)
+
     def test_deleted_receipt_refuses_grant_replay(self):
         self.prepare()
         api.submit(self.root,self.token,self.batch(("report",report(self.p))))
