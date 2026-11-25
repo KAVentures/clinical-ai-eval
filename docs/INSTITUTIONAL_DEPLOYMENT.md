@@ -512,3 +512,7 @@ See [Clinical research studio](CLINICAL_RESEARCH_STUDIO.md) for the browser work
 ## Portable procurement evidence
 
 The [portable committee dossier](PORTABLE_COMMITTEE_DOSSIER.md) is a consented offline export of the exact frozen committee record. It supports administrator-selected source attachments, independent experimental evidence replay and separately supplied canonical manifest verification. Metadata and attachments remain confidential; neither byte integrity nor replay establishes clinical validity or authorizes purchase or deployment.
+
+## Vendor document source review
+
+See [source-bound document review](VENDOR_DOCUMENT_REVIEW.md) for browser-based exact-text quotations, append-only findings and declared version/freshness, reflected in frozen committee snapshots. Binary formats are not parsed by this release; source findings do not establish compliance or clinical validity.
