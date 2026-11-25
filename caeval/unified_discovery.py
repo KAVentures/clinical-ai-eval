@@ -6,7 +6,7 @@ A batch lock is atomic within the institutional access database.
 """
 import json
 from . import unified_assessment as u, diagnostic_imaging as d
-from . import institution_access as access, buyer_jobs as jobs
+from . import institution_access as access, buyer_jobs as jobs, buyer_manual as manual
 
 MAX_SCAN=200
 MAX_MATCHES=20
@@ -17,7 +17,17 @@ def _candidates(directory,conn,req):
     kind=req["kind"]
     pid=req["plan_id"]
     if kind=="text":
-        return sorted({j["id"] for j in jobs.list_jobs(directory) if j["status"]=="completed"})
+        ids=[]
+        for j in jobs.list_jobs(directory):
+            if j["status"]!="completed":
+                continue
+            try:
+                b=manual._read(jobs._job_path(directory,j["id"])/"binding.json")
+                if b["plan_id"]==pid:
+                    ids.append(j["id"])
+            except u.ERRORS:
+                continue
+        return sorted(set(ids))
     if kind=="conversation":
         from . import institution_conversation as module
         module._schema(conn)
@@ -57,7 +67,10 @@ def discover(directory,actor,ident,rid):
         for source in ids[:MAX_SCAN]:
             scanned+=1
             try:
-                p=u._preview_link(directory,conn,actor,ident,rid,source)
+                verified=u._source(directory,conn,actor,req,plan,source)
+                binding={"programme_digest":doc["digest"],"requirement_id":rid,"source":verified,
+                         "association":"administrative_source_binding","decision_grade":False}
+                p={"binding":binding,"approval_digest":d._digest(binding)}
             except u.ERRORS:
                 continue
             matches.append(p)
