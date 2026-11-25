@@ -94,7 +94,7 @@ def _source(source,approved):
     if (len(queued)!=locked["n_expected"] or len(queued)!=len(set(queued))
             or not set(queued)<=ids or analysis["n_review_selected"]!=len(queued)):
         _fail("locked mandatory review units not covered")
-    if manifest.verify_manifest(ws)["verdict"]!=manifest.VALID:
+    if (research._preflight(ws)!=meta or manifest.verify_manifest(ws)["verdict"]!=manifest.VALID):
         _fail("source changed during capture")
     authority=analysis["claim_authority"]["effective_claim"]
     provenance={"claim":authority,"mock_target":analysis["target"].get("is_mock"),
@@ -145,6 +145,8 @@ def prepare(source,approved,destination,reviewers,operator,*,confirmed=False):
             p=packets.issue_packet(stage,binding["binding_hash"],approved,rid,
                                    "blinded_patient_clinician",rows,synthetic=binding["synthetic"])
             packets.write_packet(stage,p)
+            if len(json.dumps(_template(binding,capture,p),ensure_ascii=False,indent=2).encode("utf-8"))+1>MAX_PACKET_BYTES:
+                _fail("review packet exceeds approved export size")
         if dest.exists() or dest.is_symlink():
             _fail("review destination already exists")
         stage.rename(dest)
