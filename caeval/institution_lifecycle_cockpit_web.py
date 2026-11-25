@@ -17,6 +17,9 @@ LABELS={
     "review_administrative_disposition":"Review administrative disposition",
     "monitor_inventory_unavailable":"Investigate unavailable monitor inventory",
     "reported_version_change":"Investigate reported version change and reassessment",
+    "link_reported_version_changes":"Link reported changes to exact successor programmes",
+    "review_stale_reassessment_successors":"Review stale or unavailable linked successors",
+    "handoff_inventory_unavailable":"Investigate incomplete reassessment handoff inventory",
     "monitor_attention_required":"Inspect monitoring alerts",
     "missing_reporting_windows":"Investigate missing reporting windows",
     "monitor_schedule_ended":"Review ended monitoring schedule",
@@ -82,6 +85,13 @@ def render(directory,actor,query):
             body+="<p>Operational monitoring as of "+esc(mon["as_of"])+": "+esc(mon["n_missing_windows"])+" missing windows · "+esc(mon["n_alerts"])+" alerts · reassessment required "+esc(mon["version_reassessment_required"])+"</p>"
         else:
             body+="<p>Operational monitor: "+("not registered (external authorization required)" if doc["source_availability"]["monitors"]=="available" else "unavailable")+".</p>"
+        handoff=r["handoff"]
+        if handoff:
+            body+="<p>Reported version-change handoffs: "+esc(handoff["n_linked"])+" / "+esc(handoff["n_reported_changes"])+" linked · "+esc(handoff["n_current_successors"])+" current successor links. Linkage does not clear an alert.</p>"
+            for sid in handoff["successor_programmes"]:
+                body+="<p>"+_link("/unified-assessment-detail?id="+sid,"Inspect successor "+sid)+"</p>"
+        elif mon:
+            body+="<p>Version-change handoff coverage: "+esc(r["handoff_state"])+".</p>"
         for line in r["programme_lineage"]:
             body+="<p>Version-only lineage "+esc(line["baseline_id"])+" → "+esc(line["successor_id"])+". No evidence transfer.</p>"
         body+="<h4>Suggested next administrative actions</h4>"
