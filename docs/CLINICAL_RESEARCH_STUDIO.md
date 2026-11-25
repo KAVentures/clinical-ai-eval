@@ -81,3 +81,7 @@ family packages or procurement evidence. Do not count the six associated
 declared suites as canonical-runnable. Automated candidate collection,
 canonical executor/report/manifest integration, comparative research
 analysis, richer browser forms and clinical calibration remain necessary.
+
+## Supervised local candidate collection
+
+The optional [supervised collection worker](RESEARCH_SUPERVISED_COLLECTION.md) supports the four research modules through approved staged loopback connectors. Browser users can queue and inspect a collection; a separately authorized OS worker executes it. Exact raw outcomes are bound to the scientific import. Clinical claim annotations and independent review remain separate. The canonical executor registry is unchanged.
