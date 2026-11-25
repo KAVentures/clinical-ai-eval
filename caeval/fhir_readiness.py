@@ -135,7 +135,7 @@ def _facts(values):
     for fact in values:
         _strict(fact,("source_id","code_system","code","value","unit_system","unit_code"))
         for k in ("source_id","code_system","code","unit_system","unit_code"):
-            if not isinstance(fact[k],str) or not re.fullmatch(r"[A-Za-z0-9._:/%+@~#()\\[\\]{}*-]{1,200}",fact[k]):
+            if not isinstance(fact[k],str) or not re.fullmatch(r"[A-Za-z0-9._:/%+@~#()\[\]{}*-]{1,200}",fact[k]):
                 _fail("invalid structured observation field")
         n=fact["value"]
         if type(n) not in (int,float) or abs(n)>1e12 or not math.isfinite(n):

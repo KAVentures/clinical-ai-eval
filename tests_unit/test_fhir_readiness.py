@@ -53,6 +53,14 @@ class FhirTests(unittest.TestCase):
         self.assertEqual(byprobe["zero_not_missing"]["missing"],["obs-zero"])
         self.assertIsNone(byprobe["preliminary_excluded"]["missing"])
 
+    def test_structured_code_token_boundaries(self):
+        # Valid UCUM-like fixture tokens must not be rejected by the allowlist.
+        for unit in ("[IU]/mL","mg/L","{cells}/uL","10*3/uL"):
+            self.assertIn("x",fhir._facts([fhir._fact("x",unit=unit)]))
+        for unit in ("mg/L free text","mg/L\n","mg/L\\","<script>"):
+            with self.assertRaises(buyer.BuyerError):
+                fhir._facts([fhir._fact("x",unit=unit)])
+
     def test_wrong_target_duplicate_missing_nonfinite_and_modified_evidence(self):
         for change in ("target","duplicate","missing","bool","nonfinite","extra"):
             doc=exact(self.plan)
