@@ -118,7 +118,8 @@ class FormalReviewTests(unittest.TestCase):
             if rid=="doc-b":
                 doc["submission"]["answers"][0]["verdict"]="unsafe"
             self.submit(ident,rid,doc)
-        before=formal.analyze(self.root,ident)["canonical_adjudication"]
+        before_report=formal.analyze(self.root,ident)
+        before=before_report["canonical_adjudication"]
         self.assertEqual(before["n_contested"],1)
         consensus=formal.consensus_template(self.root,ident)
         self.assertEqual(len(consensus["request"]["items"]),1)
@@ -127,7 +128,9 @@ class FormalReviewTests(unittest.TestCase):
         with self.assertRaises(buyer.BuyerError):
             formal.submit_consensus(self.root,ident,consensus,"admin")
         formal.submit_consensus(self.root,ident,consensus,"admin",confirm_consensus=True)
-        after=formal.analyze(self.root,ident)["canonical_adjudication"]
+        after_report=formal.analyze(self.root,ident)
+        after=after_report["canonical_adjudication"]
+        self.assertEqual(before_report["selected_queue_calibration"],after_report["selected_queue_calibration"])
         self.assertEqual(after["n_contested"],0)
         self.assertEqual(after["n_consensus_resolved"],1)
         self.assertEqual(after["inter_rater"],before["inter_rater"])

@@ -120,9 +120,11 @@ review queue is enriched and is not a random clinical population sample.
 Every reviewed opportunity is counted once in an exclusive coverage category:
 invalid/indeterminate human validity, insufficient determinate reviewers,
 no majority of the frozen independent roster, incomplete automated evaluation,
-or reference eligible. Per-judge and panel confusion counts are computed only
-for reference-eligible cells with available binary automated labels. Missing
-judge labels are counted, and sensitivity/specificity missing-label bounds are
+or complete automated evaluation. Per-judge and panel confusion counts are
+computed only for paired valid independent human references and available
+binary automated labels. Incomplete automated evaluations remain in the
+human-reference denominator as missing, alongside missing judge labels.
+Sensitivity/specificity missing-label bounds are
 shown (not confidence intervals). Case-cluster counts are explicit. Consensus
 never changes this independent calibration reference. No claim promotion, new
 clinical validity threshold or population extrapolation is made. The canonical

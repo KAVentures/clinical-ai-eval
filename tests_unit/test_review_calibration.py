@@ -29,14 +29,18 @@ class CalibrationTests(unittest.TestCase):
         d=c.analyze(*fixture(),synthetic=True)
         self.assertEqual(d["exclusive_coverage"],{
             "invalid_or_indeterminate_validity":1,"insufficient_determinate_reviewers":1,
-            "no_independent_majority":1,"automated_evaluation_incomplete":1,"reference_eligible":2})
+            "no_independent_majority":1,"automated_evaluation_incomplete":1,"complete_automated_evaluation":2})
+        self.assertEqual(d["n_human_reference_eligible"],3)
         judge=d["comparisons"][0]
         self.assertEqual(judge["n_paired"],1)
+        self.assertEqual(judge["n_reference_eligible"],3)
+        self.assertEqual(judge["n_missing_automated"],2)
         self.assertEqual(judge["n_paired_case_clusters"],1)
         self.assertEqual(judge["sensitivity"],1)
         self.assertIsNone(judge["specificity"])
         self.assertEqual(judge["specificity_missing_bounds"],[0,1])
         self.assertEqual(d["comparisons"][1]["specificity"],1)
+        self.assertEqual(d["comparisons"][1]["specificity_missing_bounds"],[.5,1])
         self.assertFalse(d["decision_grade"])
 
     def test_reject_duplicate_results_and_wrong_inventory(self):
@@ -58,7 +62,7 @@ class CalibrationTests(unittest.TestCase):
         q,r,j,h,v=fixture()
         for row in v.values():row[c.VALIDITY_FIELDS[0]]="cannot_judge"
         d=c.analyze(q,r,j,h,v,synthetic=False)
-        self.assertEqual(d["exclusive_coverage"]["reference_eligible"],0)
+        self.assertEqual(d["n_human_reference_eligible"],0)
         for x in d["comparisons"]:
             self.assertIsNone(x["sensitivity"])
             self.assertIsNone(x["specificity"])
