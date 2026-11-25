@@ -158,7 +158,7 @@ def activate(directory,actor,plan_id,pack_id,panel_id,mappings,approved_digest,*
         return {"conditions_hash":state["conditions_hash"],"binding":binding,"decision_grade":False}
 
 
-def check(directory,plan_id,pack_hash,panel_id,raw_panel):
+def check(directory,plan_id,pack_hash,panel_id,raw_panel,*,conn=None):
     """Validate a requested prepared assessment against the actual frozen study."""
     root=buyer._root(directory)
     dest=root/"assessment"
@@ -168,8 +168,17 @@ def check(directory,plan_id,pack_hash,panel_id,raw_panel):
     binding=state["conditions"].get("risk_activation")
     if not binding:
         _fail("risk-bound conditions are not activated")
-    with access.db(directory) as conn:
-        expected=_compile(directory,conn,binding["plan_id"],binding["pack_id"],panel_id,binding["mappings"],binding.get("additional_plans",[]))
+    def verified(db):
+        events=db.execute("SELECT actor FROM audit WHERE action='buyer-risk-conditions-activated' AND object_id=? AND outcome='ok'",
+                          (binding["digest"],)).fetchall()
+        if len(events)!=1:
+            _fail("activated study lacks exact local approval audit")
+        return _compile(directory,db,binding["plan_id"],binding["pack_id"],panel_id,binding["mappings"],binding.get("additional_plans",[]))
+    if conn is None:
+        with access.db(directory) as db:
+            expected=verified(db)
+    else:
+        expected=verified(conn)
     if (binding!=expected or plan_id not in {v["plan_id"] for v in candidates(binding).values()} or binding["pack_content_hash"]!=pack_hash
             or binding["panel_file_sha256"]!=hashlib.sha256(raw_panel).hexdigest()):
         _fail("prepared inputs differ from activated conditions")

@@ -30,11 +30,11 @@ def _study(directory):
     return root,dest,state,binding
 
 
-def _candidate(directory,state,binding,job_id):
+def _candidate(directory,state,binding,job_id,*,conn=None):
     job=jobs.status(directory,job_id)
     if job["status"]!="completed":
         raise access.AccessDenied("verified completed job required")
-    record=assessment.check(directory,job["assessment_id"])
+    record=assessment.check(directory,job["assessment_id"],conn=conn)
     if record.get("conditions_hash")!=state["conditions_hash"]:
         raise access.AccessDenied("job not prepared under this exact study")
     candidate=[(vid,entry) for vid,entry in activation.candidates(binding).items()
@@ -116,7 +116,7 @@ def ingest(directory,actor,job_id,conditions_hash,*,confirmed=False):
         root,dest,state,binding=_study(directory)
         if conditions_hash!=state["conditions_hash"]:
             raise access.AccessDenied("study changed; reopen handoff")
-        job,vid,refs=_candidate(directory,state,binding,job_id)
+        job,vid,refs=_candidate(directory,state,binding,job_id,conn=conn)
         existing=state["results"].get(vid,{})
         if existing:
             if set(existing)=={r["family_id"] for r in refs} and all(

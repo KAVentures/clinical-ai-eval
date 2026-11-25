@@ -308,7 +308,11 @@ def compare(directory, family_id: str) -> dict:
                         "cells": res["cells"],
                         "environment": res["environment"],
                         "family_maturity": "experimental"})
-    if not entries:
+    risk_bound=state["conditions"].get("risk_activation")
+    if risk_bound is not None:
+        from . import buyer_risk_activation as activation
+        activation._check_conditions(state,risk_bound)
+    if not entries and risk_bound is None:
         raise ProcurementError(f"no vendor results recorded for family {family_id!r}")
     hazards = [h for h in state["conditions"]["hazards"]
                if h.get("family", family_id) == family_id]

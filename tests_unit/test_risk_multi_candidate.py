@@ -124,6 +124,22 @@ class MultiCandidateTests(unittest.TestCase):
         reordered={k:panel[k] for k in reversed(list(panel))}
         self.assertEqual(pipeline.execution_panel_digest(panel),pipeline.execution_panel_digest(reordered))
 
+    def test_no_candidate_results_still_expose_frozen_denominator(self):
+        self.staged()
+        active=self.activate_multi(self.second())
+        for family in active["binding"]["families"]:
+            report=pw.compare(self.root/"assessment",family)
+            self.assertEqual(report["comparability"]["status"],"INCOMPARABLE")
+            self.assertEqual(len(report["vendors_without_results"]),2)
+            self.assertFalse(report["claim_authority"]["decision_grade"])
+            for hazard in report["per_hazard"]:
+                self.assertEqual(len(hazard["products"]),2)
+                for row in hazard["products"]:
+                    self.assertEqual(row["status"],"NO_EVIDENCE")
+                    self.assertEqual(row["n"],0)
+                    self.assertEqual(row["n_total"],len(active["binding"]["cell_inventory"][family]))
+                    self.assertEqual(row["n_missing"],row["n_total"])
+
     def test_unbound_job_cannot_enter_study(self):
         self.staged()
         active=self.activate_multi(self.second())

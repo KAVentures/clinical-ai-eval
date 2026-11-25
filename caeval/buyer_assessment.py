@@ -64,7 +64,7 @@ def _governance(spec):
     return result
 
 
-def _material(directory, submission_id, panel_id, governance, *, conditions_hash=None):
+def _material(directory, submission_id, panel_id, governance, *, conditions_hash=None, conn=None):
     root = Path(directory).resolve()
     state = buyer.load(root)
     sub = manual._submission(root, submission_id)
@@ -91,7 +91,7 @@ def _material(directory, submission_id, panel_id, governance, *, conditions_hash
     config["procurement"] = {"conditions_hash": ""}
     if conditions_hash is not None:
         from . import buyer_risk_activation as activation
-        actual=activation.check(root,exchange["plan_id"],exchange["pack_content_hash"],panel_id,raw_panel)
+        actual=activation.check(root,exchange["plan_id"],exchange["pack_content_hash"],panel_id,raw_panel,conn=conn)
         if actual!=conditions_hash:
             raise buyer.BuyerError("requested procurement conditions do not match activated study")
         config["procurement"]["conditions_hash"]=actual
@@ -168,7 +168,7 @@ def prepare(directory, submission_id, panel_id, governance, *, conditions_hash=N
     return check(directory, record["assessment_id"])
 
 
-def check(directory, assessment_id):
+def check(directory, assessment_id, *, conn=None):
     """Revalidate the original inputs AND the copied research project."""
     identifier = manual._identifier(assessment_id, digest=True)
     dest = _base(directory) / identifier
@@ -178,7 +178,7 @@ def check(directory, assessment_id):
     if (not isinstance(record, dict) or record.get("assessment_id") != identifier
             or buyer_plan._digest({k: v for k, v in record.items() if k != "assessment_id"}) != identifier):
         raise buyer.BuyerError("assessment binding integrity mismatch")
-    expected, files = _material(directory, record["submission_id"], record["panel_id"], record["governance"], conditions_hash=record.get("conditions_hash"))
+    expected, files = _material(directory, record["submission_id"], record["panel_id"], record["governance"], conditions_hash=record.get("conditions_hash"), conn=conn)
     if record != expected:
         raise buyer.BuyerError("source plan, responses, pack, panel or definitions changed; prepare again")
     for name, raw in files.items():
