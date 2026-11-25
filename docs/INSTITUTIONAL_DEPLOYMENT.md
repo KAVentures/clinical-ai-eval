@@ -496,3 +496,7 @@ interoperability, security and production acceptance remain mandatory.
 - [Formal independent clinical review](FORMAL_CLINICAL_REVIEW.md) and [browser coordination](FORMAL_REVIEW_BROWSER.md).
 - [Longitudinal regression monitoring](LONGITUDINAL_MONITORING.md).
 - [Scoped live agent metadata](LIVE_AGENT_BROKER.md).
+
+## Experimental clinical research studio
+
+See [Clinical research studio](CLINICAL_RESEARCH_STUDIO.md) for the browser workflows for citation grounding, scribe documentation, native decision certificates and paired robustness. These studies are separate from canonical evaluation jobs and do not elevate clinical claims.
