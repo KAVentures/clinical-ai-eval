@@ -170,3 +170,63 @@ backward dates, duplicate IDs, changed kinds under the same ID and
 inconsistent attention flags. Same-day feed order, actual source authenticity,
 delivery receipts and filesystem durability are not independently verified;
 a digest is not a signature. No distributed exactly-once delivery is claimed.
+
+
+## Persistent transactional outbox (preferred for schedulers)
+
+The optional local SQLite store removes the need to implement atomic
+checkpoint and pending-file replacement in scheduler code. Initialize
+exactly one store per monitor and frozen plan in an operator-controlled
+private directory on a local filesystem:
+
+```sh
+clinical-ai-eval monitor-alert-store initialize /private/alerts.sqlite3 MONITOR_ID PLAN_DIGEST
+clinical-ai-eval monitor-alert-store status /private/alerts.sqlite3
+```
+
+Initialization is exclusive; an existing or interrupted store is never
+automatically overwritten or reset. Use a regular non-symlink file with
+private permissions and trusted directory ancestors. SQLite DELETE
+journaling, FULL synchronous mode and immediate transactions serialize
+state updates. The filesystem and OS must honor SQLite locking and
+durability guarantees; network filesystems and untrusted shared directories
+are not supported.
+
+Before polling, inspect status. If a pending attempt exists, resume it
+unchanged instead of preparing a later feed. After a successful scoped
+feed poll:
+
+```sh
+clinical-ai-eval monitor-alert-store enqueue /private/alerts.sqlite3 current-feed.json
+```
+
+This persists the exact attempt before returning it. Repeating the same
+feed while pending returns the same attempt; a different feed cannot
+overwrite it. Use the outer attempt digest (not the nested batch digest)
+as the external delivery idempotency key. A random store identity and
+monotonic sequence distinguish recurring identical transition batches.
+
+After the approved notification system acknowledges the exact attempt:
+
+```sh
+clinical-ai-eval monitor-alert-store acknowledge /private/alerts.sqlite3 --expected-digest ATTEMPT_DIGEST --confirm-delivered
+```
+
+Omit the delivery flag for event-free attempts. The transaction advances
+the checkpoint and clears the pending attempt together. The most recent
+acknowledgment can be replayed with the same digest and attestation without
+clearing a newer pending attempt. Only the current checkpoint, one pending
+attempt and last acknowledgment are retained; this is not a complete
+notification audit archive.
+
+The store does not claim a delivery lease: multiple workers might retrieve
+the same pending attempt. Use a single authorized delivery worker or an
+idempotent external destination. A crash after external delivery but before
+local acknowledgment can result in duplicate delivery; no distributed
+exactly-once guarantee is provided. The scheduler and external transport
+remain institution-managed. The store does not send network requests,
+verify actual delivery, detect replayed same-day source feeds, or establish
+clinical safety. Treat poll errors and unavailable/corrupt stores as
+monitoring failures, not as empty alert feeds. Keep this operational store
+in the approved backup/recovery process; an older restored copy can replay
+already-delivered attempts.
