@@ -303,3 +303,77 @@ def verify(ex,receipt,expected_digest=None):
     d._require(_budget(ex,rows),"trace output budget exceeded")
     return {"status":"REPLAY_VERIFIED","digest":receipt["digest"],"expected_digest_matched":expected_digest is not None,
             "n_attempted":len(seen),"n_transport_failures":failures,"execution_attested":False,"decision_grade":False}
+
+
+def openapi():
+    def obj(props):
+        return {"type":"object","required":list(props),"properties":props,"additionalProperties":False}
+    token={"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$"}
+    sha={"type":"string","pattern":"^[0-9a-f]{64}$"}
+    text=lambda n:{"type":"string","minLength":1,"maxLength":n}
+    target=obj({"id":token,"version":token})
+    doc=obj({"id":token,"version":token,"title":text(300),"text":text(g.MAX_TEXT),
+             "state":{"enum":["current","withdrawn"]},"digest":sha})
+    case=obj({"slot":sha,"query":text(4000),"corpus":{"type":"array","minItems":1,"maxItems":g.MAX_DOCS,"items":doc}})
+    common={"protocol":{"const":PROTOCOL},"request_id":{"type":"string","pattern":"^[0-9a-f]{32}$"},"target":target}
+    req=obj({**common,"case":case})
+    claim=obj({"start":{"type":"integer","minimum":0},"end":{"type":"integer","minimum":1},
+               "citations":{"type":"array","maxItems":g.MAX_DOCS,"uniqueItems":True,"items":token}})
+    trace=obj({"slot":sha,"status":{"enum":["answered","abstained","unavailable"]},
+               "retrieved":{"type":"array","maxItems":g.MAX_DOCS,"items":obj({"id":token,"digest":sha})},
+               "answer":{"type":"string","maxLength":g.MAX_TEXT},
+               "claims":{"type":"array","maxItems":g.MAX_CLAIMS,"items":claim}})
+    trace["allOf"]=[{"if":{"properties":{"status":{"const":"unavailable"}}},
+                     "then":{"properties":{"answer":{"const":""},"retrieved":{"maxItems":0},"claims":{"maxItems":0}}},
+                     "else":{"properties":{"answer":{"minLength":1}}}}]
+    reply=obj({**common,"trace":trace})
+    return {"openapi":"3.1.0","info":{"title":"Local controlled RAG trace contract","version":"1.0.0",
+                "description":"One isolated case-specific corpus per request. Runtime validates UTF-8 byte limits, exact hashes, span order and cross-message identity."},
+            "paths":{"/evaluate":{"post":{"operationId":"evaluateRagTrace","requestBody":{"required":True,
+                     "content":{"application/json":{"schema":req}}},"responses":{"200":{"description":"Correlated product-reported trace",
+                     "content":{"application/json":{"schema":reply}}}}}}}}
+
+
+def configure(parser):
+    sub=parser.add_subparsers(dest="collection_action",required=True)
+    sub.add_parser("openapi")
+    for action in ("preview","collect"):
+        p=sub.add_parser(action)
+        p.add_argument("exchange")
+        p.add_argument("--url",required=True)
+        p.add_argument("--timeout",type=int,default=30)
+        if action=="collect":
+            p.add_argument("--approved-digest",required=True)
+            p.add_argument("--journal-root",required=True)
+            p.add_argument("--confirm-local-corpus-transmission",action="store_true")
+    v=sub.add_parser("verify")
+    v.add_argument("exchange")
+    v.add_argument("receipt")
+    v.add_argument("--expected-digest")
+    v=sub.add_parser("verify-institution")
+    v.add_argument("study_evidence")
+    v.add_argument("collection_evidence")
+    v.add_argument("--expected-digest")
+    parser.set_defaults(func=cli)
+
+
+def cli(args):
+    try:
+        action=args.collection_action
+        if action=="openapi":
+            out=openapi()
+        elif action=="verify":
+            out=verify(d._read(args.exchange),d._read(args.receipt),args.expected_digest)
+        elif action=="verify-institution":
+            from . import institution_rag_collection as institution
+            out=institution.verify_package(d._read(args.collection_evidence),d._read(args.study_evidence),args.expected_digest)
+        else:
+            ex=d._read(args.exchange)
+            cfg={"url":args.url,"timeout_seconds":args.timeout}
+            if action=="preview":
+                out=preview(ex,cfg)
+            else:
+                out=collect(ex,cfg,args.approved_digest,args.journal_root,confirmed=args.confirm_local_corpus_transmission)
+        print(json.dumps(out,ensure_ascii=True,allow_nan=False,indent=2))
+    except (ValueError,RuntimeError,OSError,TypeError,KeyError,AttributeError,RecursionError):
+        raise SystemExit("Local RAG collection refused or interrupted. Inspect the private journal; do not blindly rerun.")
