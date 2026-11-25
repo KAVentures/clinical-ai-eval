@@ -143,6 +143,7 @@ def _dashboard(directory, actor):
     if role in ("admin","operator","observer","reviewer"):
         body += "<p><a href='/research'>Clinical research studio</a></p>"
     if role in ("admin","operator","observer"):
+        body += "<p><a href='/lifecycle-cockpit'>Clinical AI lifecycle cockpit</a></p>"
         body += "<p><a href='/unified-assessment'>Unified clinical AI assessment programmes</a></p>"
         body += "<p><a href='/matched-regression'>Matched longitudinal research</a></p>"
         body += "<p><a href='/lifecycle-monitor'>Clinical AI lifecycle monitoring</a></p>"
@@ -653,6 +654,10 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=image_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
+            if path=="/lifecycle-cockpit" and method=="GET":
+                from . import institution_lifecycle_cockpit_web as cockpit
+                access.require(actor,"admin","operator","observer")
+                return respond("200 OK",cockpit.render(self.directory,actor,_query(env)))
             if path=="/lifecycle-ingestion-grants" and method=="GET":
                 from . import institution_lifecycle_monitor_web as monitor
                 access.require(actor,"admin")
