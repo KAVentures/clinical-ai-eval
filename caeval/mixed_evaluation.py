@@ -187,7 +187,7 @@ def status(directory,actor,parent_id):
             verified=[r for r in receipts if r["suite"]==suite]
             related=next(r for r in research["suites"] if r["suite"]==suite)
             evidence.append({"suite":suite,"state":("verified_scoped_package" if verified else
-                "not_executed" if suite in lane["runnable"] else "required_but_not_run"),
+                "no_verified_package" if suite in lane["runnable"] else "required_but_not_run"),
                 "packages":verified,"related_experimental_reports":related["verified_experimental_reports"],
                 "decision_grade":False})
         outputs.append({**lane,"evidence":evidence})

@@ -13,12 +13,17 @@ def render(directory,actor,baseline_id):
     body="<p><a href='/setup'>Assessment setup</a></p><p>"+esc(d["target_name"])+" · baseline "+esc(d["baseline_version"])+"</p>"
     body+="<p>Versions are opaque vendor identifiers, not inferred chronological order. No previous evidence, approval or clinical conclusion transfers to a new version.</p><h2>Baseline evidence coverage</h2>"+_coverage(d["baseline_coverage"])
     body+="<form method='post' action='/version-reassessment-preview'>"+_hidden("csrf",actor["csrf"])+_hidden("baseline_id",baseline_id)
-    body+="<label>Exact successor product version<input name='version' maxlength='300' required></label><button>Preview reassessment</button></form>"
+    body+="<label>Exact successor product version<input name='version' maxlength='300' list='staged-versions' required></label>"
+    body+="<datalist id='staged-versions'>"+"".join("<option value='"+esc(r["version"])+"'></option>" for r in d["staged_unplanned_versions"])+"</datalist><button>Preview reassessment</button></form>"
+    if d["staged_unplanned_versions"]:
+        body+="<h2>Other locally staged versions</h2><p>These are declared connector versions, not remotely verified releases or automatic execution approvals.</p>"
+        for row in d["staged_unplanned_versions"]:
+            body+="<p>"+esc(row["version"])+" · "+esc(row["connectors"])+"</p>"
     for row in d["successors"]:
         rec=row["reassessment"]
         body+="<section><h2>Successor "+esc(rec["successor_version"])+"</h2><p>Frozen plan "+esc(rec["successor_id"])+"</p>"
         body+="<p>Scientific definition changes: "+esc(rec["definition_delta"])+"</p>"+_coverage(row["coverage"])
-        body+="<p>Exact staged single-turn or structured connectors: "+esc(row["matching_staged_connectors"])+"</p>"
+        body+="<p>Exact staged connectors: "+esc(row["matching_staged_connectors"])+"</p>"
         pid=esc(rec["successor_id"])
         if row["coverage"]["definitions_current"]:
             body+="<p><a href='/guided-collection?plan_id="+pid+"'>Guided single-turn collection (if eligible)</a> · <a href='/research-buyer-coverage?plan_id="+pid+"'>Research coverage</a> · <a href='/conversation?plan_id="+pid+"'>Patient conversation setup</a></p>"

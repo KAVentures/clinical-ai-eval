@@ -59,6 +59,29 @@ class VersionTests(unittest.TestCase):
         with self.assertRaises(access.AccessDenied):
             version.preview(self.root,self.actor,self.pid,"1")
 
+    def test_discover_unplanned_versions_across_native_transports(self):
+        folder=self.root/"approved-connectors"
+        folder.mkdir()
+        cfg={"vendor_id":"fixture","target_name":"Product","target_version":"2",
+             "url":"http://127.0.0.1:8769/evaluate","protocol":"clinical-ai-eval-candidate/1",
+             "headers":{},"timeout_seconds":5}
+        (folder/"next.json").write_text(json.dumps(cfg))
+        (folder/"unrelated.json").write_text(json.dumps({**cfg,"target_name":"Other","target_version":"9"}))
+        (folder/"old.json").write_text(json.dumps({**cfg,"target_version":"1"}))
+        conversation=self.root/"approved-conversations"
+        conversation.mkdir()
+        (conversation/"multi.json").write_text(json.dumps({**cfg,"target_version":"3",
+             "protocol":"clinical-ai-eval-conversation/1"}))
+        (conversation/"invalid.json").write_text(json.dumps({**cfg,"target_version":"4",
+             "protocol":"clinical-ai-eval-conversation/1","url":"https://external.invalid/evaluate"}))
+        result=version.history(self.root,self.actor,self.pid)
+        self.assertEqual([r["version"] for r in result["staged_unplanned_versions"]],["2","3"])
+        self.assertEqual(result["staged_unplanned_versions"][1]["connectors"],
+             [{"connector_id":"multi","protocol":"clinical-ai-eval-conversation/1"}])
+        p=version.preview(self.root,self.actor,self.pid,"2")
+        version.freeze(self.root,self.actor,self.pid,"2",p["digest"],confirmed=True)
+        self.assertEqual([r["version"] for r in version.history(self.root,self.actor,self.pid)["staged_unplanned_versions"]],["3"])
+
     def test_definition_drift_and_frozen_history(self):
         args=(self.root,self.actor,self.pid,"2")
         old=version.preview(*args)

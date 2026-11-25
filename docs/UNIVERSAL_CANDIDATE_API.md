@@ -199,3 +199,5 @@ use a new scope plan for a change in intended use. No comparison is authorized
 by this operation, and it does not automatically detect vendor releases or run
 models. Existing guided collection, conversation, research and mixed-profile
 workflows can prepare the successor's separate execution approvals.
+
+Locally staged text, structured and conversation connectors are scanned without making calls. Exact vendor/product matches at other declared versions appear as reassessment suggestions; an operator must still review and freeze a new scope. Missing or invalid execution evidence is labelled no_verified_package, not proof that no execution occurred. Connector declarations do not establish release chronology or independently attest the deployed model.

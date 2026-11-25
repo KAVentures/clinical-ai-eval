@@ -8,7 +8,7 @@ import json
 from . import (buyer_plan as plans, buyer_agent as buyer, buyer_manual as manual,
                buyer_connector as connector, institution_access as access,
                institution_setup as setup, mixed_evaluation as mixed,
-               research_buyer_coverage as research)
+               research_buyer_coverage as research, institution_conversation as conversation)
 
 EVENT="version-reassessment-frozen"
 SCHEMA="version-reassessment/1"
@@ -180,9 +180,10 @@ def _coverage(directory,records):
         receipts=generic.get(pid,[])+conversations.get(pid,[])
         result[pid]={"definitions_current":r["definitions_current"],
              "suites":[{"suite":s["suite"],
-                        "state":"historical_definitions" if not r["definitions_current"] else
+                        "state":"required_but_not_run" if not s["implemented"] else
+                           "historical_definitions" if not r["definitions_current"] else
                            "verified_scoped_package" if any(x["suite"]==s["suite"] for x in receipts) else
-                           "not_executed" if s["implemented"] else "required_but_not_run",
+                           "no_verified_package",
                         "packages":[x for x in receipts if x["suite"]==s["suite"]]}
                        for s in selected["required_suites"]],
              "decision_grade":False}
@@ -197,12 +198,21 @@ def history(directory,actor,baseline_id):
         records=_history(conn,baseline_id)
         successors=[_validate_successor(directory,old,d) for d in records]
     coverage=_coverage(directory,[old,*successors])
-    staged=connector.connectors(directory)
+    staged=connector.connectors(directory)+conversation.staged_connectors(directory)
+    target=old["plan"]["target"]
+    scoped=[c for c in staged if c["vendor_id"]==old["vendor_id"] and c["target_name"]==target["name"]]
+    existing={target["version"],*(d["successor_version"] for d in records)}
+    available={}
+    for c in scoped:
+        if c["target_version"] not in existing:
+            available.setdefault(c["target_version"],[]).append(
+                {"connector_id":c["connector_id"],"protocol":c["protocol"]})
+    discovered=[{"version":k,"connectors":sorted(rows,key=lambda x:(x["connector_id"],x["protocol"]))}
+                for k,rows in sorted(available.items())]
     rows=[]
     for d,new in zip(records,successors):
-        matches=[{"connector_id":c["connector_id"],"protocol":c["protocol"]} for c in staged
-                 if c["vendor_id"]==d["vendor_id"] and c["target_name"]==d["target_name"]
-                 and c["target_version"]==d["successor_version"]]
+        matches=[{"connector_id":c["connector_id"],"protocol":c["protocol"]} for c in scoped
+                 if c["target_version"]==d["successor_version"]]
         rows.append({"reassessment":d,"coverage":coverage[new["plan_id"]],
                      "matching_staged_connectors":matches})
     with access.db(directory) as conn:
@@ -214,4 +224,5 @@ def history(directory,actor,baseline_id):
     return {"schema":"version-reassessment-history/1","baseline_id":baseline_id,
             "target_name":old["plan"]["target"]["name"],"baseline_version":old["plan"]["target"]["version"],
             "baseline_coverage":coverage[baseline_id],"successors":rows,
+            "staged_unplanned_versions":discovered,
             "comparative_verdict":None,"decision_grade":False}
