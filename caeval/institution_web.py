@@ -478,6 +478,26 @@ class InstitutionApp:
                 _csrf(actor,form)
                 documents.dispatch(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/vendor-document-review?id="+form["id"])])
+            if path in ("/buyer-risk","/buyer-risk-download") and method=="GET":
+                from . import buyer_risk_protocol as risk, buyer_risk_protocol_web as risk_web
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if set(q)!={"plan_id"}:
+                    raise access.AccessDenied("select one saved buyer plan")
+                if path=="/buyer-risk":
+                    return respond("200 OK",risk_web.render(self.directory,actor,q["plan_id"]))
+                doc=risk.view(self.directory,actor,q["plan_id"])
+                if not doc["id"]:
+                    raise access.AccessDenied("freeze risk protocol first")
+                from . import buyer_plan
+                return respond("200 OK",buyer_plan._canonical(doc),extra=[("Content-Disposition",'attachment; filename="buyer-risk-protocol.json"')],content_type="application/json; charset=utf-8")
+            if path=="/buyer-risk-freeze" and method=="POST":
+                from . import buyer_risk_protocol_web as risk_web
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                risk_web.dispatch(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/buyer-risk?plan_id="+form["plan_id"])])
             if path=="/setup" and method=="GET":
                 from . import institution_setup_web as setup
                 return respond("200 OK",setup.render(self.directory,actor))
