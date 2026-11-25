@@ -60,6 +60,9 @@ def protocol(kind,baseline,successor_plan,spec):
                and old["private_nonce"]!=successor_plan["private_nonce"],"distinct studies and opaque exchanges required")
     a,b=(_candidate(kind,p,spec["vendor_id"]) for p in (old,successor_plan))
     d._require(a["version"]!=b["version"],"distinct declared product versions required")
+    d._require([x for x in old["spec"]["candidates"] if x["id"]!=spec["vendor_id"]]==
+               [x for x in successor_plan["spec"]["candidates"] if x["id"]!=spec["vendor_id"]],
+               "other candidate identities and versions must remain unchanged")
     if kind=="imaging":
         d._require(a["threshold_bp"]==b["threshold_bp"],"changed decision threshold requires separately scoped design")
     return d._sealed({"schema":"matched-version-regression-plan/1","kind":kind,
@@ -111,7 +114,7 @@ def _endpoint(cases,old,new,name,params):
         return {"endpoint":name,"n_cases":0,"n_clusters":0,"n_known_pairs":0,
                 "n_baseline_unknown":0,"n_successor_unknown":0,
                 "observed_difference_bounds":None,"complete_pair_cluster_mean_difference":None,
-                "unknown_pair_cluster_fraction":None,"unknown_pair_limit_met":False}
+                "unknown_pair_cluster_fraction":None,"unknown_pair_limit_met":False,"margin_relation":"empty"}
     lows=[];highs=[];unknown=[];complete=[]
     pairs=[x for group in groups.values() for x in group]
     for rows in groups.values():
@@ -121,11 +124,15 @@ def _endpoint(cases,old,new,name,params):
         known=[b-a for a,b in rows if a is not None and b is not None]
         if known:
             complete.append(_mean(known))
+    lower,upper=_mean(lows),_mean(highs)
+    margin=Fraction(params["margin_bp"],10000)
+    relation="below" if upper<margin else "above" if lower>margin else "overlap"
     return {"endpoint":name,"n_cases":len(pairs),"n_clusters":len(groups),
             "n_known_pairs":sum(a is not None and b is not None for a,b in pairs),
             "n_baseline_unknown":sum(a is None for a,b in pairs),
             "n_successor_unknown":sum(b is None for a,b in pairs),
-            "observed_difference_bounds":[float(_mean(lows)),float(_mean(highs))],
+            "observed_difference_bounds":[float(lower),float(upper)],
+            "margin_relation":relation,
             "complete_pair_cluster_mean_difference":float(_mean(complete)) if complete else None,
             "unknown_pair_cluster_fraction":float(_mean(unknown)),
             "unknown_pair_limit_met":_mean(unknown)<=Fraction(params["max_unknown_bp"],10000)}
@@ -147,14 +154,13 @@ def analyse(baseline,successor,analysis_plan):
     endpoints=[_endpoint(cases,a,b,name,params) for name in ENDPOINTS[kind]]
     primary=next(r for r in endpoints if r["endpoint"]==params["endpoint"])
     bounds=primary["observed_difference_bounds"]
-    margin=params["margin_bp"]/10000
     if bounds is None:
         signal="withheld_empty_endpoint"
     elif not primary["unknown_pair_limit_met"]:
         signal="withheld_unknown_pair_limit"
-    elif bounds[1]<margin:
+    elif primary["margin_relation"]=="below":
         signal="observed_upper_bound_below_margin"
-    elif bounds[0]>margin:
+    elif primary["margin_relation"]=="above":
         signal="observed_lower_bound_above_margin"
     else:
         signal="observed_bounds_overlap_margin"
