@@ -11,6 +11,7 @@ def render(directory,actor):
     if actor["role"]=="admin":
         fields="".join("<label>"+esc(label)+"<input required name='"+name+"'></label>" for name,label in
             (("plan_id","Saved plan ID"),("pack_id","Approved pack ID"),("family","Runnable family ID"),("panel_id","Approved evaluator panel ID"),("reviewers","2–5 independent reviewer IDs, comma-separated"),("validity_reviewer","Different validity reviewer ID")))
+        fields+="<label>Approved candidate connector ID (optional; required for controlled collection)<input name='connector_id'></label>"
         body+=form("preview",fields,"Preview full cohort")
     for row in cohort.inventory(directory,actor):
         ident=row["id"]
@@ -21,7 +22,14 @@ def render(directory,actor):
         else:
             body+="<p>"+esc(row["family"])+" · "+str(row["n_variants"])+" variants</p>"
             if not row["linked"]:
-                if row["panel_bound"] and not row["reserved_job"]:
+                collection=row["reserved_collection"]
+                if row["collection_controlled"] and collection is None:
+                    body+=form("collect",_hidden("id",ident)+"<label><input type='checkbox' name='confirm' value='yes' required> Reserve one collection; no transmission approved</label>","Reserve candidate collection")
+                elif row["collection_controlled"] and collection["state"]!="complete_unscored":
+                    body+="<p>Reserved collection "+esc(collection["id"])+" · "+esc(collection["state"])+" · execute via authorized collection worker. No replacement allowed.</p>"
+                elif row["panel_bound"] and not row["reserved_job"]:
+                    if collection:
+                        body+="<p>Prepare an assessment from exact collected submission "+esc(collection["receipt"]["submission_id"])+"</p>"
                     body+=form("reserve",_hidden("id",ident)+"<label>Prepared assessment ID<input required name='assessment_id'></label><label><input type='checkbox' name='confirm' value='yes' required> Reserve one execution before scoring; no retries or model calls approved</label>","Reserve execution")
                 elif row["panel_bound"]:
                     job=row["reserved_job"]
@@ -64,17 +72,19 @@ def review(directory,actor,ident):
 def dispatch(directory,actor,action,form):
     from .institution_web import esc,page,_hidden
     if action in ("preview","freeze"):
-        expected={"plan_id","pack_id","family","reviewers","validity_reviewer","panel_id"}
+        expected={"plan_id","pack_id","family","reviewers","validity_reviewer","panel_id","connector_id"}
         if action=="freeze":expected|={"digest","confirm"}
         if set(form)!=expected:raise access.AccessDenied("invalid cohort fields")
         args=(directory,actor,form["plan_id"],form["pack_id"],form["family"],[x.strip() for x in form["reviewers"].split(",")],form["validity_reviewer"])
         if action=="freeze":
-            cohort.freeze(*args,form["digest"],panel_id=form["panel_id"],confirmed=form["confirm"]=="yes")
+            cohort.freeze(*args,form["digest"],panel_id=form["panel_id"],connector_id=form["connector_id"] or None,confirmed=form["confirm"]=="yes")
             return None
-        p=cohort.preview(*args,panel_id=form["panel_id"])
+        p=cohort.preview(*args,panel_id=form["panel_id"],connector_id=form["connector_id"] or None)
         body="<p>"+str(len(p["cohort"]["variant_ids"]))+" variants. No candidate answers or automated ratings used in selection.</p><p>Digest "+esc(p["digest"])+"</p><form method='post' action='/validation-freeze'>"+_hidden("csrf",actor["csrf"])+"".join(_hidden(k,v) for k,v in form.items())+_hidden("digest",p["digest"])+"<label><input type='checkbox' name='confirm' value='yes' required> I confirm prospective scope, independent roster and no known prior candidate exposure</label><button>Freeze cohort</button></form>"
         return page("Review prospective cohort",body)
-    if action=="reserve" and set(form)=={"id","assessment_id","confirm"}:
+    if action=="collect" and set(form)=={"id","confirm"}:
+        cohort.reserve_collection(directory,actor,form["id"],confirmed=form["confirm"]=="yes")
+    elif action=="reserve" and set(form)=={"id","assessment_id","confirm"}:
         cohort.reserve(directory,actor,form["id"],form["assessment_id"],confirmed=form["confirm"]=="yes")
     elif action=="attach" and set(form)=={"id","job_id","confirm"}:
         cohort.attach(directory,actor,form["id"],form["job_id"],confirmed=form["confirm"]=="yes")

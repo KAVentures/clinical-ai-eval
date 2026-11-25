@@ -9,11 +9,16 @@ from . import (buyer_plan as plans,buyer_manual as manual,buyer_jobs as jobs,
                buyer_research as research,buyer_agent as buyer,
                institution_access as access,institution_setup as setup,
                formal_review as formal,manifest,pipeline,review_calibration,
-               buyer_assessment as assessment,adjudicate)
+               buyer_assessment as assessment,adjudicate,buyer_connector as connector)
 
 EVENT="validation-cohort-frozen"
 LINK="validation-cohort-job-linked"
 RESERVE="validation-cohort-job-reserved"
+COLLECT="validation-cohort-collection-reserved"
+START="validation-cohort-collection-started"
+SEALED="validation-cohort-collection-receipt-sealed"
+PANEL_SCHEMAS=("prospective-validation-cohort/2","prospective-validation-cohort/3")
+CONTROLLED="prospective-validation-cohort/3"
 SUBMIT="validation-cohort-review-locked"
 ATTEST="validation-cohort-review-attested"
 MAX_COHORTS=100
@@ -62,7 +67,7 @@ def _write_audit(c,actor,action,obj):
     return c.execute("SELECT last_insert_rowid()").fetchone()[0]
 
 
-def _material(directory,plan_id,pack_id,family,reviewers,validity_reviewer,*,panel_id):
+def _material(directory,plan_id,pack_id,family,reviewers,validity_reviewer,*,panel_id,connector_id=None):
     exchange=manual._build(directory,plan_id,pack_id)
     if family not in exchange["family_ids"]:
         raise buyer.BuyerError("choose a runnable canonical text family")
@@ -90,6 +95,11 @@ def _material(directory,plan_id,pack_id,family,reviewers,validity_reviewer,*,pan
        "validity_reviewer":validity_reviewer,"variant_ids":ids,
        "sampling":"all_generated_variants_in_fixed_family_and_pack",
        "external_nonexposure_attested":True,"decision_grade":False}
+    if connector_id is not None:
+        binding,_,_=connector._binding_from_record(directory,exchange,connector_id)
+        d.update(schema=CONTROLLED,collection_binding=binding,
+                 collection_binding_hash=plans._digest(binding),
+                 collection_policy="single_reserved_collection_no_retry")
     return d
 
 
@@ -110,23 +120,23 @@ def _roster(d):
     return d["reviewers"]+[d["validity_reviewer"]]
 
 
-def preview(directory,actor,plan_id,pack_id,family,reviewers,validity_reviewer,*,panel_id):
+def preview(directory,actor,plan_id,pack_id,family,reviewers,validity_reviewer,*,panel_id,connector_id=None):
     with access.db(directory) as c:
         _schema(c)
         _actor(c,actor,"admin")
-        d=_material(directory,plan_id,pack_id,family,reviewers,validity_reviewer,panel_id=panel_id)
+        d=_material(directory,plan_id,pack_id,family,reviewers,validity_reviewer,panel_id=panel_id,connector_id=connector_id)
         for rid in _roster(d):
             _actor(c,{"role":"reviewer","user_id":rid},"reviewer")
         return {"cohort":d,"digest":plans._digest(d)}
 
 
-def freeze(directory,actor,plan_id,pack_id,family,reviewers,validity_reviewer,digest,*,panel_id,confirmed=False):
+def freeze(directory,actor,plan_id,pack_id,family,reviewers,validity_reviewer,digest,*,panel_id,connector_id=None,confirmed=False):
     if confirmed is not True:raise access.AccessDenied("explicit prospective cohort confirmation required")
     with access.db(directory) as c:
         _schema(c)
         c.execute("BEGIN IMMEDIATE")
         _actor(c,actor,"admin")
-        d=_material(directory,plan_id,pack_id,family,reviewers,validity_reviewer,panel_id=panel_id)
+        d=_material(directory,plan_id,pack_id,family,reviewers,validity_reviewer,panel_id=panel_id,connector_id=connector_id)
         if plans._digest(d)!=digest:raise access.AccessDenied("cohort differs from preview")
         for rid in _roster(d):
             _actor(c,{"role":"reviewer","user_id":rid},"reviewer")
@@ -149,6 +159,116 @@ def freeze(directory,actor,plan_id,pack_id,family,reviewers,validity_reviewer,di
         c.execute("INSERT INTO validation_cohorts VALUES(?,?,?,?)",
                   (d["id"],json.dumps(d),digest,seq))
         return d["id"]
+
+
+def _collection_id(d):
+    return "collect-cohort-"+d["id"][:48]
+
+
+def _collection_event(c,d,action,*,required=True):
+    prefix=d["id"]+":"
+    rows=c.execute("SELECT seq,actor,object_id FROM audit WHERE action=? AND outcome='ok' AND substr(object_id,1,?)=?",
+                   (action,len(prefix),prefix)).fetchall()
+    if len(rows)>1 or (required and not rows):
+        raise access.AccessDenied("missing or ambiguous collection audit")
+    return rows[0]["object_id"][len(prefix):] if rows else None
+
+
+def _collection_status(directory,c,d):
+    if d.get("schema")!=CONTROLLED:
+        return None
+    approved=_collection_event(c,d,COLLECT,required=False)
+    if approved is None:
+        return None
+    if approved!=d["collection_binding_hash"]:
+        raise access.AccessDenied("collection approval differs from cohort")
+    row=connector.status(directory,_collection_id(d))
+    if row["binding"]!=d["collection_binding"] or row["binding_hash"]!=approved:
+        raise access.AccessDenied("reserved collection binding changed")
+    return row
+
+
+def reserve_collection(directory,actor,ident,*,confirmed=False):
+    if confirmed is not True:
+        raise access.AccessDenied("explicit single collection reservation required")
+    with access.db(directory) as c:
+        _schema(c)
+        c.execute("BEGIN IMMEDIATE")
+        _actor(c,actor,"admin")
+        d=_read(c,ident)
+        if not d or d.get("schema")!=CONTROLLED:
+            raise access.AccessDenied("connector-bound cohort required")
+        prior=_collection_status(directory,c,d)
+        if prior is not None:
+            return prior
+        exchange=manual._build(directory,d["plan_id"],d["pack_id"])
+        binding,_,_=connector._binding_from_record(directory,exchange,d["collection_binding"]["connector_id"])
+        if binding!=d["collection_binding"]:
+            raise access.AccessDenied("prospective connector or exchange changed")
+        manual.prepare(directory,d["plan_id"],d["pack_id"])
+        row=connector.queue(directory,d["exchange_id"],binding["connector_id"],
+                            expected_binding=d["collection_binding_hash"],cohort_id=_collection_id(d))
+        _write_audit(c,actor["user_id"],COLLECT,d["id"]+":"+d["collection_binding_hash"])
+        return row
+
+
+def _by_collection(c,identifier):
+    if not isinstance(identifier,str) or not identifier.startswith("collect-cohort-"):
+        raise access.AccessDenied("invalid cohort collection")
+    rows=c.execute("SELECT id FROM validation_cohorts WHERE substr(id,1,48)=?",(identifier[len("collect-cohort-"):],)).fetchall()
+    if len(rows)!=1:
+        raise access.AccessDenied("unknown or ambiguous cohort collection")
+    d=_read(c,rows[0]["id"])
+    if not d or d.get("schema")!=CONTROLLED or _collection_id(d)!=identifier:
+        raise access.AccessDenied("connector-bound cohort required")
+    return d
+
+
+def claim_collection(directory,identifier,binding_hash):
+    """Consume the one allowed attempt before the worker can transmit."""
+    with access.db(directory) as c:
+        _schema(c)
+        c.execute("BEGIN IMMEDIATE")
+        d=_by_collection(c,identifier)
+        row=_collection_status(directory,c,d)
+        if not row or row["state"]!="queued" or row["binding_hash"]!=binding_hash:
+            raise access.AccessDenied("exact reserved queued collection required")
+        if _collection_event(c,d,START,required=False) is not None:
+            raise access.AccessDenied("prospective collection attempt already consumed")
+        if _collection_event(c,d,SEALED,required=False) is not None:
+            raise access.AccessDenied("collection receipt already sealed")
+        _write_audit(c,"local-worker",START,d["id"]+":"+binding_hash)
+
+
+def seal_collection(directory,identifier,receipt):
+    """Bind the exact response receipt before it becomes eligible for scoring."""
+    with access.db(directory) as c:
+        _schema(c)
+        c.execute("BEGIN IMMEDIATE")
+        d=_by_collection(c,identifier)
+        approved=_collection_event(c,d,COLLECT)
+        if (_collection_event(c,d,START)!=approved or receipt["binding_hash"]!=approved
+                or plans._digest({k:v for k,v in receipt.items() if k!="receipt_hash"})!=receipt["receipt_hash"]):
+            raise access.AccessDenied("receipt differs from reserved attempt")
+        if _collection_event(c,d,SEALED,required=False) is not None:
+            raise access.AccessDenied("receipt already sealed")
+        _write_audit(c,"local-worker",SEALED,d["id"]+":"+receipt["receipt_hash"])
+
+
+def _check_submission(directory,c,d,b):
+    if d.get("schema")!=CONTROLLED:
+        return
+    row=_collection_status(directory,c,d)
+    if not row or row["state"]!="complete_unscored":
+        raise access.AccessDenied("complete reserved collection required; no substitute responses")
+    receipt=row["receipt"]
+    n=d["collection_binding"]["n_expected"]
+    if (_collection_event(c,d,START)!=d["collection_binding_hash"]
+            or _collection_event(c,d,SEALED)!=receipt["receipt_hash"]
+            or receipt["submission_id"]!=b["submission_id"]
+            or any(receipt[k]!=n for k in ("n_expected","n_provided","n_attempted"))
+            or receipt["n_failed"]!=0):
+        raise access.AccessDenied("assessment does not use exact sealed collection response")
 
 
 def _job_id(d):
@@ -188,10 +308,11 @@ def reserve(directory,actor,ident,assessment_id,*,confirmed=False):
         c.execute("BEGIN IMMEDIATE")
         _actor(c,actor,"admin")
         d=_read(c,ident)
-        if not d or d.get("schema")!="prospective-validation-cohort/2":
+        if not d or d.get("schema") not in PANEL_SCHEMAS:
             raise access.AccessDenied("new panel-bound cohort required")
         b=assessment.check(directory,assessment_id,conn=c)
         _matches(d,b)
+        _check_submission(directory,c,d,b)
         raw,panel=assessment._panel(directory,b["panel_id"])
         if pipeline.execution_panel_digest(panel)!=d["evaluator"]["configuration_digest"]:
             raise access.AccessDenied("parsed evaluator configuration changed")
@@ -216,11 +337,12 @@ def require_queue_approval(directory,jid):
         if not row:
             raise access.AccessDenied("committed cohort reservation required")
         d=_read(c,row["cohort"])
-        if not d or d.get("schema")!="prospective-validation-cohort/2":
+        if not d or d.get("schema") not in PANEL_SCHEMAS:
             raise access.AccessDenied("panel-bound cohort required")
         res=_reservation(c,d)
         b=assessment.check(directory,res["assessment_id"],conn=c)
         _matches(d,b)
+        _check_submission(directory,c,d,b)
         _,panel=assessment._panel(directory,b["panel_id"])
         if pipeline.execution_panel_digest(panel)!=d["evaluator"]["configuration_digest"]:
             raise access.AccessDenied("parsed evaluator configuration changed")
@@ -235,7 +357,7 @@ def _source(directory,d,job_id):
     b=manual._read(folder/"binding.json")
     if b["plan_id"]!=d["plan_id"] or b["exchange_id"]!=d["exchange_id"] or b["pack_content_hash"]!=d["pack_content_hash"]:
         raise access.AccessDenied("job differs from prospective cohort")
-    if d.get("schema")=="prospective-validation-cohort/2":
+    if d.get("schema") in PANEL_SCHEMAS:
         if job_id!=_job_id(d):raise access.AccessDenied("only the reserved job is eligible")
         _matches(d,b)
         _,panel_config,_,_,_=jobs._read_inputs(folder,b)
@@ -282,10 +404,12 @@ def attach(directory,actor,ident,job_id,*,confirmed=False):
         _actor(c,actor,"admin")
         d=_read(c,ident)
         if not d:raise access.AccessDenied("unknown cohort")
-        if d.get("schema")=="prospective-validation-cohort/2":
+        if d.get("schema") in PANEL_SCHEMAS:
             res=_reservation(c,d)
             if not res or res["job"]!=job_id or jobs.status(directory,job_id)["assessment_id"]!=res["assessment_id"]:
                 raise access.AccessDenied("exact reserved execution required")
+        if d.get("schema")==CONTROLLED:
+            _check_submission(directory,c,d,manual._read(jobs._job_path(directory,job_id)/"binding.json"))
         digest,*_=_source(directory,d,job_id)
         prior=_link(c,d)
         if prior:
@@ -301,10 +425,12 @@ def _context(directory,c,ident):
     if not d:raise access.AccessDenied("unknown cohort")
     link=_link(c,d)
     if not link:raise access.AccessDenied("no verified source attached")
-    if d.get("schema")=="prospective-validation-cohort/2":
+    if d.get("schema") in PANEL_SCHEMAS:
         res=_reservation(c,d)
         if not res or res["job"]!=link["job"] or jobs.status(directory,link["job"])["assessment_id"]!=res["assessment_id"]:
             raise access.AccessDenied("linked execution differs from reservation")
+    if d.get("schema")==CONTROLLED:
+        _check_submission(directory,c,d,manual._read(jobs._job_path(directory,link["job"])/"binding.json"))
     digest,responses,results,panel=_source(directory,d,link["job"])
     if digest!=link["manifest"]:raise access.AccessDenied("linked manifest changed")
     return d,link,responses,results,panel
@@ -435,10 +561,12 @@ def inventory(directory,actor):
                             _event(c,ATTEST,d["id"]+":"+rid+":",(att["audit_seq"],att["digest"]))
                         else:_event(c,ATTEST,d["id"]+":"+rid+":")
                         receipts.append({"reviewer":rid,"digest":prior[1] if prior else None,"attested":att is not None})
-                reservation=_reservation(c,d) if d.get("schema")=="prospective-validation-cohort/2" else None
+                reservation=_reservation(c,d) if d.get("schema") in PANEL_SCHEMAS else None
                 out.append({"id":d["id"],"plan_id":d["plan_id"],"family":d["family_id"],"n_variants":len(d["variant_ids"]),
-                            "linked":link is not None,"reviews":receipts,"panel_bound":d.get("schema")=="prospective-validation-cohort/2",
-                            "reserved_job":jobs.status(directory,reservation["job"]) if reservation else None})
+                            "linked":link is not None,"reviews":receipts,"panel_bound":d.get("schema") in PANEL_SCHEMAS,
+                            "reserved_job":jobs.status(directory,reservation["job"]) if reservation else None,
+                            "collection_controlled":d.get("schema")==CONTROLLED,
+                            "reserved_collection":_collection_status(directory,c,d)})
         return out
 
 
@@ -462,13 +590,16 @@ def analyze(directory,actor,ident):
             labels[d["validity_reviewer"]],synthetic=not adjudicate.panel_can_anchor_l2(panel))
         calibration["limitations"]=[x for x in calibration["limitations"] if not x.startswith("The locked review queue is enriched")]
         calibration["limitations"].insert(0,"All variants of a single fixed family and staged case pack were reviewed; not a random patient-population sample.")
-        panel_bound=d.get("schema")=="prospective-validation-cohort/2"
-        if panel_bound:
+        panel_bound=d.get("schema") in PANEL_SCHEMAS
+        controlled=d.get("schema")==CONTROLLED
+        if controlled:
+            calibration["limitations"].append("One locally reserved collection and one execution were bound; only the sealed complete collection receipt is accepted. External tests, runtime provider state and local administrator integrity are not independently controlled.")
+        elif panel_bound:
             calibration["limitations"].append("Evaluator configuration and scientific definitions were frozen before exchange. One assessment was reserved before its dedicated job ran; candidate submission selection, prior external tests and provider state are not independently controlled.")
         else:
             calibration["limitations"].append("Legacy cohort: evaluator and source job were not prospectively bound.")
         out={"schema":"prospective-cohort-calibration/1","cohort":ident,"source_manifest":link["manifest"],
              "calibration":calibration,"decision_grade":False,"independent_credentials_verified_by_software":False,
              "evaluator_and_job_prospectively_bound":panel_bound,
-             "candidate_submission_prospectively_bound":False}
+             "candidate_submission_prospectively_bound":controlled}
         return {**out,"digest":plans._digest(out)}

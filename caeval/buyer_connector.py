@@ -160,20 +160,23 @@ def _binding_from_record(directory,record,connector_id):
             "transport":"literal_loopback_http","decision_grade":False},cfg,record
 
 
-def queue(directory, exchange_id, connector_id, *, expected_binding=None, guided=False):
+def queue(directory, exchange_id, connector_id, *, expected_binding=None, guided=False, cohort_id=None):
+    if cohort_id is not None and (guided or expected_binding is None or not isinstance(cohort_id,str)
+                                  or not re.fullmatch(r"collect-cohort-[0-9a-f]{48}",cohort_id)):
+        raise buyer.BuyerError("exact cohort reservation required")
     binding,_,_=_binding(directory,exchange_id,connector_id)
     digest=buyer_plan._digest(binding)
     if expected_binding is not None and digest!=expected_binding:
         raise buyer.BuyerError("collection binding changed since preview")
     if guided is True and expected_binding is None:
         raise buyer.BuyerError("guided collection requires exact preview")
-    identifier=("collect-guided-"+digest[:32] if guided is True else "collect-"+uuid.uuid4().hex)
+    identifier=cohort_id or ("collect-guided-"+digest[:32] if guided is True else "collect-"+uuid.uuid4().hex)
     with _db(directory) as conn:
         conn.execute("BEGIN IMMEDIATE")
         existing=conn.execute("SELECT id FROM collections WHERE id=?",(identifier,)).fetchone()
         if existing:
             prior=_row(conn,identifier)
-            if guided is not True or prior["binding"]!=binding or prior["binding_hash"]!=digest:
+            if (guided is not True and cohort_id is None) or prior["binding"]!=binding or prior["binding_hash"]!=digest:
                 raise buyer.BuyerError("collection identifier conflict")
         else:
             if conn.execute("SELECT count(*) FROM collections").fetchone()[0]>=MAX_COLLECTIONS:
@@ -288,6 +291,9 @@ def execute(directory,identifier,approved_binding_hash,operator):
     if isinstance(identifier,str) and identifier.startswith("collect-guided-"):
         from . import guided_onboarding
         guided_onboarding.require_approval(directory,identifier,approved_binding_hash)
+    if isinstance(identifier,str) and identifier.startswith("collect-cohort-"):
+        from . import validation_cohort
+        validation_cohort.claim_collection(directory,identifier,approved_binding_hash)
     with _db(directory) as conn:
         conn.execute("BEGIN IMMEDIATE")
         row=_row(conn,identifier)
@@ -352,6 +358,9 @@ def execute(directory,identifier,approved_binding_hash,operator):
                  "source":"operator_authorized_local_http_collection",
                  "decision_grade":False}
         receipt["receipt_hash"]=buyer_plan._digest(receipt)
+        if identifier.startswith("collect-cohort-"):
+            from . import validation_cohort
+            validation_cohort.seal_collection(directory,identifier,receipt)
     except (OSError,ValueError,RuntimeError,KeyError,TypeError):
         state="failed"
         receipt={"reason":"collection inputs, transport or handoff failed"}
