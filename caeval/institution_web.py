@@ -654,6 +654,18 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=image_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
+            if path in ("/cockpit-policy-setup","/cockpit-monitor-setup") and method=="GET":
+                from . import institution_lifecycle_guided as guided
+                access.require(actor,"admin")
+                fn=guided.policy_form if path=="/cockpit-policy-setup" else guided.monitor_form
+                return respond("200 OK",fn(self.directory,actor,_query(env)))
+            if path in ("/cockpit-policy-preview","/cockpit-monitor-preview") and method=="POST":
+                from . import institution_lifecycle_guided as guided
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                fn=guided.policy_preview if path=="/cockpit-policy-preview" else guided.monitor_preview
+                return respond("200 OK",fn(self.directory,actor,form))
             if path=="/lifecycle-cockpit" and method=="GET":
                 from . import institution_lifecycle_cockpit_web as cockpit
                 access.require(actor,"admin","operator","observer")
