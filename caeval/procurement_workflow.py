@@ -217,6 +217,9 @@ def ingest_package(directory, vendor_id: str, workspace) -> dict:
         from . import buyer_risk_activation as activation
         if analysis.get("conditions_hash")!=state["conditions_hash"] or run_meta.get("conditions_hash")!=state["conditions_hash"]:
             raise ProcurementError("risk-bound package did not preserve exact conditions in both artifacts")
+        if not analysis.get("judge_config_digest") or analysis["judge_config_digest"]!=run_meta.get("judge_config_digest"):
+            raise ProcurementError("risk-bound evaluator configuration digest missing or inconsistent")
+        environment["judge_config_digest"]=analysis["judge_config_digest"]
         bound=_json.loads(buyer_research.verified_bytes(ws,checked,"plan_binding"))
         cells=activation.check_package(state,vendor_id,family_id,environment,bound,cells)
         if buyer_research._preflight(ws)!=checked or manifest_mod.verify_manifest(ws)["verdict"]!=manifest_mod.VALID:
@@ -337,6 +340,25 @@ def compare(directory, family_id: str) -> dict:
         out["comparability"]["status"]=procurement.INCOMPARABLE
         out["comparability"]["reasons"].append("Frozen candidate roster has missing verified results.")
         out["comparability"]["note"]="Incomplete candidate roster; measured rates are descriptive only."
+        out["claim_authority"]["reason"]+=" Frozen candidate coverage is incomplete."
+        expected=len(state["conditions"]["risk_activation"]["cell_inventory"][family_id])
+        for hazard in out["per_hazard"]:
+            for row in hazard["products"]:
+                if row["status"] in ("MEETS","DOES_NOT_MEET"):
+                    row["standalone_threshold_status"]=row["status"]
+                    row["status"]="INCONCLUSIVE"
+                    row["meets_threshold"]=None
+                    row["note"]="Standalone threshold estimate only; frozen candidate roster incomplete."
+            for label in out["vendors_without_results"]:
+                hazard["products"].append({"product_id":label,"hazard_id":hazard["hazard_id"],
+                    "metric":hazard["acceptance_criterion"]["metric"],"rate":None,"n":0,
+                    "n_total":expected,"n_missing":expected,"ci":None,"meets_threshold":None,
+                    "status":"NO_EVIDENCE","note":"No verified result for this frozen candidate."})
+            hazard["meets"]=[]
+            hazard["does_not_meet"]=[]
+            hazard["no_evidence"]=sorted(r["product_id"] for r in hazard["products"] if r["status"]=="NO_EVIDENCE")
+            hazard["inconclusive"]=sorted(r["product_id"] for r in hazard["products"] if r["status"]=="INCONCLUSIVE")
+        out["products"]=sorted(v["blinded_label"] for v in state["vendors"])
     return out
 
 
