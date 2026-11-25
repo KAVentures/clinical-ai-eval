@@ -167,3 +167,5 @@ including a terminal collection; deliberately repeated experiments use the
 ordinary collection queue. The existing worker still needs explicit exact
 binding approval before transmission. This is a single-turn path; patient
 conversation and experimental workflows retain separate prerequisites.
+
+Guided collection IDs are deterministic and require one matching committed institutional approval audit before a worker can transmit anything. An orphaned queue entry from an interrupted approval is inert until the identical approval is repeated. Connector configuration drift stops subsequent transmissions. Terminal guided collections are reverified on repeated approval.

@@ -64,7 +64,9 @@ def approve(directory,actor,plan_id,pack_id,connector_id,digest,*,confirmed=Fals
                             expected_binding=material["collection_binding_hash"],guided=True)
         if row["binding_hash"]!=material["collection_binding_hash"]:
             raise access.AccessDenied("collection binding changed")
-        obj=material["digest"]+":"+row["id"]
+        if row["state"]=="invalid":
+            raise access.AccessDenied("previous guided collection no longer verifies")
+        obj=material["collection_binding_hash"]+":"+row["id"]
         events=conn.execute("SELECT seq FROM audit WHERE action='guided-collection-approved' AND object_id=? AND outcome='ok'",(obj,)).fetchall()
         if len(events)>1:
             raise access.AccessDenied("duplicate guided approval audit")
@@ -72,3 +74,15 @@ def approve(directory,actor,plan_id,pack_id,connector_id,digest,*,confirmed=Fals
             access._audit(conn,actor["user_id"],"guided-collection-approved",obj)
         return {"collection_id":row["id"],"state":row["state"],"binding_hash":row["binding_hash"],
                 "decision_grade":False,"network_authorized":False}
+
+
+def require_approval(directory,identifier,binding_hash):
+    """A committed institutional approval is required before the trusted worker sends any prompt."""
+    manual._identifier(binding_hash,digest=True)
+    if identifier!="collect-guided-"+binding_hash[:32]:
+        raise access.AccessDenied("guided collection identifier does not match binding")
+    with access.db(directory) as conn:
+        events=conn.execute("SELECT seq FROM audit WHERE action='guided-collection-approved' AND object_id=? AND outcome='ok'",
+                            (binding_hash+":"+identifier,)).fetchall()
+        if len(events)!=1:
+            raise access.AccessDenied("committed guided collection approval required")

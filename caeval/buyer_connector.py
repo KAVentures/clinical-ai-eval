@@ -167,7 +167,7 @@ def queue(directory, exchange_id, connector_id, *, expected_binding=None, guided
         raise buyer.BuyerError("collection binding changed since preview")
     if guided is True and expected_binding is None:
         raise buyer.BuyerError("guided collection requires exact preview")
-    identifier="collect-"+(digest[:32] if guided is True else uuid.uuid4().hex)
+    identifier=("collect-guided-"+digest[:32] if guided is True else "collect-"+uuid.uuid4().hex)
     with _db(directory) as conn:
         conn.execute("BEGIN IMMEDIATE")
         existing=conn.execute("SELECT id FROM collections WHERE id=?",(identifier,)).fetchone()
@@ -175,11 +175,11 @@ def queue(directory, exchange_id, connector_id, *, expected_binding=None, guided
             prior=_row(conn,identifier)
             if guided is not True or prior["binding"]!=binding or prior["binding_hash"]!=digest:
                 raise buyer.BuyerError("collection identifier conflict")
-            return prior
-        if conn.execute("SELECT count(*) FROM collections").fetchone()[0]>=MAX_COLLECTIONS:
-            raise buyer.BuyerError("collection limit reached")
-        conn.execute("INSERT INTO collections(id,binding,binding_hash,state) VALUES(?,?,?,?)",
-                     (identifier,json.dumps(binding),digest,"queued"))
+        else:
+            if conn.execute("SELECT count(*) FROM collections").fetchone()[0]>=MAX_COLLECTIONS:
+                raise buyer.BuyerError("collection limit reached")
+            conn.execute("INSERT INTO collections(id,binding,binding_hash,state) VALUES(?,?,?,?)",
+                         (identifier,json.dumps(binding),digest,"queued"))
     return status(directory,identifier)
 
 
@@ -283,6 +283,11 @@ def execute(directory,identifier,approved_binding_hash,operator):
     """No automatic retries; failed calls become explicit missing responses."""
     if not isinstance(operator,str) or not operator.strip() or len(operator)>200:
         raise buyer.BuyerError("record executing operator")
+    # Check the institutional audit before taking the collection database
+    # lock; the approval path takes these locks in the opposite store order.
+    if isinstance(identifier,str) and identifier.startswith("collect-guided-"):
+        from . import guided_onboarding
+        guided_onboarding.require_approval(directory,identifier,approved_binding_hash)
     with _db(directory) as conn:
         conn.execute("BEGIN IMMEDIATE")
         row=_row(conn,identifier)
@@ -312,6 +317,10 @@ def execute(directory,identifier,approved_binding_hash,operator):
             if time.monotonic()>=deadline:
                 stopped=True
             if not stopped:
+                # A changed approved endpoint or credential reference must
+                # stop further transmissions, not just invalidate the receipt.
+                if buyer_plan._digest(_config(directory,binding["connector_id"]))!=binding["connector_hash"]:
+                    raise buyer.BuyerError("connector changed during collection")
                 attempted+=1
                 try:
                     text=_call(cfg,item["prompt"],headers)

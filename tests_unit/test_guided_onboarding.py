@@ -42,3 +42,36 @@ class GuidedTests(unittest.TestCase):
             self.assertFalse(a["network_authorized"])
         with access.db(self.root) as conn:
             self.assertEqual(conn.execute("SELECT count(*) FROM audit WHERE action='guided-collection-approved'").fetchone()[0],1)
+
+
+    def test_unapproved_orphan_and_mid_run_drift_fail_closed(self):
+        from caeval import buyer_manual as manual
+        access.provision(self.root,"operator","operator","Synthetic long password")
+        actor={"user_id":"operator","role":"operator"}
+        exchange=manual._load(self.root,self.sub["exchange_id"])
+        folder=self.root/"approved-connectors"
+        folder.mkdir()
+        cfg={"vendor_id":"vendor","target_name":"Example product","target_version":"1.2",
+             "url":"http://127.0.0.1:8769/evaluate","protocol":"clinical-ai-eval-candidate/1",
+             "headers":{},"timeout_seconds":5}
+        path=folder/"fixture.json"
+        path.write_text(json.dumps(cfg))
+        args=(self.root,actor,exchange["plan_id"],"fixture","fixture")
+        d=guide.preview(*args)
+        orphan=connector.queue(self.root,exchange["exchange_id"],"fixture",
+                             expected_binding=d["collection_binding_hash"],guided=True)
+        with patch.object(connector,"_call",side_effect=AssertionError("must not transmit")) as call:
+            with self.assertRaises(access.AccessDenied):
+                connector.execute(self.root,orphan["id"],orphan["binding_hash"],"operator")
+            call.assert_not_called()
+        approved=guide.approve(*args,d["digest"],confirmed=True)
+        self.assertEqual(approved["collection_id"],orphan["id"])
+        calls=[]
+        def drift(cfg_arg,prompt,headers):
+            calls.append(prompt)
+            path.write_text(json.dumps({**cfg,"timeout_seconds":6}))
+            return "Synthetic reply"
+        with patch.object(connector,"_call",side_effect=drift):
+            result=connector.execute(self.root,orphan["id"],orphan["binding_hash"],"operator")
+        self.assertEqual(len(calls),1)
+        self.assertEqual(result["state"],"failed")
