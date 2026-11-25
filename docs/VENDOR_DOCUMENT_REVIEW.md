@@ -3,10 +3,7 @@
 From Candidate intake and assessment setup, open a registered document's
 **Review original source and freshness** link. Active administrators and
 operators can inspect the exact content-addressed original if it is supported
-UTF-8 text up to 512 KiB. No external service, model or parser is called.
-PDF, Office, scanned, oversized and other unsupported documents stay in the
-evidence register; they do not receive fabricated extracted text or a source
-review finding.
+UTF-8 text up to 512 KiB, or explicitly [IT-staged PDF page text](PDF_SOURCE_REVIEW.md). No external service, model or parser is called in browser requests. Unstaged PDFs, Office, scans and unsupported documents remain registered evidence without fabricated text.
 
 Record one explicitly identified vendor statement, a source finding, rationale,
 unique verbatim quotations, document version, and optional issue and expiry
@@ -32,10 +29,7 @@ existing snapshot digest. It does not embed the full source-review ledger.
 Only approved administrators may select original document attachments.
 
 This is an administrative evidence review, not a physician adjudication or
-clinical deployment gate. A future extension should add bounded native PDF
-text extraction with per-page coordinates, governed handling of scans and
-document formats, independent review assignment, and a separately verifiable
-review-ledger export. Actual security, retention and clinical validation
+clinical deployment gate. The PDF workflow uses derived page-relative text offsets, not visual coordinates. Governed scans, Office formats, independent review assignment and separately verifiable review-ledger export remain future work. Actual security, retention and clinical validation
 requirements remain outstanding.
 
 Synthetic tests: `python -m unittest tests_unit.test_vendor_document_review`.
