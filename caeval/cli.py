@@ -1928,7 +1928,7 @@ def main(argv=None):
 
     from . import evaluator_service
     peval = sub.add_parser("evaluator-api", help="scoped institutional request and status service")
-    peval.add_argument("action",choices=["openapi","issue","revoke","inventory","link","approve-queue","serve","verify-receipt"])
+    peval.add_argument("action",choices=["openapi","issue","revoke","inventory","link","approve-queue","serve","verify-receipt","package-preview","package-approve"])
     peval.add_argument("path",nargs="?")
     peval.add_argument("--owner")
     peval.add_argument("--assessment-id")
@@ -1941,6 +1941,7 @@ def main(argv=None):
     peval.add_argument("--confirm",action="store_true",help="explicit approval of grant or existing job linkage")
     peval.add_argument("--file")
     peval.add_argument("--expected-digest")
+    peval.add_argument("--family")
     peval.set_defaults(func=evaluator_service.cli)
 
     from . import evaluator_mcp

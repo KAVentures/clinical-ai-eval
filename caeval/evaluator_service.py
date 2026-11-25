@@ -384,6 +384,13 @@ def openapi():
     spec["paths"]["/v1/evaluation-requests/{request_id}/receipt"]={"get":{"operationId":"resultReceipt",
         "parameters":[{"name":"request_id","in":"path","required":True,"schema":{"type":"string","pattern":"^[0-9a-f]{32}$"}}],
         "responses":{"200":{"description":"Digest-bound completed metadata receipt"},"403":{"description":"Denied"}}}}
+    spec["paths"]["/v1/evaluation-requests/{request_id}/packages/{family}"]={"get":{
+        "operationId":"downloadApprovedPackage",
+        "parameters":[{"name":"request_id","in":"path","required":True,"schema":{"type":"string","pattern":"^[0-9a-f]{32}$"}},
+                      {"name":"family","in":"path","required":True,"schema":{"type":"string"}}],
+        "responses":{"200":{"description":"Separately approved exact canonical archive",
+            "content":{"application/zip":{"schema":{"type":"string","format":"binary"}}}},
+            "403":{"description":"Denied or release unavailable"}}}}
     return spec
 
 
@@ -403,6 +410,15 @@ class App:
             path=env["PATH_INFO"]
             method=env["REQUEST_METHOD"]
             base="/v1/evaluation-requests"
+            if method=="GET" and path.startswith(base+"/") and "/packages/" in path:
+                from . import evaluator_package_release as release
+                rid,family=path[len(base)+1:].split("/packages/")
+                raw,meta=release.download(self.directory,token,rid,family)
+                start("200 OK",[("Content-Type","application/zip"),("Content-Length",str(len(raw))),
+                      ("Content-Disposition",'attachment; filename="clinical-evaluation.zip"'),
+                      ("X-Content-SHA256",meta["sha256"]),("Cache-Control","no-store"),
+                      ("X-Content-Type-Options","nosniff")])
+                return [raw]
             if method=="POST" and path==base:
                 if env.get("CONTENT_TYPE","").split(";")[0]!="application/json":
                     _fail()
@@ -488,6 +504,12 @@ def cli(args):
                 result=link(args.path,args.request_id,args.job_id,confirmed=args.confirm)
             elif args.action=="approve-queue":
                 result=approve_queue(args.path,args.request_id,confirmed=args.confirm)
+            elif args.action in ("package-preview","package-approve"):
+                from . import evaluator_package_release as release
+                if args.action=="package-preview":
+                    result=release.preview(args.path,args.request_id,args.family,args.out)
+                else:
+                    result=release.approve(args.path,args.request_id,args.family,args.expected_digest,confirmed=args.confirm)
             else:
                 _fail()
         print(json.dumps({"ok":True,"result":result},allow_nan=False))
