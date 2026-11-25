@@ -1,0 +1,36 @@
+# Example only: review exact service account, paths, limits, IP and secrets.
+# Replace APPROVED_PUBLIC_IP and EXACT_HASH. No automatic restart.
+[Unit]
+Description=Clinical AI Eval approved HTTPS candidate bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=caeval-bridge
+Group=caeval-bridge
+EnvironmentFile=/etc/caeval/bridge-secrets.env
+ExecStart=/opt/caeval/venv/bin/python -m caeval.approved_https_bridge serve /etc/caeval/bridge.json --approve-binding EXACT_HASH --confirm-external-transmission
+Restart=no
+RuntimeMaxSec=1800
+TimeoutStopSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=127.0.0.1/32 APPROVED_PUBLIC_IP
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+MemoryMax=256M
+TasksMax=16
+
+[Install]
+WantedBy=multi-user.target
