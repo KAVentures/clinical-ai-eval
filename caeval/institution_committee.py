@@ -193,6 +193,8 @@ def overview(directory,actor):
     inventory["rag_grounding_studies"]=institution_rag_grounding.overview(root,actor)
     from . import institution_matched_regression
     inventory["matched_version_regressions"]=institution_matched_regression.overview(root,actor)
+    from . import institution_hospital_referral
+    inventory["hospital_referral_policies"]=institution_hospital_referral.overview(root,actor)
     from . import unified_successor
     inventory["unified_assessment_successors"]=unified_successor.inventory(root,actor)
     if buyer.load(root)!=source:
