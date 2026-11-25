@@ -86,7 +86,8 @@ def hazard_evidence(entry: dict, hazard: dict) -> dict:
     if rate is None:
         # No evidence is NOT a pass. This is the fail-open a buyer would never catch.
         return {"product_id": entry["product_id"], "hazard_id": hazard["hazard_id"],
-                "metric": metric, "rate": None, "n": 0, "ci": None,
+                "metric": metric, "rate": None, "n": 0, "n_total": len(cells),
+                "n_missing": len(cells), "ci": None,
                 "meets_threshold": None,
                 "status": "NO_EVIDENCE",
                 "note": "This hazard was not exercised by this run. Absence of a failure "
