@@ -18,6 +18,7 @@ from . import buyer_manual
 MAX_GRANTS=200
 MAX_TTL=86400
 MAX_USES=300
+MAX_TOTAL_REQUESTS=5000
 MAX_BATCH=12
 MAX_BODY=128*1024
 ISSUE="lifecycle-ingestion-grant-issued"
@@ -65,12 +66,30 @@ def _inventory(conn):
             if not event:
                 raise access.AccessDenied("missing revocation")
             expected[REVOKE].add((r["revoked_seq"],event["actor"],r["id"]))
+    counts={}
     for r in requests:
         grant=by[r["grant_id"]]
+        counts[grant["id"]]=counts.get(grant["id"],0)+1
+        if counts[grant["id"]]>grant["max_uses"]:
+            raise access.AccessDenied("grant usage inventory mismatch")
         payload=json.loads(r["payload"])
         if (d._digest(payload)!=r["digest"] or r["audit_seq"]<=grant["audit_seq"]
                 or (grant["revoked_seq"] is not None and r["audit_seq"]>=grant["revoked_seq"])):
             raise access.AccessDenied("ingestion request integrity mismatch")
+        event=conn.execute("SELECT at FROM audit WHERE seq=?",(r["audit_seq"],)).fetchone()
+        if not event or event["at"]>=grant["expires"]:
+            raise access.AccessDenied("ingestion receipt outside grant lifetime")
+        d._keys(payload,"schema grant_id request_id monitor_id event_digests decision_grade")
+        if (payload["schema"]!="lifecycle-ingestion-receipt/1" or payload["grant_id"]!=grant["id"]
+                or payload["request_id"]!=r["request_id"] or payload["monitor_id"]!=grant["monitor"]
+                or payload["decision_grade"] is not False or not isinstance(payload["event_digests"],list)
+                or not 1<=len(payload["event_digests"])<=MAX_BATCH):
+            raise access.AccessDenied("invalid receipt binding")
+        for digest in payload["event_digests"]:
+            event=conn.execute("SELECT 1 FROM lifecycle_monitor_events WHERE monitor=? AND digest=? AND kind IN ('report','incident') AND audit_seq<?",
+                               (grant["monitor"],digest,r["audit_seq"])).fetchone()
+            if not event:
+                raise access.AccessDenied("receipt references unavailable monitor event")
         expected[USE].add((r["audit_seq"],grant["owner"],r["grant_id"]+":"+r["request_id"]+":"+r["request_digest"]+":"+r["digest"]))
     for event,wanted in expected.items():
         actual={(r["seq"],r["actor"],r["object_id"]) for r in conn.execute(
@@ -170,8 +189,8 @@ def submit(directory,token,doc):
     with access.db(directory) as conn:
         _schema(conn)
         conn.execute("BEGIN IMMEDIATE")
-        _inventory(conn)
         grant,actor=_grant(conn,token)
+        _inventory(conn)
         scopes=json.loads(grant["scopes"])
         for event in doc["events"]:
             d._keys(event,"kind document")
@@ -185,12 +204,16 @@ def submit(directory,token,doc):
             return json.loads(prior["payload"])
         if conn.execute("SELECT count(*) FROM lifecycle_ingestion_requests WHERE grant_id=?",(grant["id"],)).fetchone()[0]>=grant["max_uses"]:
             raise access.AccessDenied("grant usage limit")
+        if conn.execute("SELECT count(*) FROM lifecycle_ingestion_requests").fetchone()[0]>=MAX_TOTAL_REQUESTS:
+            raise access.AccessDenied("ingestion receipt storage limit")
         # All events and the receipt share one transaction; any failure
         # rolls back the entire batch and its audit rows.
         digests=[monitor._event_locked(directory,conn,actor,grant["monitor"],e["kind"],e["document"]) for e in doc["events"]]
         payload={"schema":"lifecycle-ingestion-receipt/1","grant_id":grant["id"],"request_id":doc["request_id"],
                  "monitor_id":grant["monitor"],"event_digests":digests,"decision_grade":False}
         digest=d._digest(payload)
+        # Recheck expiry after the batch; an expired transaction rolls back.
+        _grant(conn,token)
         seq=u._audit(conn,actor,USE,grant["id"]+":"+doc["request_id"]+":"+request_digest+":"+digest)
         conn.execute("INSERT INTO lifecycle_ingestion_requests VALUES(?,?,?,?,?,?)",
                      (grant["id"],doc["request_id"],request_digest,json.dumps(payload),digest,seq))
@@ -201,8 +224,8 @@ def check(directory,token):
     with access.db(directory) as conn:
         _schema(conn)
         conn.execute("BEGIN")
-        _inventory(conn)
         grant,_=_grant(conn,token)
+        _inventory(conn)
         if "check" not in json.loads(grant["scopes"]):
             raise access.AccessDenied("check scope required")
         programme,p,_,status=monitor._get(conn,grant["monitor"],monitor._today())
