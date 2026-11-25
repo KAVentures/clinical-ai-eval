@@ -591,6 +591,30 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=hl7_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/hl7-report?id="+ident)])
+            if path in ("/image-text","/image-text-download","/image-text-report","/image-text-evidence") and method=="GET":
+                from . import institution_image_text as service, institution_image_text_web as image_web, buyer_plan
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if path=="/image-text" and set(q)=={"plan_id"}:
+                    return respond("200 OK",image_web.render(self.directory,actor,q["plan_id"]))
+                if path=="/image-text-report" and set(q)=={"id"}:
+                    return respond("200 OK",image_web.report(self.directory,actor,q["id"]))
+                if path=="/image-text-download" and set(q)=={"plan_id","kind"} and q["kind"] in ("exchange","response_template"):
+                    doc=service.prepare(self.directory,actor,q["plan_id"])[q["kind"]]
+                    access.event(self.directory,actor["user_id"],"synthetic-image-text-fixture-exported",q["plan_id"])
+                elif path=="/image-text-evidence" and set(q)=={"id"}:
+                    doc=service.detail(self.directory,actor,q["id"])["package"]
+                    access.event(self.directory,actor["user_id"],"synthetic-image-text-evidence-exported",q["id"])
+                else:
+                    raise access.AccessDenied("invalid synthetic image-text request")
+                return respond("200 OK",buyer_plan._canonical(doc),extra=[("Content-Disposition",'attachment; filename="synthetic-image-text.json"')],content_type="application/json; charset=utf-8")
+            if path=="/image-text-submit" and method=="POST":
+                from . import institution_image_text_web as image_web
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                ident=image_web.submit(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
             if path=="/evaluator-requests" and method=="GET":
                 from . import evaluator_service_web
                 access.require(actor,"admin")

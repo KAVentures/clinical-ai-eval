@@ -215,3 +215,12 @@ arguments plus --approved-digest DIGEST --confirm-candidate-calls. Native
 HTTPS bridge modality image_text is supported. Only fixed synthetic PNGs are
 allowed; missing results remain unavailable. This is not diagnostic imaging
 validation and does not satisfy a canonical clinical family.
+
+The institutional setup page also provides the image-text rehearsal for a current
+saved plan. Operators download the blinded fixture exchange and submit structured
+outcomes, then export deterministic evidence. The committee inventory shows
+exact matches, mismatches and unavailable responses separately from clinical
+verdicts. Imported outcomes are operator-attested, not verified model calls.
+The ledger only accepts bounded three-digit synthetic readings and statuses;
+it is not a general-purpose patient image repository. The FHIR-specific
+retention policy does not automatically delete these fixed synthetic records.

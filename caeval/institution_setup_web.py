@@ -49,6 +49,7 @@ def render(directory,actor):
         if plan["current"]:
             body+="<p><a href='/fhir?plan_id="+esc(plan["id"])+"'>Synthetic FHIR interoperability rehearsal</a></p>"
             body+="<p><a href='/hl7?plan_id="+esc(plan["id"])+"'>Synthetic HL7 v2 interoperability rehearsal</a></p>"
+            body+="<p><a href='/image-text?plan_id="+esc(plan["id"])+"'>Synthetic image-text readiness rehearsal</a></p>"
         for r in plan["selection"]["required_suites"]:
             body+="<p>"+esc(r["suite"])+" — "+("Runnable" if r["implemented"] else "Required, not runnable")+"</p>"
         if plan["current"] and data["packs"]:
