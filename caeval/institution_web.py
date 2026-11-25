@@ -680,15 +680,15 @@ class InstitutionApp:
                     doc=imaging.download(self.directory,actor,q["id"],q["candidate"],q["kind"])
                     return respond("200 OK",buyer_plan._canonical(doc),extra=[("Content-Disposition",'attachment; filename="imaging-candidate.json"')],content_type="application/json; charset=utf-8")
                 raise access.AccessDenied("invalid imaging request")
-            if path in ("/diagnostic-imaging-preview","/diagnostic-imaging-freeze","/diagnostic-imaging-submit","/diagnostic-imaging-seal","/diagnostic-imaging-evidence") and method=="POST":
+            if path in ("/diagnostic-imaging-preview","/diagnostic-imaging-freeze","/diagnostic-imaging-submit","/diagnostic-imaging-seal","/diagnostic-imaging-evidence","/diagnostic-imaging-transport-import","/diagnostic-imaging-transport-evidence") and method=="POST":
                 from . import institution_imaging_web as imaging_web, buyer_plan
-                access.require(actor,*(("admin","operator") if path=="/diagnostic-imaging-submit" else ("admin",)))
+                access.require(actor,*(("admin","operator") if path in ("/diagnostic-imaging-submit","/diagnostic-imaging-transport-import") else ("admin",)))
                 form=_form(env)
                 _csrf(actor,form)
                 if path=="/diagnostic-imaging-preview":
                     return respond("200 OK",imaging_web.preview(self.directory,actor,form))
                 result=imaging_web.dispatch(self.directory,actor,path,form)
-                if path=="/diagnostic-imaging-evidence":
+                if path in ("/diagnostic-imaging-evidence","/diagnostic-imaging-transport-evidence"):
                     return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="private-imaging-evidence.json"')],content_type="application/json; charset=utf-8")
                 return respond("303 See Other",extra=[("Location","/diagnostic-imaging-study?id="+result)])
             if path=="/evaluator-requests" and method=="GET":
