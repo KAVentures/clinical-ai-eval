@@ -31,7 +31,17 @@ def _inventory(data):
             body+="<p>"+esc(occ["id"])+" · "+esc(occ["state"])+" · Missed intervals "+str(occ["skipped_intervals"])+"</p>"
             for family,metrics in occ.get("metric_states",{}).items():
                 body+="<p>"+esc(family)+": "+esc(", ".join(k+"="+v for k,v in metrics.items()))+"</p>"
-    if not any(data[k] for k in ("assessments","reviews","pilots","schedules")):
+    for programme in data.get("experimental_research_programmes",[]):
+        body+="<h3>Experimental research programme "+esc(programme["id"])+"</h3><p>"+esc(programme["state"])+" · Candidate "+esc(programme.get("vendor_id","unavailable"))+" · Version "+esc(programme.get("target_version","unavailable"))+"</p>"
+        body+="<p>Experimental inventory only. No canonical requirement is satisfied.</p>"
+        if "program_digest" in programme:
+            body+="<p>Frozen programme "+esc(programme["program_digest"])+"</p>"
+            body+="<p>Unplanned related modules: "+esc(", ".join(programme["unplanned_related_modules"]) or "None")+"</p>"
+            for module in programme["modules"]:
+                body+="<p>"+esc(module["kind"])+" · "+esc(module["state"])+" · report "+esc(module["report_digest"] or "unavailable")+"</p>"
+            for row in programme["coverage"]:
+                body+="<p>"+esc(row["suite"])+" · "+("Canonical runnable" if row["canonical_runnable"] else "Required but not run")+" · Experimental reports "+esc(", ".join(row["integrity_checked_reports"]) or "None")+"</p>"
+    if not any(data.get(k,[]) for k in ("assessments","reviews","pilots","schedules","experimental_research_programmes")):
         body+="<p>No lifecycle evidence recorded.</p>"
     return body+"</section>"
 
