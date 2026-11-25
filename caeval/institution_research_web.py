@@ -29,6 +29,7 @@ def render(directory,actor):
         return "<a href='"+esc(_link(path,**params))+"'>"+esc(label)+"</a>"
     body="<p><a href='/'>Workspace</a></p><p>Experimental research only. Use approved non-identifiable data. No model calls, clinical certification or deployment approval.</p>"
     if role in ("admin","operator"):
+        body+="<p><a href='/research-comparisons'>Matched clinical research comparisons</a></p>"
         options="".join("<option value='"+esc(k)+"'>"+esc(v)+"</option>" for k,v in studio.LABELS.items())
         body+="<section><h2>1. Freeze a study</h2>"+form("create","<label>Assessment type <select name='kind' required>"+options+"</select></label>"+upload(),"Freeze specification",True)+"</section>"
     for row in studio.overview(directory,actor):
