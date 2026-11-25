@@ -85,3 +85,7 @@ status interfaces without weakening approval or patient-data boundaries.
 
 The contract is intentionally model- and EHR-independent. It is an
 integration specification, not clinical validation or a deployment approval.
+
+## Collection-to-assessment workflow
+
+After explicitly authorized collection completes, open Candidate response collections in the institutional browser. Select the staged judge panel and governance answers, and optionally the exact activated procurement conditions hash. Preview the frozen handoff digest, then approve it. The workflow uses the exact collection receipt, complete response inventory, prepared assessment digest and selected governance. It creates a canonical prepared assessment without network calls, queue creation or scoring. Incomplete responses cannot be promoted. The assessment remains available in the normal setup and evaluator-service workflows. A later panel or scientific definition change invalidates the preview. Unbound research is explicitly labelled; it is not a procurement comparison.

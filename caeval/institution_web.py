@@ -603,6 +603,14 @@ class InstitutionApp:
             if path=="/collections" and method=="GET":
                 from . import institution_connector_web as collection
                 return respond("200 OK",collection.render(self.directory,actor))
+            if path in ("/collection-assessment-preview","/collection-assessment-prepare") and method=="POST":
+                from . import institution_connector_web as collection
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/collection-assessment-preview":
+                    return respond("200 OK",collection.preview(self.directory,actor,form))
+                collection.prepare(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/setup")])
             if path in ("/collection-queue","/collection-cancel") and method=="POST":
                 from . import institution_connector_web as collection
                 form=_form(env)
