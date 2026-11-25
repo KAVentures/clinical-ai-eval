@@ -57,18 +57,42 @@ class CohortTests(unittest.TestCase):
             c.attach(self.root,admin,ident,ordinary["id"],confirmed=True)
         with self.assertRaises(access.AccessDenied):
             c.reserve(self.root,admin,ident,bound["assessment_id"])
-        orphan=jobs.enqueue(self.root,bound["assessment_id"],cohort_job="job-cohort-"+ident[:48],conn=True)
+        with access.db(self.root) as conn:
+            orphan=jobs.enqueue(self.root,bound["assessment_id"],cohort_job="job-cohort-"+ident[:48],conn=conn)
         with self.assertRaises(access.AccessDenied):
             jobs.execute(self.root,orphan["id"])
         job=c.reserve(self.root,admin,ident,bound["assessment_id"],confirmed=True)
         self.assertEqual(job["id"],orphan["id"])
         self.assertEqual(job["id"],c.reserve(self.root,admin,ident,bound["assessment_id"],confirmed=True)["id"])
+        alternative=assessment.prepare(self.root,sub["submission_id"],"mock",
+                                       {**gov,"deployment_jurisdictions":"Other"})
+        with self.assertRaises(access.AccessDenied):
+            c.reserve(self.root,admin,ident,alternative["assessment_id"],confirmed=True)
+        raw=self.panel.read_bytes()
+        self.panel.write_bytes(raw+b"\n# changed\n")
+        try:
+            with self.assertRaises((access.AccessDenied,manual.buyer.BuyerError)):
+                jobs.execute(self.root,job["id"])
+            self.assertEqual(jobs.status(self.root,job["id"])["status"],"queued")
+        finally:
+            self.panel.write_bytes(raw)
+        with access.db(self.root) as conn:
+            conn.execute("UPDATE validation_cohort_reservations SET assessment_id=? WHERE cohort=?",
+                         (alternative["assessment_id"],ident))
+        with self.assertRaises(access.AccessDenied):
+            jobs.execute(self.root,job["id"])
+        with access.db(self.root) as conn:
+            conn.execute("UPDATE validation_cohort_reservations SET assessment_id=? WHERE cohort=?",
+                         (bound["assessment_id"],ident))
         with self.assertRaises(access.AccessDenied):
             c.attach(self.root,admin,ident,job["id"],confirmed=True)
         completed=jobs.execute(self.root,job["id"])
         self.assertEqual(completed["status"],"completed",completed)
         digest=c.attach(self.root,admin,ident,job["id"],confirmed=True)
         self.assertEqual(digest,c.attach(self.root,admin,ident,job["id"],confirmed=True))
+        self.assertEqual(c.reserve(self.root,admin,ident,bound["assessment_id"],confirmed=True)["status"],"completed")
+        with self.assertRaises(manual.buyer.BuyerError):
+            jobs.execute(self.root,job["id"])
         with self.assertRaises(access.AccessDenied):
             c.packet(self.root,{"user_id":"other","role":"reviewer"},ident)
         for rid in ("a","b","v"):
