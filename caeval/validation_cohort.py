@@ -581,7 +581,7 @@ def inventory(directory,actor):
         return out
 
 
-def analyze(directory,actor,ident):
+def _analyze(directory,actor,ident,*,portable=False):
     with access.db(directory) as c:
         _schema(c)
         _actor(c,actor,"admin")
@@ -596,9 +596,11 @@ def analyze(directory,actor,ident):
             labels[rid]={slots[x["slot"]]:x for x in prior[0]["answers"]}
         locked={"expected_cells":[{"cell_id":cid,"severity":results[cid]["severity"],"mandatory":False} for cid in d["variant_ids"]],
                 "n_expected":len(d["variant_ids"]),"min_reviewers_per_cell":2}
+        reviewers=[{cid:r["verdict"] for cid,r in labels[rid].items()} for rid in d["reviewers"]]
+        validity=labels[d["validity_reviewer"]]
+        synthetic=not adjudicate.panel_can_anchor_l2(panel)
         calibration=review_calibration.analyze(locked,list(results.values()),panel["names"],
-            [{cid:r["verdict"] for cid,r in labels[rid].items()} for rid in d["reviewers"]],
-            labels[d["validity_reviewer"]],synthetic=not adjudicate.panel_can_anchor_l2(panel))
+            reviewers,validity,synthetic=synthetic)
         calibration["limitations"]=[x for x in calibration["limitations"] if not x.startswith("The locked review queue is enriched")]
         calibration["limitations"].insert(0,"All variants of a single fixed family and staged case pack were reviewed; not a random patient-population sample.")
         panel_bound=d.get("schema") in PANEL_SCHEMAS
@@ -613,4 +615,24 @@ def analyze(directory,actor,ident):
              "calibration":calibration,"decision_grade":False,"independent_credentials_verified_by_software":False,
              "evaluator_and_job_prospectively_bound":panel_bound,
              "candidate_submission_prospectively_bound":controlled}
-        return {**out,"digest":plans._digest(out)}
+        report={**out,"digest":plans._digest(out)}
+        if not portable:
+            return report
+        from . import portable_calibration
+        inputs=portable_calibration.project(locked,list(results.values()),panel["names"],
+            reviewers,validity,synthetic=synthetic)
+        package=portable_calibration.build(inputs,{"cohort":ident,"cohort_digest":plans._digest(d),
+            "source_manifest":link["manifest"],"institutional_report_digest":report["digest"],
+            "evaluator_and_job_bound":panel_bound,"candidate_submission_bound":controlled})
+        _write_audit(c,actor["user_id"],"validation-cohort-calibration-exported",ident+":"+package["digest"])
+        return package
+
+
+def analyze(directory,actor,ident):
+    return _analyze(directory,actor,ident)
+
+
+def export_calibration(directory,actor,ident,*,confirmed=False):
+    if confirmed is not True:
+        raise access.AccessDenied("explicit structured-label export approval required")
+    return _analyze(directory,actor,ident,portable=True)

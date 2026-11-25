@@ -124,6 +124,16 @@ class CohortTests(unittest.TestCase):
         self.assertFalse(out["decision_grade"])
         self.assertTrue(out["evaluator_and_job_prospectively_bound"])
         self.assertFalse(out["candidate_submission_prospectively_bound"])
+        from caeval import portable_calibration as portable
+        with self.assertRaises(access.AccessDenied):
+            c.export_calibration(self.root,admin,ident)
+        with self.assertRaises(access.AccessDenied):
+            c.export_calibration(self.root,{"user_id":"a","role":"reviewer"},ident,confirmed=True)
+        pkg=c.export_calibration(self.root,admin,ident,confirmed=True)
+        self.assertEqual(pkg["provenance"]["institutional_report_digest"],out["digest"])
+        self.assertEqual(portable.verify(pkg,pkg["digest"])["calibration"]["exclusive_coverage"],out["calibration"]["exclusive_coverage"])
+        self.assertEqual(pkg,c.export_calibration(self.root,admin,ident,confirmed=True))
+        self.assertNotIn("response_text",json.dumps(pkg))
         with access.db(self.root) as conn:
             conn.execute("DELETE FROM validation_cohort_attestations WHERE reviewer='a'")
         with self.assertRaises(access.AccessDenied):

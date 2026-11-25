@@ -45,6 +45,7 @@ def render(directory,actor):
                         body+=form("attest",_hidden("id",ident)+_hidden("reviewer",review["reviewer"])+_hidden("digest",review["digest"])+"<label><input type='checkbox' name='confirm' value='yes' required> I verified identity, clinical expertise and independence externally</label>","Attest review")
                 if row["reviews"] and all(r["attested"] for r in row["reviews"]):
                     body+=form("analyze",_hidden("id",ident),"Compute cohort calibration")
+                    body+=form("export",_hidden("id",ident)+"<label><input type='checkbox' name='confirm' value='yes' required> Authorize export of structured labels and case clusters; no case text or reviewer identifiers. Small cohorts may still be sensitive.</label>","Download replayable calibration JSON")
         body+="</section>"
     return page("Prospective validation cohorts",body)
 

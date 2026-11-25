@@ -155,3 +155,17 @@ New cohorts require an approved panel ID and freeze the exact panel bytes, parse
 ### Connector-bound cohort revision
 
 A staged single-turn candidate connector can optionally be frozen at cohort creation. A dedicated collection ID is reserved; a committed audit authorizes exactly one worker attempt, and its receipt is sealed before handoff. Only that exact complete submission, with every planned call attempted and provided, may enter the dedicated evaluation job. Incomplete or failed attempts cannot be substituted, and do not yield calibration. The worker still requires explicit execution approval. This local control does not prove absence of external tests, vendor state changes, or administrator tampering. Cohorts without a frozen connector retain the earlier weaker claim.
+
+### Portable statistical replay
+
+After all independent reviews are locked and attested, an administrator may
+explicitly export a portable cohort calibration JSON. It contains local cluster
+numbers, counts of independent clinician votes, validity responses, automated
+binary outcomes, fixed limitations and study/source digest references. It omits
+case and response text, original case identifiers, reviewer account IDs, judge
+names, credentials and paths. The recipient can run verify-cohort-calibration
+PACKAGE --expected-digest DIGEST (communicated independently) without a model
+call or access to the hospital workspace. Replay verifies the calculation, not
+underlying source evidence, clinician credentials, prospective timing or study
+validity. Structured labels can still be sensitive; institutional authorization
+is necessary for distribution. The export is not a clinical approval.

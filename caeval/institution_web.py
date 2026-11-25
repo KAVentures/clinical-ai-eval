@@ -289,6 +289,16 @@ class InstitutionApp:
             if path=="/validation" and method=="GET":
                 from . import validation_cohort_web as validation
                 return respond("200 OK",validation.render(self.directory,actor))
+            if path=="/validation-export" and method=="POST":
+                from . import validation_cohort,portable_calibration
+                form=_form(env)
+                _csrf(actor,form)
+                if set(form)!={"id","confirm"}:
+                    raise access.AccessDenied("exact calibration export approval required")
+                package=validation_cohort.export_calibration(self.directory,actor,form["id"],confirmed=form["confirm"]=="yes")
+                return respond("200 OK",portable_calibration.encode(package),
+                    extra=[("Content-Disposition",'attachment; filename="calibration.json"')],
+                    content_type="application/json; charset=utf-8")
             if path=="/validation-review" and method=="GET":
                 from . import validation_cohort_web as validation
                 q=_query(env)
