@@ -19,7 +19,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import adapters, buyer_agent as buyer, buyer_manual as manual, buyer_plan, candidate_protocol, citation_trace_protocol, interoperability_protocol
+from . import adapters, buyer_agent as buyer, buyer_manual as manual, buyer_plan, candidate_protocol, citation_trace_protocol, interoperability_protocol, image_text_readiness
 
 MAX_CONNECTOR_BYTES = 65536
 MAX_REPLY_BYTES = 256 * 1024
@@ -95,7 +95,7 @@ def _config(directory, connector_id):
     common={"vendor_id","target_name","target_version","url","headers","timeout_seconds"}
     if not isinstance(config,dict) or set(config) not in (common|{"prompt_field","answer_path"},common|{"protocol"}):
         raise buyer.BuyerError("invalid connector configuration fields")
-    if "protocol" in config and config["protocol"] not in (candidate_protocol.PROTOCOL,citation_trace_protocol.PROTOCOL,interoperability_protocol.PROTOCOL):
+    if "protocol" in config and config["protocol"] not in (candidate_protocol.PROTOCOL,citation_trace_protocol.PROTOCOL,interoperability_protocol.PROTOCOL,image_text_readiness.PROTOCOL):
         raise buyer.BuyerError("unsupported candidate protocol")
     manual._identifier(config["vendor_id"])
     for k in ("target_name","target_version"):
@@ -145,7 +145,7 @@ def _binding(directory, exchange_id, connector_id):
 def _binding_from_record(directory,record,connector_id):
     exchange_id=record["exchange_id"]
     cfg=_config(directory,connector_id)
-    if cfg.get("protocol") in (citation_trace_protocol.PROTOCOL,interoperability_protocol.PROTOCOL):
+    if cfg.get("protocol") in (citation_trace_protocol.PROTOCOL,interoperability_protocol.PROTOCOL,image_text_readiness.PROTOCOL):
         raise buyer.BuyerError("structured connector requires its dedicated assessment workflow")
     if (record["vendor_id"]!=cfg["vendor_id"] or record["target"]["name"]!=cfg["target_name"]
             or record["target"]["version"]!=cfg["target_version"]):

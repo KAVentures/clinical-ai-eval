@@ -201,3 +201,17 @@ models. Existing guided collection, conversation, research and mixed-profile
 workflows can prepare the successor's separate execution approvals.
 
 Locally staged text, structured and conversation connectors are scanned without making calls. Exact vendor/product matches at other declared versions appear as reassessment suggestions; an operator must still review and freeze a new scope. Missing or invalid execution evidence is labelled no_verified_package, not proof that no execution occurred. Connector declarations do not establish release chronology or independently attest the deployed model.
+
+## Synthetic multimodal image + text readiness
+
+The clinical-ai-eval-image-text/1 contract tests exact readings from 12 fixed
+fictional monitor-display images. Use image-text-readiness openapi, or prepare
+with --target-name and --target-version to obtain a blinded exchange and
+response template. Use assess --plan and --responses, and verify --evidence
+with optional --expected-digest. Stage an approved-connectors entry with
+protocol clinical-ai-eval-image-text/1 for automated collection; preview
+WORKSPACE --plan-id PLAN --connector-id CONNECTOR, then run with the same
+arguments plus --approved-digest DIGEST --confirm-candidate-calls. Native
+HTTPS bridge modality image_text is supported. Only fixed synthetic PNGs are
+allowed; missing results remain unavailable. This is not diagnostic imaging
+validation and does not satisfy a canonical clinical family.
