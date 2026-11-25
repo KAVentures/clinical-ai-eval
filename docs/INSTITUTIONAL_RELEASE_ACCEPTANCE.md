@@ -27,3 +27,15 @@ all gates have been executed in a real healthcare institution. Treat
 synthetic/mock evidence, experimental family maturity and unresolved
 review findings accordingly. Keep independently authorized deployment
 decisions separate from software reports.
+
+## Committee dossier
+
+Freeze the committee snapshot after evaluation and implementation review. Verify
+that its lifecycle inventory contains exact assessment IDs and verified package
+references, aggregate independent-review coverage, pilot revisions, linked
+assessment integrity, and regression occurrence states. Review coverage is not
+a verdict. The inventory omits reviewer identities, answers, transcripts,
+incident descriptions and worker approval hashes. It is a point-in-time
+inventory across separate stores, not a transactional deployment authorization.
+After any changed source evidence, freeze a new snapshot; old snapshots remain
+historical. Earlier snapshots without the inventory remain readable.
