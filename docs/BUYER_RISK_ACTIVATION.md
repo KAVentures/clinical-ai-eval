@@ -43,3 +43,7 @@ Run the synthetic acceptance tests:
 This is software acceptance, not clinical validation. Independently verified evaluator runtime settings and additional executor
 support remain separate follow-up work. Governed job handoff and multi-candidate
 activation are described in the linked guide.
+
+### Evaluator configuration binding
+
+Risk-bound runs record the digest of the complete parsed judge configuration in both analysis and run metadata, including quorum, judge roles and configured inference options. Job verification and package ingestion check it against the approved configuration. This does not independently attest runtime provider state, resolved credentials or remote model behavior.
