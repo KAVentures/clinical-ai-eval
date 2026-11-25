@@ -159,6 +159,25 @@ def _read(conn,row):
             or set(mapping.values())!={p["plan_id"] for p in new["plans"]}
             or new["requirements"]!=[{**r,"plan_id":mapping[r["plan_id"]]} for r in old["requirements"]]):
         raise access.AccessDenied("programme lineage requirement inventory mismatch")
+    version._schema(conn)
+    old_by={p["plan_id"]:p for p in old["plans"]}
+    new_by={p["plan_id"]:p for p in new["plans"]}
+    for pair in doc["plans"]:
+        d._keys(pair,"baseline_plan_id successor_plan_id baseline_version successor_version native_reassessment_digest")
+        a,b=pair["baseline_plan_id"],pair["successor_plan_id"]
+        p,q=old_by[a],new_by[b]
+        if (pair["baseline_version"]!=p["target"]["version"] or pair["successor_version"]!=q["target"]["version"]
+                or p["vendor_id"]!=q["vendor_id"] or p["target"]["name"]!=q["target"]["name"]):
+            raise access.AccessDenied("programme lineage candidate mismatch")
+        if a==b:
+            if pair["native_reassessment_digest"] is not None:
+                raise access.AccessDenied("unchanged plan cannot claim reassessment")
+        else:
+            matches=[r for r in version._history(conn,a) if r["successor_id"]==b]
+            if len(matches)!=1 or matches[0]["digest"]!=pair["native_reassessment_digest"]:
+                raise access.AccessDenied("native reassessment lineage changed")
+    if not any(p["native_reassessment_digest"] is not None for p in doc["plans"]):
+        raise access.AccessDenied("version lineage lacks a native change")
     return doc
 
 
