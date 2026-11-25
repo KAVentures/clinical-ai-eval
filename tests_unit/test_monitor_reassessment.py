@@ -71,6 +71,14 @@ class MonitorReassessmentTests(unittest.TestCase):
         self.assertEqual(rows[0]["n_linked"],1)
         self.assertNotIn(iid,json.dumps(rows))
         self.assertNotIn("incident_digest",json.dumps(rows))
+        from caeval import institution_lifecycle_cockpit as cockpit
+        doc=cockpit.overview(self.root,self.admin)
+        row=next(r for r in doc["vendors"] if r["programme_id"]==self.baseline)
+        self.assertEqual(row["handoff_state"],"available")
+        self.assertEqual(row["handoff"]["n_linked"],1)
+        self.assertEqual(row["handoff"]["successor_programmes"],[good])
+        self.assertTrue(row["monitor"]["version_reassessment_required"])
+        self.assertEqual(self.request("admin","/lifecycle-cockpit?programme="+self.baseline)["status"],"200 OK")
         self.assertTrue(preflight.check(self.root,services_stopped=True)["ok"])
         with access.db(self.root) as conn:
             conn.execute("DELETE FROM monitor_version_handoffs")
