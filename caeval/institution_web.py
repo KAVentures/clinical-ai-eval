@@ -144,6 +144,7 @@ def _dashboard(directory, actor):
         body += "<p><a href='/research'>Clinical research studio</a></p>"
     if role in ("admin","reviewer"):
         body += "<p><a href='/formal'>Formal independent clinical review</a></p>"
+        body += "<p><a href='/validation'>Prospective validation cohorts</a></p>"
         body += "<p><a href='/patient-review'>Patient transcript physician review</a></p>"
         body += "<p><a href='/world-review'>Patient-world validity review</a></p>"
     if role == "reviewer":
@@ -285,6 +286,21 @@ class InstitutionApp:
                     body+="<tr>"+"".join("<td>"+esc(row[k])+"</td>" for k in ("seq","actor","action","object_id","outcome"))+"</tr>"
                 access.event(self.directory,actor["user_id"],"audit-opened")
                 return respond("200 OK",page("Access audit",body+"</table>"))
+            if path=="/validation" and method=="GET":
+                from . import validation_cohort_web as validation
+                return respond("200 OK",validation.render(self.directory,actor))
+            if path=="/validation-review" and method=="GET":
+                from . import validation_cohort_web as validation
+                q=_query(env)
+                if set(q)!={"id"}:raise access.AccessDenied("select exact cohort")
+                return respond("200 OK",validation.review(self.directory,actor,q["id"]))
+            if path in ("/validation-preview","/validation-freeze","/validation-attach","/validation-submit","/validation-attest","/validation-analyze") and method=="POST":
+                from . import validation_cohort_web as validation
+                form=_form(env)
+                _csrf(actor,form)
+                result=validation.dispatch(self.directory,actor,path[len("/validation-"):],form)
+                if result is not None:return respond("200 OK",result)
+                return respond("303 See Other",extra=[("Location","/validation")])
             if path=="/formal" and method=="GET":
                 from . import institution_formal_web as formal
                 return respond("200 OK",formal.render(self.directory,actor))

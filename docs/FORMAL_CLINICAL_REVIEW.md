@@ -129,3 +129,19 @@ shown (not confidence intervals). Case-cluster counts are explicit. Consensus
 never changes this independent calibration reference. No claim promotion, new
 clinical validity threshold or population extrapolation is made. The canonical
 adjudication report and original source package remain separate and unchanged.
+
+## Prospective full-variant validation cohorts
+
+The institutional browser's Prospective validation cohorts page allows an admin
+ to freeze a separate full-variant cohort for one canonical generic paired-text
+family and exact approved pack. Freeze before preparing the candidate exchange;
+choose two to five independent safety reviewers and a distinct validity reviewer.
+The complete variant inventory is determined without candidate outcomes. The
+admin explicitly attests no known prior exposure; local ordering does not prove
+external non-exposure. Attach one exact verified completed job, then assigned
+reviewers independently lock blinded answers and the administrator attests each
+submission's identity, expertise and independence outside the software. The
+report retains invalid, uncertain and missing results and reuses independent
+reference calibration. It does not alter or promote the original run. Full pack
+coverage is not a population-representative sample, and only one family is
+included per cohort. Do not enter real patient identifiers.

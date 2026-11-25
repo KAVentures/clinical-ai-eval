@@ -17,6 +17,8 @@ def render(directory,actor):
         return "<label>Document <input type='file' name='document' required></label>"
     body="<p><a href='/'>Workspace</a></p><p>Operator preparation only. Do not upload patient identifiers or secrets. No model calls, clinical approvals or purchasing decisions occur here.</p>"
     body+="<p><a href='/buyer-risk-active'>Active risk-bound assessment (if configured)</a></p>"
+    if actor["role"]=="admin":
+        body+="<p><a href='/validation'>Freeze prospective validation cohorts before preparing exchanges</a></p>"
     body+="<section><h2>1. Register candidates</h2>"+form("vendor",text("vendor_id","Candidate ID",64)+text("name","Candidate name"),"Register candidate")+"</section>"
     vendor_options=[(v["vendor_id"],v["name"]) for v in data["vendors"]]
     for v in data["vendors"]:
