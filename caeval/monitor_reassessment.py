@@ -171,7 +171,7 @@ def view(directory,actor,ident):
     with access.db(directory) as conn:
         _schema(conn)
         conn.execute("BEGIN")
-        u._actor(conn,actor,"admin","operator","observer")
+        u._actor(conn,actor,"admin","operator")
         _inventory(conn)
         return _view(directory,conn,actor,ident,choices=actor["role"]=="admin")
 
@@ -182,5 +182,15 @@ def overview(directory,actor):
         conn.execute("BEGIN")
         u._actor(conn,actor,"admin","operator","observer")
         _inventory(conn)
-        return [_view(directory,conn,actor,r["id"]) for r in conn.execute(
-            "SELECT id FROM lifecycle_monitors ORDER BY id").fetchall()]
+        result=[]
+        for r in conn.execute("SELECT id FROM lifecycle_monitors ORDER BY id").fetchall():
+            doc=_view(directory,conn,actor,r["id"])
+            items=doc["incidents"]
+            result.append({"monitor_id":doc["monitor_id"],"baseline_id":doc["baseline_id"],
+                           "vendor_id":doc["vendor_id"],"n_reported_changes":len(items),
+                           "n_linked":sum(i["state"]=="linked" for i in items),
+                           "n_current_successors":sum(i["successor_state"]=="current" for i in items),
+                           "successor_programmes":sorted({i["handoff"]["successor_id"] for i in items if i["handoff"]}),
+                           "version_reassessment_required":doc["version_reassessment_required"],
+                           "decision_grade":False,"deployment_authorized":False})
+        return result
