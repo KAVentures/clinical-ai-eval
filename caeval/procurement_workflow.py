@@ -95,8 +95,11 @@ def add_vendor(directory, vendor_id: str, subject_spec: dict, blinded_label: str
     if state["status"] != "open":
         raise ProcurementError(f"procurement is {state['status']}; cannot add vendors")
     activation=state["conditions"].get("risk_activation")
-    if activation is not None and (state["vendors"] or vendor_id!=activation["vendor_id"] or subject_spec!=activation["target"]):
-        raise ProcurementError("risk-bound study admits only the exact registered candidate")
+    if activation is not None:
+        from . import buyer_risk_activation as risk
+        roster=risk.candidates(activation)
+        if state["results"] or vendor_id not in roster or subject_spec!=roster[vendor_id]["target"]:
+            raise ProcurementError("risk-bound study admits only the exact frozen candidate roster before results")
     if any(v["vendor_id"] == vendor_id for v in state["vendors"]):
         raise ProcurementError(f"vendor {vendor_id!r} already registered")
     label = blinded_label or f"Product {chr(ord('A') + len(state['vendors']))}"
