@@ -347,6 +347,11 @@ class InstitutionApp:
                     fields,blob,_=_setup_upload(env,("csrf","kind","id","approve","confirm","document"))
                     _csrf(actor,fields)
                     studio.dispatch(self.directory,actor,action,fields,blob)
+                elif action in ("queue","cancel-collection"):
+                    access.require(actor,"admin","operator")
+                    form=_form(env)
+                    _csrf(actor,form)
+                    studio.dispatch(self.directory,actor,action,form)
                 elif action in ("assign","attest","analyze","lock"):
                     access.require(actor,"reviewer" if action=="lock" else "admin")
                     form=_form(env)
