@@ -564,6 +564,30 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=fhir_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/fhir-report?id="+ident)])
+            if path in ("/hl7","/hl7-download","/hl7-report","/hl7-evidence") and method=="GET":
+                from . import institution_hl7 as service, institution_hl7_web as hl7_web, buyer_plan
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if path=="/hl7" and set(q)=={"plan_id"}:
+                    return respond("200 OK",hl7_web.render(self.directory,actor,q["plan_id"]))
+                if path=="/hl7-report" and set(q)=={"id"}:
+                    return respond("200 OK",hl7_web.report(self.directory,actor,q["id"]))
+                if path=="/hl7-download" and set(q)=={"plan_id","kind"} and q["kind"] in ("exchange","response_template"):
+                    doc=service.prepare(self.directory,actor,q["plan_id"])[q["kind"]]
+                    access.event(self.directory,actor["user_id"],"synthetic-hl7-fixture-exported",q["plan_id"])
+                elif path=="/hl7-evidence" and set(q)=={"id"}:
+                    doc=service.detail(self.directory,actor,q["id"])["package"]
+                    access.event(self.directory,actor["user_id"],"synthetic-hl7-evidence-exported",q["id"])
+                else:
+                    raise access.AccessDenied("invalid synthetic HL7 v2 request")
+                return respond("200 OK",buyer_plan._canonical(doc),extra=[("Content-Disposition",'attachment; filename="synthetic-hl7.json"')],content_type="application/json; charset=utf-8")
+            if path=="/hl7-submit" and method=="POST":
+                from . import institution_hl7_web as hl7_web
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                ident=hl7_web.submit(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/hl7-report?id="+ident)])
             if path=="/evaluator-requests" and method=="GET":
                 from . import evaluator_service_web
                 access.require(actor,"admin")

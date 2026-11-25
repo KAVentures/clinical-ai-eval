@@ -1775,6 +1775,21 @@ def main(argv=None):
         from . import fhir_readiness
         return fhir_readiness.cli(args)
     pfhir.set_defaults(func=run_fhir)
+    phl7 = sub.add_parser("hl7-readiness", help="synthetic HL7 v2.5.1 ORU_R01 extraction assessment and offline replay")
+    hl7_sub=phl7.add_subparsers(dest="action",required=True)
+    q=hl7_sub.add_parser("prepare")
+    q.add_argument("--target-name",required=True)
+    q.add_argument("--target-version",required=True)
+    q=hl7_sub.add_parser("assess")
+    q.add_argument("--plan",required=True)
+    q.add_argument("--responses",required=True)
+    q=hl7_sub.add_parser("verify")
+    q.add_argument("evidence")
+    q.add_argument("--expected-digest")
+    def run_hl7(args):
+        from . import hl7_readiness
+        return hl7_readiness.cli(args)
+    phl7.set_defaults(func=run_hl7)
     pcd = sub.add_parser("verify-committee-dossier", help="verify frozen portable committee evidence offline")
     pcd.add_argument("dossier")
     pcd.add_argument("--expected-digest", help="independently communicated dossier digest")

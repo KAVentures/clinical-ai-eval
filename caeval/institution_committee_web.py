@@ -51,7 +51,13 @@ def _inventory(data):
             counts=row["summary"]
             body+="<p>Exact extraction: "+esc(counts["exact_match"])+" / "+esc(counts["planned"])+" · Mismatch: "+esc(counts["mismatch"])+" · Unavailable: "+esc(counts["unavailable"])+"</p>"
         body+="<p>Fixed synthetic extraction only; not FHIR conformance or clinical validity.</p>"
-    if not any(data.get(k,[]) for k in ("assessments","reviews","pilots","schedules","experimental_research_programmes","buyer_risk_protocols","synthetic_fhir_assessments")):
+    for row in data.get("synthetic_hl7_assessments",[]):
+        body+="<h3>Synthetic HL7 v2 rehearsal "+esc(row["id"])+"</h3><p>"+esc(row["state"])+" · "+esc(row.get("vendor_id","unavailable"))+" · Version "+esc(row.get("target_version","unavailable"))+"</p>"
+        if "summary" in row:
+            counts=row["summary"]
+            body+="<p>Exact extraction: "+esc(counts["exact_match"])+" / "+esc(counts["planned"])+" · Mismatch: "+esc(counts["mismatch"])+" · Unavailable: "+esc(counts["unavailable"])+"</p>"
+        body+="<p>Fixed synthetic extraction only; not HL7 v2 conformance or clinical validity.</p>"
+    if not any(data.get(k,[]) for k in ("assessments","reviews","pilots","schedules","experimental_research_programmes","buyer_risk_protocols","synthetic_fhir_assessments","synthetic_hl7_assessments")):
         body+="<p>No lifecycle evidence recorded.</p>"
     return body+"</section>"
 
