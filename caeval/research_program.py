@@ -111,11 +111,14 @@ def freeze(directory,actor,plan_id,studies,*,confirmed=False):
         return ident
 
 
-def _load(directory,conn,actor,identifier):
+def _load(directory,conn,actor,identifier,*,committee=False):
     row=conn.execute("SELECT * FROM research_programs WHERE id=?",(manual._identifier(identifier),)).fetchone()
     if not row:
         raise access.AccessDenied("unknown research programme")
-    _manager(conn,actor,row)
+    if committee:
+        studio._actor(conn,actor,"admin","operator","observer")
+    else:
+        _manager(conn,actor,row)
     payload=json.loads(row["payload"])
     if (not isinstance(payload,dict) or payload.get("schema")!=SCHEMA
             or payload.get("decision_grade") is not False or payload.get("id")!=identifier
@@ -174,8 +177,10 @@ def _member(directory,conn,record,payload,bp,related,kind,m,*,replay=False):
     return result
 
 
-def _status(directory,conn,actor,identifier,*,replay=False):
-    record,payload,bp,related=_load(directory,conn,actor,identifier)
+def _status(directory,conn,actor,identifier,*,replay=False,committee=False):
+    if committee and replay:
+        raise access.AccessDenied("committee inventory cannot replay sensitive evidence")
+    record,payload,bp,related=_load(directory,conn,actor,identifier,committee=committee)
     members=[]
     for kind,m in sorted(payload["members"].items()):
         try:
@@ -247,3 +252,33 @@ def inventory(directory,actor,plan_id):
             except (ValueError,RuntimeError,OSError,KeyError,TypeError,AttributeError):
                 continue
         return {"plan_id":plan_id,"target":bp["plan"]["target"],"programmes":programmes,"choices":choices}
+
+
+def committee_inventory(directory,conn,actor,known):
+    """Aggregate programme coverage only, visible to committee roles.
+
+    Never expose owners, reviewer IDs, candidate material, free-text study
+    intents or report summaries. A current report digest is integrity metadata,
+    not a replay receipt or canonical clinical finding.
+    """
+    _schema(conn)
+    studio._actor(conn,actor,"admin","operator","observer")
+    result=[]
+    for row in conn.execute("SELECT id FROM research_programs ORDER BY id").fetchall():
+        identifier=row["id"]
+        entry={"id":identifier,"state":"unavailable","decision_grade":False}
+        try:
+            record,payload,bp,related=_load(directory,conn,actor,identifier,committee=True)
+            if bp["vendor_id"] not in known:
+                raise access.AccessDenied("programme vendor no longer registered")
+            doc=_status(directory,conn,actor,identifier,committee=True)
+            members=[{k:m[k] for k in ("kind","state","report_digest","decision_grade")} for m in doc["members"]]
+            entry.update(vendor_id=bp["vendor_id"],target_version=payload["target"]["version"],
+                         program_digest=record["digest"],state="reports_available" if doc["all_planned_reports_available"] else "incomplete",
+                         modules=members,unplanned_related_modules=doc["unplanned_related_modules"],
+                         coverage=[{k:s[k] for k in ("suite","canonical_runnable","canonical_requirement_satisfied",
+                                                   "planned_modules","integrity_checked_reports")} for s in doc["coverage"]])
+        except (ValueError,RuntimeError,OSError,KeyError,TypeError,AttributeError,IndexError):
+            pass
+        result.append(entry)
+    return result
