@@ -187,5 +187,18 @@ class UnifiedAssessmentTests(unittest.TestCase):
             u.link_preview(self.root,self.actors["admin"],ident,"text-a","nonexistent-job")
 
 
+    def test_guided_plan_selection_preserves_unavailable_suites(self):
+        pid=self.plan()
+        spec=u.guided_spec(self.root,self.actors["admin"],"guided-study",{pid:["imaging","fhir"]})
+        p=u.preview(self.root,self.actors["admin"],spec)
+        self.assertTrue(any(r["kind"]=="text" for r in p["requirements"]))
+        self.assertTrue(any(r["kind"]=="imaging" and r["family"] is None for r in p["requirements"]))
+        self.assertTrue(any(r["kind"]=="fhir" and r["family"] is None for r in p["requirements"]))
+        form={"programme_id":"guided-study","plan_"+pid:"yes","kind_"+pid+"_imaging":"yes"}
+        self.assertEqual(self.post("admin","/unified-assessment-guided-preview",form)["status"],"200 OK")
+        self.assertEqual(self.post("operator","/unified-assessment-guided-preview",form)["status"],"403 Forbidden")
+        self.assertEqual(self.post("admin","/unified-assessment-guided-preview",{"programme_id":"guided-study","kind_"+pid+"_imaging":"yes"})["status"],"403 Forbidden")
+
+
 if __name__=="__main__":
     unittest.main()
