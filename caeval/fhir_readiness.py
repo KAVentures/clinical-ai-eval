@@ -16,6 +16,7 @@ from . import buyer_plan, buyer_manual as manual, buyer_agent as buyer
 SCHEMA="synthetic-fhir-readiness/1"
 REPORT="synthetic-fhir-readiness-report/1"
 MAX_BYTES=256*1024
+MAX_EVIDENCE_BYTES=1024*1024
 BASE="https://synthetic.invalid/fhir/"
 SYSTEM="http://unitsofmeasure.org"
 CODE_SYSTEM="https://synthetic.invalid/CodeSystem/fixture-observations"
@@ -205,18 +206,19 @@ def verify(doc,expected_digest=None):
             "deployment_authorized":False}
 
 
-def parse(raw):
-    if len(raw)>MAX_BYTES:
+def parse(raw,*,evidence=False):
+    if len(raw)>(MAX_EVIDENCE_BYTES if evidence else MAX_BYTES):
         _fail("synthetic FHIR input exceeds size limit")
     return manual._parse(raw)
 
 
-def read(path):
+def read(path,*,evidence=False):
     p=Path(path)
     if p.is_symlink() or not p.is_file():
         _fail("regular local JSON file required")
     with p.open("rb") as f:
-        return parse(f.read(MAX_BYTES+1))
+        limit=MAX_EVIDENCE_BYTES if evidence else MAX_BYTES
+        return parse(f.read(limit+1),evidence=evidence)
 
 
 def cli(args):
@@ -227,7 +229,7 @@ def cli(args):
         elif args.action=="assess":
             result=package(read(args.plan),read(args.responses))
         else:
-            result=verify(read(args.evidence),args.expected_digest)
+            result=verify(read(args.evidence,evidence=True),args.expected_digest)
         print(json.dumps({"ok":True,"result":result},ensure_ascii=False,allow_nan=False))
     except (OSError,ValueError,RuntimeError,KeyError,TypeError,AttributeError,OverflowError):
         print(json.dumps({"ok":False,"error":"synthetic FHIR readiness operation refused","decision_grade":False}))

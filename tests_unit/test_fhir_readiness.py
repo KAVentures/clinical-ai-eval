@@ -61,6 +61,33 @@ class FhirTests(unittest.TestCase):
             with self.assertRaises(buyer.BuyerError):
                 fhir._facts([fhir._fact("x",unit=unit)])
 
+    def test_large_bounded_response_evidence_roundtrip(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        doc=fhir.template(self.plan)
+        for row in doc["responses"]:
+            row.update(status="complete",facts=[{"source_id":str(i)+"a"*190,
+                "code_system":"a"*160,"code":"b"*160,"value":1,
+                "unit_system":"c"*160,"unit_code":"d"*160} for i in range(28)])
+        raw=json.dumps(doc,separators=(",",":")).encode("utf-8")
+        self.assertLess(len(raw),fhir.MAX_BYTES)
+        evidence=fhir.package(self.plan,fhir.parse(raw))
+        encoded=json.dumps(evidence,separators=(",",":")).encode("utf-8")
+        self.assertGreater(len(encoded),fhir.MAX_BYTES)
+        self.assertLess(len(encoded),fhir.MAX_EVIDENCE_BYTES)
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"evidence.json"
+            path.write_bytes(encoded)
+            with self.assertRaises(buyer.BuyerError):
+                fhir.read(path)
+            receipt=fhir.verify(fhir.read(path,evidence=True),evidence["digest"])
+            self.assertTrue(receipt["expected_digest_matched"])
+            self.assertEqual(receipt["summary"]["mismatch"],9)
+            path.write_bytes(b" "*(fhir.MAX_EVIDENCE_BYTES+1))
+            with self.assertRaises(buyer.BuyerError):
+                fhir.read(path,evidence=True)
+
     def test_wrong_target_duplicate_missing_nonfinite_and_modified_evidence(self):
         for change in ("target","duplicate","missing","bool","nonfinite","extra"):
             doc=exact(self.plan)
