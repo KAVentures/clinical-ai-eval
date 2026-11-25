@@ -74,8 +74,7 @@ filesystem administration, not cryptographic proof of candidate identity.
 
 Patient cases, raw transcripts, connector headers and judge configuration are
 not displayed in the overview. The separate generic paired-text review
-workflow does not accept these patient jobs. Clinical interpretation and
-formal patient-specific review remain required. No patient care, deployment
+workflow does not accept these patient jobs. Clinical interpretation remains required. The separate [independent patient transcript review](PATIENT_TRANSCRIPT_REVIEW.md) provides blinded observable-transcript judgments, not hidden-world validity adjudication or clinical approval. No patient care, deployment
 approval or procurement decision is issued.
 
 Stop all workers before backup or upgrade; running conversation jobs block
