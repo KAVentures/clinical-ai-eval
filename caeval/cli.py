@@ -1853,6 +1853,8 @@ def main(argv=None):
     from . import monitor_ingestion
     pingest = sub.add_parser("serve-monitor-ingestion", help="serve local scoped aggregate monitoring API")
     monitor_ingestion.configure(pingest)
+    pmonapi = sub.add_parser("monitor-ingestion-openapi", help="print local monitoring API contract")
+    monitor_ingestion.configure_openapi(pmonapi)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")
