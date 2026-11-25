@@ -323,6 +323,8 @@ def restore(backup,destination,*,services_stopped=False):
                     conn.execute("UPDATE evaluator_service_grants SET revoked=1")
                     for grant in grants:
                         access._audit(conn,"local-admin","evaluator-service-grant-revoked",grant["id"])
+                from . import monitor_ingestion
+                monitor_ingestion.revoke_restored_grants(conn)
                 if "monitoring_schedules" in tables:
                     conn.execute("UPDATE monitoring_schedules SET enabled=0")
                 if "research_collections" in tables:
@@ -338,7 +340,7 @@ def restore(backup,destination,*,services_stopped=False):
         stage.rmdir()
         return {"backup_id":doc["backup_id"],"restored":True,
                 "sessions_revoked":True,"agent_grants_revoked":True,"evaluator_service_grants_revoked":True,
-                "monitoring_schedules_disabled":True,"decision_grade":False,
+                "monitoring_ingestion_grants_revoked":True,"monitoring_schedules_disabled":True,"decision_grade":False,
                 "clinical_validity":"not_established"}
     except BaseException:
         shutil.rmtree(dest)
