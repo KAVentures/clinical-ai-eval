@@ -232,3 +232,7 @@ The separate [controlled RAG grounding research workflow](RAG_GROUNDING_RESEARCH
 ## Matched historical version research
 
 The separate [matched longitudinal research workflow](MATCHED_VERSION_REGRESSION.md) compares declared versions of the same product on exactly matched imaging or RAG grounding cohorts. Register before recorded successor exposure. It provides descriptive finite-cohort bounds, not statistical noninferiority or clinical acceptance, and does not replace unified successor coverage tracking.
+
+## Hospital-specific review gates
+
+The optional [hospital referral policy](HOSPITAL_REFERRAL_POLICY.md) freezes vendor-specific gate criteria before source association, binds assigned reviewers to a frozen evidence snapshot, and records an immutable administrative disposition. Missing or weak canonical evidence and unresolved gates block referral. It never authorizes clinical deployment.
