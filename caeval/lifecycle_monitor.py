@@ -114,6 +114,9 @@ def _alert(kind,key,severity):
 
 def assess(p,reports,incidents,actions,as_of):
     today=_date(as_of)
+    d._require(isinstance(reports,list) and len(reports)<=MAX_WINDOWS and isinstance(incidents,list)
+               and len(incidents)<=MAX_INCIDENTS and isinstance(actions,list) and len(actions)<=MAX_ACTIONS,
+               "monitor inventory limit")
     rows={}
     alerts=[]
     for r in reports:
@@ -122,6 +125,7 @@ def assess(p,reports,incidents,actions,as_of):
         idx=doc["window_index"]
         d._require(idx not in rows and window(p,idx)[1]<=today,"duplicate or unfinished reporting window")
         rows[idx]=doc
+    changes=[_date(r["incident"]["date"]) for r in incidents if r["incident"]["category"]=="version_change"]
     windows=[]
     for idx in range(p["spec"]["windows"]):
         start,end=window(p,idx)
@@ -147,8 +151,12 @@ def assess(p,reports,incidents,actions,as_of):
                     if exceeded:
                         alerts.append(_alert("threshold",str(idx)+":"+m["id"],"serious"))
                 metrics.append({"id":m["id"],"numerator":n,"denominator":den,"rate":n/den if den else None,"state":state})
+        overlap=bool(changes and end>min(changes))
+        if overlap:
+            alerts.append(_alert("version_overlap",str(idx),"critical"))
         windows.append({"index":idx,"start":start.isoformat(),"end_exclusive":end.isoformat(),
-                        "state":"reported" if rec else "missing","metrics":metrics})
+                        "state":"reported_version_overlap" if rec and overlap else "reported" if rec else "missing",
+                        "version_overlap":overlap,"metrics":metrics})
     seen=set()
     for r in incidents:
         d._require(incident(p,r["incident"])==r,"incident replay mismatch")
