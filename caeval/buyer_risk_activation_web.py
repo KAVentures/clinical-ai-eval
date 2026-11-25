@@ -97,4 +97,21 @@ def active(directory,actor):
         body+="<label>"+esc(k.replace("_"," "))+"<input name='"+esc(k)+"' required maxlength='500'></label>"
     body+="<p>For diagnosis/treatment and clinician review use yes or no. For medical device status use yes, no or unsure.</p>"
     body+="<label><input type='checkbox' name='confirm' value='yes' required> Prepare an assessment under these exact activated conditions.</label><button>Prepare bound assessment</button></form>"
+    from . import buyer_risk_handoff as handoff
+    body+="<h2>Completed assessment handoff</h2><p>Only verified jobs under these exact conditions are eligible. An administrator must approve copying the confidential packages into the institutional evidence store.</p>"
+    for row in handoff.inventory(directory,actor):
+        body+="<section><p>"+esc(row["job_id"])+" · "+esc(row["vendor_id"])+" · "+esc(row["status"])+"</p>"
+        for pkg in row["packages"]:
+            body+="<p>"+esc(pkg["family_id"])+" · "+esc(pkg["manifest_hash"])+"</p>"
+        if row["status"]=="ready" and actor["role"]=="admin":
+            body+="<form method='post' action='/buyer-risk-ingest'>"+_hidden("csrf",actor["csrf"])+_hidden("job_id",row["job_id"])+_hidden("conditions_hash",state["conditions_hash"])
+            body+="<label><input type='checkbox' name='confirm' value='yes' required> Approve internal evidence handoff</label><button>Stage and ingest verified job</button></form>"
+        body+="</section>"
     return page("Active buyer risk study",body)
+
+
+def ingest(directory,actor,form):
+    from . import buyer_risk_handoff as handoff
+    if set(form)!={"job_id","conditions_hash","confirm"}:
+        raise access.AccessDenied("unexpected evidence handoff fields")
+    return handoff.ingest(directory,actor,form["job_id"],form["conditions_hash"],confirmed=form["confirm"]=="yes")
