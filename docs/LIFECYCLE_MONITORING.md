@@ -122,3 +122,34 @@ environment. No result of this workflow authorizes use or establishes safety.
 ## Optional collector integration
 
 The [scoped local ingestion API](MONITOR_INGESTION.md) accepts authorized aggregate report/incident batches and exposes a minimal alert feed for institution-managed polling. No scheduler or external delivery is installed by the application.
+
+
+## Version-change evaluation handoff
+
+A reported version-change incident may be linked to an already approved,
+current **direct** successor of the monitor's original unified assessment
+programme. Use the version-change handoff link from the monitoring detail
+page. First use the native buyer version-reassessment and unified programme
+lineage workflows to register the observed version. The handoff checks the
+exact vendor, target name, observed version and native reassessment mapping
+for every plan for that vendor. An unrelated programme, a different version,
+or a programme with no approved lineage cannot be selected.
+
+Administrators preview and explicitly confirm the digest-bound linkage.
+The incident-level association is immutable, independently audited, and
+rechecked on read. Operators can inspect it; the committee and observers
+see aggregate linkage counts only. The offline institutional preflight
+checks the handoff audit inventory. A historical linkage can remain visible
+when the successor's current definitions become stale.
+
+This is **not** closure of a safety incident or authorization to deploy:
+the original version-change alert and reassessment requirement remain
+active, and no source evidence, assessment result or deployment permission
+is transferred. The successor must be evaluated using its own evidence
+and governance workflow. Externally authorized operational use of the
+successor requires a separate version-bound monitor.
+
+Exact retries of previously locked monitoring events return their original
+digest, even when subsequent version changes block new reporting windows
+or a late report clears a missing-window alert. Changed records and new
+actions against inactive alerts are still refused.
