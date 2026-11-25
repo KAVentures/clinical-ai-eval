@@ -85,3 +85,7 @@ analysis, richer browser forms and clinical calibration remain necessary.
 ## Supervised local candidate collection
 
 The optional [supervised collection worker](RESEARCH_SUPERVISED_COLLECTION.md) supports the four research modules through approved staged loopback connectors. Browser users can queue and inspect a collection; a separately authorized OS worker executes it. Exact raw outcomes are bound to the scientific import. Clinical claim annotations and independent review remain separate. The canonical executor registry is unchanged.
+
+## Matched cross-product research comparison
+
+See [Matched clinical research comparisons](MATCHED_CLINICAL_RESEARCH_COMPARISONS.md). The browser compares analyzed studies with identical protocols, review rosters and collection modes; it preserves fixed opportunity denominators and missingness. Results remain exploratory and separate from procurement evidence.
