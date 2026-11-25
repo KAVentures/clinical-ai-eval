@@ -1862,6 +1862,10 @@ def main(argv=None):
     monitor_ingestion.configure(pingest)
     pmonapi = sub.add_parser("monitor-ingestion-openapi", help="print local monitoring API contract")
     monitor_ingestion.configure_openapi(pmonapi)
+
+    from . import monitor_alert_outbox
+    poutbox = sub.add_parser("monitor-alert-outbox", help="prepare and acknowledge local alert transition batches")
+    monitor_alert_outbox.configure(poutbox)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")
