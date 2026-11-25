@@ -54,6 +54,14 @@ def db(directory):
         CREATE TABLE IF NOT EXISTS sessions(
           digest TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id),
           csrf TEXT NOT NULL, expires INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS federated_identities(
+          issuer TEXT NOT NULL, subject_hash TEXT NOT NULL,
+          user_id TEXT NOT NULL UNIQUE REFERENCES users(id),
+          PRIMARY KEY(issuer,subject_hash));
+        CREATE TABLE IF NOT EXISTS federated_sessions(
+          digest TEXT PRIMARY KEY REFERENCES sessions(digest) ON DELETE CASCADE,
+          issuer TEXT NOT NULL, subject_hash TEXT NOT NULL,
+          FOREIGN KEY(issuer,subject_hash) REFERENCES federated_identities(issuer,subject_hash));
         CREATE TABLE IF NOT EXISTS failures(
           user_key TEXT NOT NULL, at INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS assignments(
@@ -140,7 +148,8 @@ def login(directory, user_id, password):
         if n >= MAX_FAILURES or total >= 100:
             denied = True
         else:
-            row = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+            row = conn.execute("""SELECT * FROM users WHERE id=? AND NOT EXISTS
+                (SELECT 1 FROM federated_identities f WHERE f.user_id=users.id)""", (user_id,)).fetchone()
             salt = row["salt"] if row else "00"*16
             expected = row["password_hash"] if row else "0"*128
             try:
@@ -172,7 +181,8 @@ def session(directory, token):
     with db(directory) as conn:
         row = conn.execute("""SELECT u.id AS user_id,u.role,s.csrf FROM sessions s
           JOIN users u ON u.id=s.user_id WHERE s.digest=? AND s.expires>?
-          AND u.enabled=1 AND u.role!='vendor'""", (_digest(token), int(time.time()))).fetchone()
+          AND u.enabled=1 AND u.role!='vendor' AND NOT EXISTS
+          (SELECT 1 FROM federated_sessions f WHERE f.digest=s.digest)""", (_digest(token), int(time.time()))).fetchone()
     if not row:
         raise AccessDenied("authentication required")
     return dict(row)

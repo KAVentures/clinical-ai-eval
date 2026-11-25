@@ -474,3 +474,15 @@ jobs remains separate; the initial controlled route is the research CLI.
 The corrected per-episode reset changes the scientific session definition
 hash: older patient packages should be verified with their pinned version,
 not rehashed to claim they used the corrected executor.
+
+
+## Managed institutional identity and deployment
+
+For an institution with an approved OIDC/SAML authentication gateway, see
+[Institutional federation](INSTITUTIONAL_FEDERATION.md) for explicit upstream
+subject mapping, per-request identity checks, local role provisioning,
+session isolation and the protected proxy contract. The application does not
+itself implement OIDC/SAML token validation or MFA; the upstream gateway must
+enforce those policies. A managed WSGI app factory and sample Linux/systemd
+deployment configuration are included under deploy/institution. Actual IdP
+interoperability, security and production acceptance remain mandatory.
