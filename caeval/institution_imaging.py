@@ -33,6 +33,8 @@ def _schema(conn):
     conn.execute("""CREATE TABLE IF NOT EXISTS diagnostic_imaging_seals(
         study TEXT PRIMARY KEY REFERENCES diagnostic_imaging_studies(id),
         digest TEXT NOT NULL, actor TEXT NOT NULL, audit_seq INTEGER NOT NULL UNIQUE)""")
+    from . import institution_imaging_reference as reference
+    reference._schema(conn)
 
 
 def _json(obj):
@@ -56,6 +58,8 @@ def _inventory(conn):
         actual = {(r["seq"], r["actor"], r["object_id"]) for r in events}
         if len(expected) != len(rows) or len(actual) != len(events) or actual != expected:
             raise access.AccessDenied("imaging audit inventory mismatch")
+    from . import institution_imaging_reference as reference
+    reference._inventory(conn)
 
 
 def _get(conn, ident):
@@ -68,6 +72,8 @@ def _get(conn, ident):
     imaging._verify_plan(plan)
     if plan["digest"] != row["digest"] or plan["spec"]["study_id"] != ident:
         raise access.AccessDenied("imaging study integrity mismatch")
+    from . import institution_imaging_reference as reference
+    reference.check_link(conn,plan)
     docs = []
     for sub in conn.execute("SELECT * FROM diagnostic_imaging_submissions WHERE study=? ORDER BY candidate", (ident,)):
         doc = json.loads(sub["payload"])
@@ -106,6 +112,12 @@ def _status(plan, docs, evidence, *, committee=False):
     return result
 
 
+def _import_allowed(conn,plan):
+    from . import institution_imaging_reference as reference
+    if reference.reserved(conn,plan["spec"]["study_id"]) or plan["spec"]["reference_method"]==reference.ref.METHOD:
+        raise access.AccessDenied("reserved reference study must use independent review finalization")
+
+
 def preview(directory, actor, spec):
     with access.db(directory) as conn:
         _actor(conn, actor, "admin")
@@ -114,6 +126,7 @@ def preview(directory, actor, spec):
         _inventory(conn)
         # Deterministic validation only. The preview nonce is never exported.
         p = imaging.freeze(spec, private_nonce="0"*64, confirmed=True)
+        _import_allowed(conn,p)
         if conn.execute("SELECT 1 FROM diagnostic_imaging_studies WHERE id=?", (p["spec"]["study_id"],)).fetchone():
             raise access.AccessDenied("study ID already frozen")
         return {"spec": p["spec"], "approval_digest": imaging._digest(p["spec"]),
@@ -129,6 +142,7 @@ def freeze(directory, actor, spec, approval_digest, *, confirmed=False):
         _actor(conn, actor, "admin")
         _inventory(conn)
         plan = imaging.freeze(spec, confirmed=True)
+        _import_allowed(conn,plan)
         if imaging._digest(plan["spec"]) != approval_digest:
             raise access.AccessDenied("study differs from approved preview")
         ident = plan["spec"]["study_id"]
