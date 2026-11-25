@@ -10,7 +10,7 @@ def home(directory,actor):
     if actor["role"]=="admin":
         plans=service.available_plans(directory,actor)
         if plans:
-            body+=("<section><h2>Guided programme setup</h2><p>Select current saved plans. Supported text and conversation requirements are generated automatically; select any additional independent evidence lanes. Unsupported suites remain explicit gaps.</p><form method='post' action='/unified-assessment-guided-preview'>"+_hidden("csrf",actor["csrf"])+
+            body+=("<section><h2>Guided programme setup</h2><p>Select current saved plans. Supported text, conversation and synthetic RAG requirements are generated automatically; select any additional independent evidence lanes. Unsupported suites remain explicit gaps.</p><form method='post' action='/unified-assessment-guided-preview'>"+_hidden("csrf",actor["csrf"])+
                    "<label>Programme ID<input name='programme_id' required maxlength='80'></label>")
             for p in plans:
                 pid=p["plan_id"]
