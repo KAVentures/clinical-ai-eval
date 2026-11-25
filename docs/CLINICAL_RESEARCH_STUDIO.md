@@ -33,8 +33,9 @@ Open **Clinical research studio** from the institutional dashboard.
    but does not prove precollection roster preregistration.
 5. Reviewers see only their own account-issued material. They can complete the
    submission JSON in a browser or download their packet and upload the
-   completed document. The interface currently presents structured JSON
-   rather than a bespoke per-question form. The submission is locked against
+   completed document. The default interface presents clinical questions, response text,
+   rating selectors, rationale fields and exact evidence quotation controls.
+   Advanced JSON remains available for complex or very large packets. The submission is locked against
    the exact request and reviewer identity. It cannot be overwritten.
 6. An administrator externally attests each exact locked submission by digest.
    Only then is it imported into the underlying signed review workflow.
@@ -97,3 +98,20 @@ Administrators can export complete analyzed experimental evidence for independen
 ## Multi-module buyer research programmes
 
 For coordinating several experimental modules under one saved buyer scope, see [Institutional research programmes](INSTITUTION_RESEARCH_PROGRAMMES.md). Freeze the planned study inventory before candidate exposure, track exact module status and canonical gaps, and export an administrator-approved replayed summary dossier. The complete individual replay packages remain separate.
+
+## Structured physician review forms
+
+Citation, scribe and robustness reviewers can complete their assigned study
+in an ordinary browser without installing software or editing JSON. Each form
+uses the original role-scoped issued packet, with no access to other reviewers'
+answers. No rating is preselected. Explicit uncertain choices are available.
+For scribe evidence, enter an exact quotation (and its transcript turn for
+source evidence); the server computes Unicode character offsets. Repeated or
+ambiguous quotations are refused rather than guessed. The simple form supports
+three evidence spans per rating. Use the advanced JSON submission or downloaded
+packet for more spans, ambiguous quotations with explicit offsets, multiline
+text that the browser normalizes, or packets exceeding 2,400 form fields. The
+existing module limits and exact clinical validation still apply. No draft
+autosave is provided; a successful submission is immutable. Browser forms do
+not change scoring, review eligibility, attestation, evidence integrity or
+scientific claim authority.

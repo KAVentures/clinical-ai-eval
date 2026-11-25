@@ -80,6 +80,20 @@ def _source(directory, db, job):
             "n_episodes": len(items), "source_claim": result["claim"]}, items
 
 
+def _separate_validity_rosters(db, pack, reviewers):
+    """Prevent reference exposure before assigning an independent transcript."""
+    from . import institution_patient_validity as validity
+    validity._schema(db)
+    for row in db.execute("SELECT id,binding,digest FROM patient_validity_handoffs"):
+        b=json.loads(row["binding"])
+        ids={r[0] for r in db.execute("SELECT reviewer FROM patient_validity_roster WHERE handoff=?",(row["id"],))}
+        if buyer_plan._digest(b)!=row["digest"] or set(b["reviewers"])!=ids:
+            raise access.AccessDenied("validity roster integrity mismatch")
+        if (b["source"]["descriptor"]["content_hash"]==pack["content_hash"]
+                or b["source"]["pack_id"]==pack["pack_id"]) and ids.intersection(reviewers):
+            raise access.AccessDenied("reviewer previously assigned to reference worlds for this pack")
+
+
 def prepare(directory, actor, job, reviewers, *, confirmed=False):
     if confirmed is not True or not isinstance(reviewers, list) or not 2 <= len(reviewers) <= 5:
         raise access.AccessDenied("predeclare two to five independent physician reviewers")
@@ -98,6 +112,8 @@ def prepare(directory, actor, job, reviewers, *, confirmed=False):
         if db.execute("SELECT count(*) FROM patient_review_handoffs").fetchone()[0] >= MAX_HANDOFFS:
             raise access.AccessDenied("patient review handoff limit")
         source, _ = _source(directory, db, job)
+        pack=conversation._row(db,job)["binding"]["pack_descriptor"]
+        _separate_validity_rosters(db,pack,ids)
         ident = "patient-review-" + uuid.uuid4().hex
         binding = {"schema": SCHEMA, "id": ident, "source": source, "reviewers": ids,
                    "coordinator": actor["user_id"], "fields": {k: list(v) for k,v in FIELDS.items()},

@@ -111,13 +111,20 @@ def render(directory,actor):
 
 def review_page(directory,actor,identifier):
     from .institution_web import page,esc,_hidden
+    from .research_review_forms import Form
     doc=studio.download(directory,actor,identifier,"review")
-    body="<p><a href='/research'>Assigned studies</a></p><p>Review independently. Fill only the submission JSON. Do not change item identifiers. The submitted review is immutable.</p>"
-    # All content comes from the role-filtered packet, not the full study.
+    form=Form(doc)
+    binding=_hidden("csrf",actor["csrf"])+_hidden("id",identifier)+_hidden("packet_hash",buyer_plan._digest(doc["request"]))
+    body="<p><a href='/research'>Assigned studies</a></p><p>Assess each item independently. Select an explicit uncertain rating when appropriate. Once locked, your review cannot be changed.</p>"
+    if form.available:
+        body+="<form method='post' action='/research-lock-form'>"+binding+form.render()
+        body+="<label><input type='checkbox' name='confirm' value='yes' required> I completed this review independently.</label><button>Lock completed review</button></form>"
+    else:
+        body+="<p>This packet exceeds the browser form field limit. Use the advanced submission below or download your packet from Assigned studies.</p>"
+    body+="<details><summary>Advanced review packet (JSON)</summary><p>Use this for repeated quotations, more than three evidence spans per rating, or exact multiline offsets. Edit only the submission.</p>"
     body+="<h2>Issued review material</h2><pre style='white-space:pre-wrap;overflow-wrap:anywhere'>"+esc(_json(doc["request"]))+"</pre>"
-    body+="<form method='post' action='/research-lock'>"+_hidden("csrf",actor["csrf"])+_hidden("id",identifier)
-    body+=_hidden("packet_hash",buyer_plan._digest(doc["request"]))
-    body+="<label>Independent submission JSON<textarea name='submission' rows='24' required>"+esc(_json(doc["submission"]))+"</textarea></label><button>Lock submission</button></form>"
+    body+="<form method='post' action='/research-lock'>"+binding
+    body+="<label>Independent submission JSON<textarea name='submission' rows='24' required>"+esc(_json(doc["submission"]))+"</textarea></label><button>Lock JSON submission</button></form></details>"
     return page("Your independent research review",body)
 
 
@@ -153,6 +160,15 @@ def dispatch(directory,actor,action,form,blob=None):
     elif action=="submit":
         exact(("id",))
         studio.lock_review(directory,actor,form["id"],manual._parse(blob))
+    elif action=="lock-form":
+        from .research_review_forms import Form
+        if not {"id","packet_hash"}<=set(form):
+            raise access.AccessDenied("issued packet binding required")
+        doc=studio.download(directory,actor,form["id"],"review")
+        if buyer_plan._digest(doc["request"])!=form["packet_hash"]:
+            raise access.AccessDenied("issued packet changed")
+        doc["submission"]=Form(doc).parse({k:v for k,v in form.items() if k not in ("id","packet_hash")})
+        studio.lock_review(directory,actor,form["id"],doc)
     elif action=="lock":
         exact(("id","packet_hash","submission"))
         doc=studio.download(directory,actor,form["id"],"review")

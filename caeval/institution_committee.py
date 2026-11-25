@@ -158,12 +158,15 @@ def overview(directory,actor):
         vendors.append({"vendor_id":v["vendor_id"],"name":v["name"],"documents":docs,
                         "missing_evidence_kinds":v["missing_evidence_kinds"],
                         "disclosures_self_reported_unverified":disclosures})
-    comparison=_comparison(root,{v["vendor_id"] for v in vendors})
+    ids={v["vendor_id"] for v in vendors}
+    comparison=_comparison(root,ids)
+    from . import institution_dossier
+    inventory=institution_dossier.collect(root,actor,ids)
     if buyer.load(root)!=source:
         raise access.AccessDenied("buyer register changed during evidence reconstruction")
     return {"schema":"institution-committee-evidence/1","project_name":state["project_name"],
             "intended_use":state["intended_use"],"missing_intake":state["missing_intake"],
-            "vendors":vendors,"clinical_comparison":comparison,
+            "vendors":vendors,"clinical_comparison":comparison,"lifecycle_inventory":inventory,
             "decision_grade":False,"limitations":["Document presence and integrity do not establish clinical validity.",
             "Vendor disclosures are self-reported and not independently verified.",
             "Clinical test families are experimental. Missing evidence is not a pass.",

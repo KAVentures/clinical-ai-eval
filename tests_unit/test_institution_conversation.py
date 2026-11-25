@@ -93,6 +93,33 @@ class ConversationJobTests(unittest.TestCase):
         (ws/"episodes.jsonl").write_text("{}")
         self.assertEqual(conversation.overview(self.root,actor)[0]["status"],"invalid")
 
+    def test_patient_evidence_links_to_pilot_and_escalates_tamper(self):
+        from caeval import institution_lifecycle as life, institution_escalation as inbox
+        job=conversation.prepare(self.root,self.actor,self.spec)
+        self.assertEqual(conversation.execute(self.root,job["id"],job["binding_hash"],allow_candidate_calls=True)["status"],"completed")
+        access.provision(self.root,"admin","admin",self.password)
+        admin={"user_id":"admin","role":"admin"}
+        spec={"vendor_id":"candidate","product_version":"1.0","scope":"Synthetic patient triage",
+              "owner":"operator","review_date":"2030-01-01","rollback_plan":"Synthetic rollback"}
+        other=life.create_pilot(self.root,admin,{**spec,"product_version":"2.0"})
+        with self.assertRaises(access.AccessDenied):
+            life.link_evidence(self.root,admin,other["id"],1,job["id"],"baseline")
+        pilot=life.create_pilot(self.root,admin,spec)
+        linked=life.link_evidence(self.root,admin,pilot["id"],1,job["id"],"baseline")
+        receipt=linked["package_hashes"][conversation.FAMILY]
+        self.assertEqual(receipt["job_binding"],job["binding_hash"])
+        self.assertFalse(linked["decision_grade"])
+        def current():
+            return next(p for p in life.overview(self.root,admin)["pilots"] if p["id"]==pilot["id"])
+        self.assertEqual(current()["evidence"][0]["integrity"],"matches")
+        self.assertEqual(current()["evidence"][0]["assessment_type"],"patient_conversation")
+        self.assertFalse(any(a["kind"]=="linked_evidence_unavailable" for a in inbox.overview(self.root,admin)["alerts"]))
+        ws=self.root/"conversation-jobs"/job["id"]/"out"/"run_patient_red_flag"
+        (ws/"episodes.jsonl").write_text("{}")
+        self.assertEqual(current()["evidence"][0]["integrity"],"unavailable")
+        self.assertTrue(any(a["kind"]=="linked_evidence_unavailable" for a in inbox.overview(self.root,admin)["alerts"]))
+        self.assertEqual(current()["state"],"planned")
+
     def test_missing_stress_or_mismatched_scored_trace_rejected(self):
         from caeval.util import stable_hash_text
         cases,_,_,_=conversation._pack(self.root,"fixture")
