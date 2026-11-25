@@ -92,7 +92,10 @@ def _compile(directory,conn,plan_id,pack_id,panel_id,mappings,additional_plans=(
                     or candidate_exchange["family_ids"]!=exchange["family_ids"]
                     or candidate_exchange["slots"]!=exchange["slots"]):
                 _fail("candidate prompt or case inventory differs")
-            candidates[other["vendor_id"]]={"plan_id":ident,"target":{k:other["plan"]["target"][k] for k in ("name","version")}}
+            target={k:other["plan"]["target"][k] for k in ("name","version")}
+            if any(entry["target"]==target for entry in candidates.values()):
+                _fail("distinct candidate target identities required")
+            candidates[other["vendor_id"]]={"plan_id":ident,"target":target}
         material["candidates"]=candidates
         material["additional_plans"]=sorted(additional_plans)
         material["prompt_inventory_digest"]=buyer_plan._digest(exchange["slots"])
