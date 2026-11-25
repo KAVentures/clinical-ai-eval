@@ -199,6 +199,17 @@ def run(root):
     receipt=json.loads(proc.stdout)
     require(receipt["ok"] and receipt["result"]["status"]=="REPLAY_VERIFIED","fresh process replay failed")
     require(receipt["result"]["expected_digest_matched"],"independent digest mismatch")
+    for kind,package in packages.items():
+        path=write(root/(kind+"-evidence.json"),package)
+        command=[sys.executable,"-m","caeval.cli","verify-experimental-evidence",str(path),
+                 "--expected-digest",package["digest"]]
+        verified=subprocess.run(command,cwd=root,env=env,capture_output=True,text=True,check=True,timeout=120)
+        require(json.loads(verified.stdout)["result"]["expected_digest_matched"],
+                "standalone replay digest mismatch")
+        command[-1]="0"*64
+        refused=subprocess.run(command,cwd=root,env=env,capture_output=True,text=True,timeout=120)
+        require(refused.returncode!=0 and not json.loads(refused.stdout)["ok"],
+                "wrong expected digest was accepted")
     print(json.dumps({"status":"PASS","modules":sorted(packages),"decision_grade":False,
                       "canonical_requirements_satisfied":0,"synthetic":True},sort_keys=True))
 
