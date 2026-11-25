@@ -670,16 +670,16 @@ class InstitutionApp:
                 else:
                     raise access.AccessDenied("invalid grounding request")
                 return respond("200 OK",buyer_plan._canonical(doc),extra=[("Content-Disposition",'attachment; filename="rag-grounding-exchange.json"')],content_type="application/json; charset=utf-8")
-            if path in ("/rag-grounding-preview","/rag-grounding-freeze","/rag-grounding-submit","/rag-grounding-review-lock","/rag-grounding-seal","/rag-grounding-evidence") and method=="POST":
+            if path in ("/rag-grounding-preview","/rag-grounding-freeze","/rag-grounding-submit","/rag-grounding-review-lock","/rag-grounding-seal","/rag-grounding-evidence","/rag-grounding-collection-import","/rag-grounding-collection-evidence") and method=="POST":
                 from . import institution_rag_grounding_web as grounding_web,buyer_plan
-                roles=("reviewer",) if path=="/rag-grounding-review-lock" else ("admin","operator") if path=="/rag-grounding-submit" else ("admin",)
+                roles=("reviewer",) if path=="/rag-grounding-review-lock" else ("admin","operator") if path in ("/rag-grounding-submit","/rag-grounding-collection-import") else ("admin",)
                 access.require(actor,*roles)
                 form=_form(env)
                 _csrf(actor,form)
                 if path=="/rag-grounding-preview":
                     return respond("200 OK",grounding_web.preview(self.directory,actor,form))
                 result=grounding_web.dispatch(self.directory,actor,path,form)
-                if path=="/rag-grounding-evidence":
+                if path in ("/rag-grounding-evidence","/rag-grounding-collection-evidence"):
                     return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="private-rag-grounding-evidence.json"')],content_type="application/json; charset=utf-8")
                 return respond("303 See Other",extra=[("Location","/rag-grounding" if path=="/rag-grounding-review-lock" else "/rag-grounding-study?id="+result)])
             if path in ("/rag-trace","/rag-trace-study","/rag-trace-download") and method=="GET":
