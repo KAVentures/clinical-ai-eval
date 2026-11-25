@@ -101,6 +101,13 @@ def _material(bp,hazards,governance):
             "limitations":LIMITATIONS[:]}
 
 
+def _check_inventory(conn):
+    rows=conn.execute("SELECT id,audit_seq FROM buyer_risk_protocols").fetchall()
+    events=conn.execute("SELECT object_id,seq FROM audit WHERE action=? AND outcome='ok'",(EVENT,)).fetchall()
+    if len(rows)!=len(events) or {(r["id"],r["audit_seq"]) for r in rows}!={(e["object_id"],e["seq"]) for e in events}:
+        _fail("risk protocol inventory differs from audit history")
+
+
 def freeze(directory,actor,plan_id,hazards,governance,*,confirmed=False):
     if confirmed is not True:
         _fail("explicit buyer threshold and governance approval required")
@@ -108,6 +115,7 @@ def freeze(directory,actor,plan_id,hazards,governance,*,confirmed=False):
         setup._actor(conn,actor)
         _schema(conn)
         conn.execute("BEGIN IMMEDIATE")
+        _check_inventory(conn)
         bp=bridge._buyer_plan(directory,plan_id)
         doc=_material(bp,hazards,governance)
         prior=conn.execute("SELECT id FROM buyer_risk_protocols WHERE plan_id=?",(plan_id,)).fetchone()
@@ -150,6 +158,7 @@ def view(directory,actor,plan_id):
     with access.db(directory) as conn:
         setup._actor(conn,actor)
         _schema(conn)
+        _check_inventory(conn)
         manual._identifier(plan_id,digest=True)
         row=conn.execute("SELECT * FROM buyer_risk_protocols WHERE plan_id=?",(plan_id,)).fetchone()
         if row:
@@ -169,6 +178,7 @@ def committee_inventory(directory,actor):
         from . import institution_committee as committee
         committee._actor(conn,actor)
         _schema(conn)
+        _check_inventory(conn)
         result=[]
         for row in conn.execute("SELECT * FROM buyer_risk_protocols ORDER BY id").fetchall():
             item={"id":row["id"],"state":"unavailable","decision_grade":False}

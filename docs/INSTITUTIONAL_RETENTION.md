@@ -53,3 +53,5 @@ and software work.
 Synthetic regression tests:
 
     python -m unittest tests_unit.test_institution_retention
+
+The maintenance policy governs the offline cleanup operation, not the existing authentication lifecycle: login continues to expire sessions and prune the short-lived throttle window. It is not a guarantee of minimum authentication-record retention or a hold on access revocation. Maintenance refuses a missing audited committee snapshot or an unexplained missing synthetic report.

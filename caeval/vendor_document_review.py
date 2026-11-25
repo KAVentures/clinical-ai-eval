@@ -104,8 +104,8 @@ def _spans(text,quotes):
 def _history(conn,record):
     rows=conn.execute("SELECT * FROM vendor_document_reviews WHERE evidence_id=? ORDER BY audit_seq",
                       (record["evidence_id"],)).fetchall()
-    audits=conn.execute("SELECT seq,actor,object_id FROM audit WHERE action=? AND outcome='ok' AND object_id LIKE ? ORDER BY seq",
-                        (EVENT,record["evidence_id"]+":%")).fetchall()
+    audits=conn.execute("SELECT seq,actor,object_id FROM audit WHERE action=? AND outcome='ok' AND substr(object_id,1,?)=? ORDER BY seq",
+                        (EVENT,len(record["evidence_id"])+1,record["evidence_id"]+":")).fetchall()
     if len(rows)!=len(audits) or len(rows)>MAX_HISTORY:
         _fail("review ledger inventory changed")
     result=[]

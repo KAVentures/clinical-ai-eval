@@ -23,6 +23,20 @@ def prepare(directory,actor,plan_id):
         return {"plan":plan,"exchange":fhir.exchange(plan),"response_template":fhir.template(plan)}
 
 
+def _check_inventory(conn):
+    from . import institution_retention as retention
+    rows=conn.execute("SELECT id,audit_seq FROM synthetic_fhir_reports").fetchall()
+    deleted=retention.tombstones(conn)
+    live={r["id"] for r in rows}
+    gone={r["id"] for r in deleted}
+    events=conn.execute("SELECT object_id,seq FROM audit WHERE action=? AND outcome='ok'",(EVENT,)).fetchall()
+    by_id={e["object_id"]:e["seq"] for e in events}
+    if (len(by_id)!=len(events) or live & gone or live | gone != set(by_id)
+            or any(by_id[r["id"]]!=r["audit_seq"] for r in rows)):
+        raise access.AccessDenied("synthetic assessment inventory differs from audit history")
+    return deleted
+
+
 def submit(directory,actor,plan_id,responses,*,confirmed=False):
     if confirmed is not True:
         raise access.AccessDenied("confirm synthetic input and no real patient data")
@@ -30,6 +44,7 @@ def submit(directory,actor,plan_id,responses,*,confirmed=False):
         setup._actor(conn,actor)
         _schema(conn)
         conn.execute("BEGIN IMMEDIATE")
+        deleted=_check_inventory(conn)
         p=bridge._buyer_plan(directory,plan_id)
         plan=fhir.build({k:p["plan"]["target"][k] for k in ("name","version")})
         package=fhir.package(plan,responses)
@@ -37,8 +52,7 @@ def submit(directory,actor,plan_id,responses,*,confirmed=False):
              "vendor_id":p["vendor_id"],"submitted_by":actor["user_id"],
              "package":package,"decision_grade":False}
         ident=buyer_plan._digest(doc)
-        from . import institution_retention as retention
-        if any(r["id"]==ident or (r["plan_id"]==plan_id and r["report_digest"]==package["report"]["digest"]) for r in retention.tombstones(conn)):
+        if any(r["id"]==ident or (r["plan_id"]==plan_id and r["report_digest"]==package["report"]["digest"]) for r in deleted):
             raise access.AccessDenied("retention-deleted evidence cannot be silently restored")
         old=conn.execute("SELECT * FROM synthetic_fhir_reports WHERE id=?",(ident,)).fetchone()
         if old:
@@ -78,6 +92,7 @@ def detail(directory,actor,identifier):
     with access.db(directory) as conn:
         setup._actor(conn,actor)
         _schema(conn)
+        _check_inventory(conn)
         manual._identifier(identifier,digest=True)
         row=conn.execute("SELECT * FROM synthetic_fhir_reports WHERE id=?",(identifier,)).fetchone()
         if not row:
@@ -92,6 +107,7 @@ def inventory(directory,actor):
     with access.db(directory) as conn:
         committee._actor(conn,actor)
         _schema(conn)
+        deleted=_check_inventory(conn)
         result=[]
         for row in conn.execute("SELECT * FROM synthetic_fhir_reports ORDER BY audit_seq").fetchall():
             item={"id":row["id"],"state":"unavailable","synthetic":True,"decision_grade":False}
@@ -104,6 +120,5 @@ def inventory(directory,actor):
             except (ValueError,RuntimeError,OSError,KeyError,TypeError,AttributeError):
                 pass
             result.append(item)
-        from . import institution_retention as retention
-        result.extend(retention.tombstones(conn))
+        result.extend(deleted)
         return result

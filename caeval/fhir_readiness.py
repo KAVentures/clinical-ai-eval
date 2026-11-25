@@ -112,14 +112,14 @@ def build(target):
 
 def exchange(plan):
     _verify_plan(plan)
-    return {"schema":"synthetic-fhir-exchange/1","target":plan["target"],"synthetic":True,
+    return {"schema":"synthetic-fhir-exchange/1","target":copy.deepcopy(plan["target"]),"synthetic":True,
             "plan_digest":plan["digest"],"instruction":plan["instruction"],
-            "probes":[{k:r[k] for k in ("slot","patient_reference","bundle")} for r in plan["rows"]]}
+            "probes":[{k:copy.deepcopy(r[k]) for k in ("slot","patient_reference","bundle")} for r in plan["rows"]]}
 
 
 def template(plan):
     _verify_plan(plan)
-    return {"schema":"synthetic-fhir-responses/1","target":plan["target"],"synthetic":True,
+    return {"schema":"synthetic-fhir-responses/1","target":copy.deepcopy(plan["target"]),"synthetic":True,
             "plan_digest":plan["digest"],"responses":[{"slot":r["slot"],"status":"unavailable","facts":[]} for r in plan["rows"]]}
 
 

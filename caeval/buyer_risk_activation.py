@@ -33,6 +33,7 @@ def _fail(message):
 
 def _compile(directory,conn,plan_id,pack_id,panel_id,mappings,additional_plans=()):
     risk._schema(conn)
+    risk._check_inventory(conn)
     row=conn.execute("SELECT * FROM buyer_risk_protocols WHERE plan_id=?",(manual._identifier(plan_id,digest=True),)).fetchone()
     if not row:
         _fail("freeze a buyer risk protocol first")

@@ -119,6 +119,16 @@ class FhirBrowserTests(unittest.TestCase):
         self.assertNotIn("responses",rows[0])
         self.assertFalse(committee.snapshot(self.root,self.actors["observer"],old)["current"])
 
+    def test_missing_audited_report_is_not_silently_recreated(self):
+        self.fixture()
+        service.submit(self.root,self.actors["operator"],self.pid,exact(self.plan),confirmed=True)
+        with access.db(self.root) as conn:
+            conn.execute("DELETE FROM synthetic_fhir_reports")
+        with self.assertRaises(access.AccessDenied):
+            service.inventory(self.root,self.actors["observer"])
+        with self.assertRaises(access.AccessDenied):
+            service.submit(self.root,self.actors["operator"],self.pid,exact(self.plan),confirmed=True)
+
     def test_audit_tampering_refused(self):
         self.fixture()
         ident=service.submit(self.root,self.actors["operator"],self.pid,exact(self.plan),confirmed=True)

@@ -92,6 +92,18 @@ class BuyerRiskTests(unittest.TestCase):
         self.assertEqual(doc["id"],ident)
         self.assertEqual(risk.committee_inventory(self.root,self.actors["observer"])[0]["state"],"stale")
 
+    def test_missing_audited_risk_protocol_is_not_silently_recreated(self):
+        self.fixture()
+        self.freeze()
+        with access.db(self.root) as conn:
+            conn.execute("DELETE FROM buyer_risk_protocols")
+        with self.assertRaises(access.AccessDenied):
+            risk.view(self.root,self.actors["operator"],self.pid)
+        with self.assertRaises(access.AccessDenied):
+            self.freeze()
+        with self.assertRaises(access.AccessDenied):
+            risk.committee_inventory(self.root,self.actors["observer"])
+
     def test_audit_tampering_is_not_accepted(self):
         self.fixture()
         ident=self.freeze()

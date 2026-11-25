@@ -126,7 +126,11 @@ def view(directory,actor):
 
 def _protected(conn):
     refs=set()
-    for row in conn.execute("SELECT id,payload FROM committee_snapshots"):
+    rows=conn.execute("SELECT id,payload FROM committee_snapshots").fetchall()
+    frozen={r[0] for r in conn.execute("SELECT object_id FROM audit WHERE action='committee-snapshot-frozen' AND outcome='ok'")}
+    if {r["id"] for r in rows}!=frozen:
+        _fail("committee snapshot inventory differs from audit; refuse deletion")
+    for row in rows:
         payload=json.loads(row["payload"])
         if buyer_plan._digest(payload)!=row["id"]:
             _fail("committee snapshot integrity mismatch; refuse deletion")
@@ -139,6 +143,7 @@ def _protected(conn):
 
 
 def _preview(directory,conn,as_of):
+    fhir._check_inventory(conn)
     history=_policies(conn)
     if not history:
         _fail("approve a retention policy before maintenance")
@@ -210,6 +215,7 @@ def apply(directory,as_of,approved_digest,*,services_stopped=False,confirmed=Fal
                 (ident,doc["policy_id"],row["plan_id"],row["report_digest"],int(time.time()),seq))
             if conn.execute("DELETE FROM synthetic_fhir_reports WHERE id=?",(ident,)).rowcount!=1:
                 _fail("synthetic record changed during maintenance")
+        fhir._check_inventory(conn)
         access._audit(conn,"local-admin","retention-maintenance-applied",doc["digest"])
         return {"status":"maintenance_applied","preview_digest":doc["digest"],
             "expired_sessions_removed":len(sessions),"obsolete_login_failures_removed":len(failures),

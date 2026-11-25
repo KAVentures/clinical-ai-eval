@@ -99,6 +99,16 @@ class RetentionTests(unittest.TestCase):
         self.apply(doc)
         self.assertEqual(fhir.detail(self.root,self.actors["admin"],held)["id"],held)
 
+    def test_missing_audited_snapshot_blocks_maintenance(self):
+        self.fixture()
+        self.record()
+        self.approve()
+        committee.freeze(self.root,self.actors["admin"])
+        with access.db(self.root) as conn:
+            conn.execute("DELETE FROM committee_snapshots")
+        with self.assertRaises(access.AccessDenied):
+            self.preview()
+
     def test_export_protection_and_policy_drift(self):
         self.fixture()
         ident,_=self.record()
