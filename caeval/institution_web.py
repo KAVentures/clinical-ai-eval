@@ -142,6 +142,8 @@ def _dashboard(directory, actor):
     body += "<p>Research and clinical assessment remain experimental. No procurement or deployment approval.</p>"
     if role in ("admin","operator","observer","reviewer"):
         body += "<p><a href='/research'>Clinical research studio</a></p>"
+    if role in ("admin","operator","observer"):
+        body += "<p><a href='/unified-assessment'>Unified clinical AI assessment programmes</a></p>"
     if role in ("admin","operator"):
         body += "<p><a href='/diagnostic-imaging'>Diagnostic imaging research</a></p>"
     if role in ("admin","reviewer"):
@@ -644,6 +646,28 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=image_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
+            if path in ("/unified-assessment","/unified-assessment-detail") and method=="GET":
+                from . import unified_assessment_web as programme
+                access.require(actor,"admin","operator","observer")
+                q=_query(env)
+                if path=="/unified-assessment" and not q:
+                    return respond("200 OK",programme.home(self.directory,actor))
+                if path=="/unified-assessment-detail" and set(q)=={"id"}:
+                    return respond("200 OK",programme.detail(self.directory,actor,q["id"]))
+                raise access.AccessDenied("invalid programme request")
+            if path in ("/unified-assessment-preview","/unified-assessment-freeze","/unified-assessment-link-preview","/unified-assessment-lock","/unified-assessment-export") and method=="POST":
+                from . import unified_assessment_web as programme,buyer_plan
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/unified-assessment-preview":
+                    return respond("200 OK",programme.preview(self.directory,actor,form))
+                if path=="/unified-assessment-link-preview":
+                    return respond("200 OK",programme.link_preview(self.directory,actor,form))
+                result=programme.dispatch(self.directory,actor,path,form)
+                if path=="/unified-assessment-export":
+                    return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="unified-assessment-coverage.json"')],content_type="application/json; charset=utf-8")
+                return respond("303 See Other",extra=[("Location","/unified-assessment-detail?id="+result)])
             if path in ("/imaging-reference","/imaging-reference-review","/imaging-reference-finalize") and method=="GET":
                 from . import institution_imaging_reference_web as ref_web
                 q=_query(env)
