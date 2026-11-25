@@ -19,7 +19,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import adapters, buyer_agent as buyer, buyer_manual as manual, buyer_plan, candidate_protocol, citation_trace_protocol
+from . import adapters, buyer_agent as buyer, buyer_manual as manual, buyer_plan, candidate_protocol, citation_trace_protocol, interoperability_protocol
 
 MAX_CONNECTOR_BYTES = 65536
 MAX_REPLY_BYTES = 256 * 1024
@@ -95,7 +95,7 @@ def _config(directory, connector_id):
     common={"vendor_id","target_name","target_version","url","headers","timeout_seconds"}
     if not isinstance(config,dict) or set(config) not in (common|{"prompt_field","answer_path"},common|{"protocol"}):
         raise buyer.BuyerError("invalid connector configuration fields")
-    if "protocol" in config and config["protocol"] not in (candidate_protocol.PROTOCOL,citation_trace_protocol.PROTOCOL):
+    if "protocol" in config and config["protocol"] not in (candidate_protocol.PROTOCOL,citation_trace_protocol.PROTOCOL,interoperability_protocol.PROTOCOL):
         raise buyer.BuyerError("unsupported candidate protocol")
     manual._identifier(config["vendor_id"])
     for k in ("target_name","target_version"):
@@ -140,8 +140,8 @@ def connectors(directory):
 def _binding(directory, exchange_id, connector_id):
     record=manual._load(directory,exchange_id)
     cfg=_config(directory,connector_id)
-    if cfg.get("protocol")==citation_trace_protocol.PROTOCOL:
-        raise buyer.BuyerError("structured citation connector requires a citation research study")
+    if cfg.get("protocol") in (citation_trace_protocol.PROTOCOL,interoperability_protocol.PROTOCOL):
+        raise buyer.BuyerError("structured connector requires its dedicated assessment workflow")
     if (record["vendor_id"]!=cfg["vendor_id"] or record["target"]["name"]!=cfg["target_name"]
             or record["target"]["version"]!=cfg["target_version"]):
         raise buyer.BuyerError("connector does not match the planned candidate and version")
@@ -219,6 +219,8 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def _call(cfg,prompt,headers):
+    if cfg.get("protocol") not in (None,candidate_protocol.PROTOCOL):
+        raise adapters.AdapterError("single-turn text connector required")
     # No proxy, DNS lookup, redirects, or hidden case metadata.
     opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),_NoRedirect())
     standard=cfg.get("protocol")==candidate_protocol.PROTOCOL

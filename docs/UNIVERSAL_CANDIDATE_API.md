@@ -130,3 +130,27 @@ The local adapter checks correlation and rejects wrong product versions or
 episodes; it cannot prove the vendor actually isolates state. Existing
 patient-world simulation, safety endpoints, independent review, call budget
 and explicit worker approval remain authoritative. No clinical claim elevation.
+
+## Shared synthetic FHIR and HL7 v2 adapter
+
+Export the structured contract with `clinical-ai-eval interoperability-collect openapi`.
+Stage the usual approved-connectors configuration with protocol
+clinical-ai-eval-interoperability/1. The adapter receives a fixed synthetic
+FHIR R4 bundle or HL7 v2.5.1 ORU_R01 message list, the selected patient ID,
+extraction instruction and correlation nonce. It returns exact structured
+observation fields and explicit complete, no_eligible_observations or
+unavailable status. No reference answers or probe labels are sent.
+
+Preview the approved plan and exact staged connector binding:
+
+    clinical-ai-eval interoperability-collect preview /approved/workspace --plan-id PLAN --connector-id CONNECTOR --kind hl7
+
+An authorized local worker then runs the same command with action run,
+--approved-digest DIGEST and --confirm-candidate-calls. The result contains
+the replayable evidence package and a transport receipt. Its evidence.responses
+can be imported through the existing institutional synthetic rehearsal page.
+No automatic institutional submission or network call from the browser.
+The client refuses non-loopback endpoints, redirects and mismatched versions,
+checks drift before each probe, and stops after three failed calls or its
+runtime budget. Failed/unattempted probes remain unavailable. This tests
+fixed synthetic extraction only, not production messaging or certification.

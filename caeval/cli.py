@@ -1790,6 +1790,16 @@ def main(argv=None):
         from . import hl7_readiness
         return hl7_readiness.cli(args)
     phl7.set_defaults(func=run_hl7)
+    from . import interoperability_protocol
+    pinter=sub.add_parser("interoperability-collect",help="collect fixed synthetic FHIR or HL7 probes through approved adapters")
+    pinter.add_argument("action",choices=["openapi","preview","run"])
+    pinter.add_argument("path",nargs="?")
+    pinter.add_argument("--plan-id")
+    pinter.add_argument("--connector-id")
+    pinter.add_argument("--kind",choices=["fhir","hl7"])
+    pinter.add_argument("--approved-digest")
+    pinter.add_argument("--confirm-candidate-calls",action="store_true")
+    pinter.set_defaults(func=interoperability_protocol.cli)
     pcd = sub.add_parser("verify-committee-dossier", help="verify frozen portable committee evidence offline")
     pcd.add_argument("dossier")
     pcd.add_argument("--expected-digest", help="independently communicated dossier digest")
