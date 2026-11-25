@@ -1301,6 +1301,13 @@ def cmd_institution(args):
                     result = backup.create(args.path,args.destination,services_stopped=args.confirm_services_stopped)
                 else:
                     result = backup.restore(args.path,args.destination,services_stopped=args.confirm_services_stopped)
+        elif args.action == "lifecycle-preflight":
+            from . import institution_lifecycle_preflight as preflight
+            result=preflight.check(args.path,services_stopped=args.confirm_services_stopped,expect_restored=args.expect_restored)
+            print(json.dumps({"ok":result["ok"],"result":result},indent=2))
+            if not result["ok"]:
+                raise SystemExit(1)
+            return
         elif args.action in ("pdf-stage","pdf-replay"):
             from . import pdf_source_review as pdf
             if not args.evidence_id:
@@ -1947,7 +1954,7 @@ def main(argv=None):
     pag.set_defaults(func=cmd_agent)
 
     pin = sub.add_parser("institution", help="trusted administrator: isolated institutional browser and account provisioning")
-    pin.add_argument("action", choices=["serve","account-create","account-disable","review-assign","backup-create","backup-check","backup-restore","retention-preview","retention-apply","pdf-stage","pdf-replay"])
+    pin.add_argument("action", choices=["serve","account-create","account-disable","review-assign","backup-create","backup-check","backup-restore","lifecycle-preflight","retention-preview","retention-apply","pdf-stage","pdf-replay"])
     pin.add_argument("path", help="one organisation-owned buyer workspace")
     pin.add_argument("--user-id")
     pin.add_argument("--role", choices=["admin","operator","observer","reviewer","vendor"])
@@ -1957,6 +1964,7 @@ def main(argv=None):
     pin.add_argument("--port", type=int, default=8767)
     pin.add_argument("--destination", help="new approved local backup or restored workspace directory")
     pin.add_argument("--confirm-services-stopped", action="store_true", help="confirm gateway and all evaluation workers are stopped before backup or restore")
+    pin.add_argument("--expect-restored",action="store_true",help="require no retained live authorizations in lifecycle preflight")
     pin.add_argument("--as-of",type=int,help="approved retention preview Unix timestamp")
     pin.add_argument("--approved-digest",help="exact retention preview digest")
     pin.add_argument("--confirm-deletion",action="store_true",help="explicitly approve previewed maintenance deletion")
