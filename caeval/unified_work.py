@@ -93,6 +93,17 @@ def work(directory,actor,ident):
                         records=_text_work(root,conn,plan)
                     elif req["kind"]=="conversation":
                         records=_conversation_work(root,conn,plan)
+                    elif req["kind"]=="rag":
+                        from . import institution_rag as rag
+                        rag._schema(conn)
+                        rag._inventory(conn)
+                        for item in conn.execute("SELECT id FROM institution_rag_studies WHERE plan_id=? ORDER BY id",(req["plan_id"],)):
+                            try:
+                                p,e=rag._get(root,conn,item["id"])
+                                records.append({"id":p["digest"],"state":"sealed" if e else "collecting",
+                                                "mode":"demonstration","network_authorized":False})
+                            except u.ERRORS:
+                                continue
                 cache[key]=records
             rows.append({"requirement_id":rid,"kind":req["kind"],"plan_id":req["plan_id"],
                          "vendor_id":row["vendor_id"],"target":row["target"],"family":req["family"],
@@ -102,5 +113,5 @@ def work(directory,actor,ident):
                 "programme_digest":status["programme"]["digest"],"programme_state":status["state"],
                 "requirements":rows,"decision_grade":False,"execution_authorized":False,
                 "limitations":["Read-only coordination. Native workflows own preparation, queueing, cancellation and execution.",
-                               "Only verified exact-plan text and conversation work is shown; absent entries do not prove no work exists.",
+                               "Only verified exact-plan text, conversation and synthetic RAG work is shown; absent entries do not prove no work exists.",
                                "The same multi-family job can be shown in several requirements. Completed work is not automatically locked."]}
