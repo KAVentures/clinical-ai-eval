@@ -166,6 +166,8 @@ def overview(directory,actor):
     comparison=_comparison(root,ids)
     from . import institution_dossier
     inventory=institution_dossier.collect(root,actor,ids)
+    from . import buyer_risk_protocol
+    inventory["buyer_risk_protocols"]=buyer_risk_protocol.committee_inventory(root,actor)
     if buyer.load(root)!=source:
         raise access.AccessDenied("buyer register changed during evidence reconstruction")
     return {"schema":"institution-committee-evidence/1","project_name":state["project_name"],
