@@ -151,9 +151,13 @@ def overview(directory,actor):
     root=Path(directory).resolve()
     source=buyer.load(root)
     state=buyer.status(root)
+    from . import vendor_document_review
+    source_reviews=vendor_document_review.committee_inventory(root,actor)
     vendors=[]
     for v in state["vendors"]:
         docs=[{k:d[k] for k in ("evidence_id","kind","title","sha256","integrity","review_status")} for d in v["documents"]]
+        for doc in docs:
+            doc.update(source_reviews.get(doc["evidence_id"],{"source_review_status":"unavailable","document_freshness":"unavailable","source_review_digest":None,"source_review_count":0}))
         disclosures=[{k:q.get(k) for k in ("evidence_id","integrity","schema_status","product_version_self_reported","counts")} for q in v["questionnaires"]]
         vendors.append({"vendor_id":v["vendor_id"],"name":v["name"],"documents":docs,
                         "missing_evidence_kinds":v["missing_evidence_kinds"],
