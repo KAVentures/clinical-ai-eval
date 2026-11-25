@@ -34,21 +34,21 @@ class MonitoringTests(unittest.TestCase):
     def create(self):
         return monitor.create(self.root,self.actor,self.spec,confirmed=True)
 
-    def run(self,schedule,**kwargs):
+    def run_occurrence(self,schedule,**kwargs):
         return monitor.run_due(self.root,schedule["id"],schedule["binding_hash"],**kwargs)
 
     def test_fresh_retest_and_missing_occurrence_tracking(self):
         schedule=self.create()
         with patch.object(connector,"_call",return_value="Fresh synthetic candidate answer") as call:
             with self.assertRaises(access.AccessDenied):
-                self.run(schedule)
+                self.run_occurrence(schedule)
             with access.db(self.root) as db:
                 db.execute("UPDATE monitoring_schedules SET next_due=next_due-7200")
-            result=self.run(schedule,allow_candidate_calls=True)
+            result=self.run_occurrence(schedule,allow_candidate_calls=True)
             self.assertEqual(result["status"],"completed",result)
             self.assertGreater(call.call_count,0)
             self.assertEqual(result["skipped_intervals"],2)
-            self.assertEqual(self.run(schedule,allow_candidate_calls=True)["status"],"not_due")
+            self.assertEqual(self.run_occurrence(schedule,allow_candidate_calls=True)["status"],"not_due")
         self.assertNotEqual(result["job_id"],self.baseline)
         row=monitor.overview(self.root,self.actor)[0]
         report=row["occurrences"][0]["report"]
@@ -59,7 +59,7 @@ class MonitoringTests(unittest.TestCase):
         self.assertTrue(report["families"])
         monitor.disable(self.root,self.actor,schedule["id"])
         with self.assertRaises(access.AccessDenied):
-            self.run(schedule,allow_candidate_calls=True)
+            self.run_occurrence(schedule,allow_candidate_calls=True)
 
     def test_configuration_drift_prevents_calls(self):
         schedule=self.create()
@@ -67,7 +67,7 @@ class MonitoringTests(unittest.TestCase):
         cfg["timeout_seconds"]=6
         self.config.write_text(json.dumps(cfg))
         with patch.object(connector,"_call") as call:
-            result=self.run(schedule,allow_candidate_calls=True)
+            result=self.run_occurrence(schedule,allow_candidate_calls=True)
             self.assertEqual(result["status"],"failed")
             call.assert_not_called()
         self.assertEqual(monitor.overview(self.root,self.actor)[0]["occurrences"][0]["state"],"failed")
@@ -76,7 +76,7 @@ class MonitoringTests(unittest.TestCase):
         schedule=self.create()
         with patch.object(connector,"_call",side_effect=ValueError("fixture failure")), \
              patch.object(jobs,"execute") as execution:
-            result=self.run(schedule,allow_candidate_calls=True)
+            result=self.run_occurrence(schedule,allow_candidate_calls=True)
             self.assertEqual(result["status"],"incomplete")
             execution.assert_not_called()
 
