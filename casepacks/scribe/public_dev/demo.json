@@ -1,0 +1,84 @@
+{
+  "target": {
+    "name": "Fictional demonstration scribe",
+    "version": "1"
+  },
+  "synthetic": true,
+  "note_format": "soap",
+  "cases": [
+    {
+      "case_id": "fictional-consultation",
+      "transcript": [
+        {
+          "turn_id": "t1",
+          "speaker": "clinician",
+          "text": "Tell me about your symptoms."
+        },
+        {
+          "turn_id": "t2",
+          "speaker": "patient",
+          "text": "I have a headache. I am allergic to fictional drug ALPHA."
+        },
+        {
+          "turn_id": "t3",
+          "speaker": "clinician",
+          "text": "No examination was performed. We discussed a follow-up call."
+        }
+      ],
+      "reference_facts": [
+        {
+          "fact_id": "headache",
+          "fact": "Patient reports headache",
+          "importance": "important",
+          "transcript_evidence": [
+            {
+              "turn_id": "t2",
+              "start": 0,
+              "end": 18,
+              "quote": "I have a headache."
+            }
+          ]
+        },
+        {
+          "fact_id": "allergy",
+          "fact": "Patient reports allergy to fictional drug ALPHA",
+          "importance": "critical",
+          "transcript_evidence": [
+            {
+              "turn_id": "t2",
+              "start": 19,
+              "end": 57,
+              "quote": "I am allergic to fictional drug ALPHA."
+            }
+          ]
+        },
+        {
+          "fact_id": "exam",
+          "fact": "No examination was performed",
+          "importance": "important",
+          "transcript_evidence": [
+            {
+              "turn_id": "t3",
+              "start": 0,
+              "end": 29,
+              "quote": "No examination was performed."
+            }
+          ]
+        },
+        {
+          "fact_id": "followup",
+          "fact": "Follow-up call discussed",
+          "importance": "routine",
+          "transcript_evidence": [
+            {
+              "turn_id": "t3",
+              "start": 30,
+              "end": 60,
+              "quote": "We discussed a follow-up call."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
