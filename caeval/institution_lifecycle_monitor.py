@@ -98,6 +98,9 @@ def _get(conn,ident,today):
         if kind=="report":
             rebuilt=m.report(p,doc["report"])
             item=str(doc["report"]["window_index"])
+            changes=[m._date(i["incident"]["date"]) for i in records["incident"] if i["incident"]["category"]=="version_change"]
+            if changes and m.window(p,doc["report"]["window_index"])[1]>min(changes):
+                raise access.AccessDenied("report locked after known version overlap")
         elif kind=="incident":
             rebuilt=m.incident(p,doc["incident"])
             item=doc["incident"]["incident_id"]
