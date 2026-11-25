@@ -77,6 +77,9 @@ def _inventory(data):
         body+="<p>No prior evidence transferred. No performance comparison authorized.</p>"
     for row in data.get("rag_grounding_studies",[]):
         body+="<h3>Experimental RAG grounding study "+esc(row["id"])+"</h3><p>"+esc(row["state"])+" · "+esc(row["n_traces_locked"])+" locked candidates · "+esc(row["n_reviews_locked"])+" independent reviews.</p>"
+        comparison=row.get("paired_comparison",{})
+        if comparison.get("analysis_plan_digest"):
+            body+="<p>Paired research protocol "+esc(comparison["state"])+" · "+esc(comparison["primary_endpoint"])+" · "+esc(comparison["analysis_plan_digest"])+"</p>"
     for row in data.get("synthetic_rag_rehearsals",[]):
         body+="<h3>Synthetic RAG context rehearsal "+esc(row["id"])+"</h3><p>"+esc(row["state"])+" · "+esc(row.get("vendor_id","unavailable"))+" · "+esc(row.get("target_version","unavailable"))+"</p>"
         body+="<p>Fixed synthetic context and heuristic native flags only; no clinical or vendor retrieval validity.</p>"
