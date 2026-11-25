@@ -171,6 +171,7 @@ def _dashboard(directory, actor):
             body += "<tr>" + "".join("<td>"+esc(row[k])+"</td>" for k in ("job","status","mode","n_packages")) + "</tr>"
         body += "</table>"
         if role == "admin":
+            body += "<p><a href='/evaluator-requests'>External evaluation requests</a></p>"
             body += "<p><a href='/audit'>Access audit</a> · <a href='/retention'>Retention policies and legal holds</a></p>"
     return page("Institutional assessment workspace", body)
 
@@ -563,6 +564,17 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=fhir_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/fhir-report?id="+ident)])
+            if path=="/evaluator-requests" and method=="GET":
+                from . import evaluator_service_web
+                access.require(actor,"admin")
+                return respond("200 OK",evaluator_service_web.render(self.directory,actor))
+            if path in ("/evaluator-request-link","/evaluator-request-revoke") and method=="POST":
+                from . import evaluator_service_web
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                evaluator_service_web.dispatch(self.directory,actor,path,form)
+                return respond("303 See Other",extra=[("Location","/evaluator-requests")])
             if path=="/setup" and method=="GET":
                 from . import institution_setup_web as setup
                 return respond("200 OK",setup.render(self.directory,actor))

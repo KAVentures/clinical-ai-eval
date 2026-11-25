@@ -51,8 +51,12 @@ evidence metadata, not complete replay packages or clinical authorization.
 
     clinical-ai-eval evaluator-api inventory /approved/workspace
 
-An authorized operator reviews the request, prepares or selects the exact
-canonical job using existing approved workflows, and local IT links it:
+An institutional administrator can open External evaluation requests in the
+browser dashboard, review the grant owner and assessment digest, select an
+existing matching unlinked job and explicitly approve the association.
+The browser cannot issue bearer credentials or execute a job from this page.
+An administrator can also revoke the application's grant. The same operations
+are available to trusted local IT through the CLI:
 
     clinical-ai-eval evaluator-api link /approved/workspace --request-id REQUEST_ID --job-id JOB_ID --confirm
 
@@ -65,8 +69,9 @@ review and procurement processes remain authoritative.
 
 Grants expire within 24 hours, are revocable, and require the associated
 account to remain enabled. Restoring a database backup must not reactivate old
-tokens; before restarting a restored service IT must revoke all restored
-service grants and rotate credentials. The initial API is a bounded local
+tokens; the workspace restore workflow automatically revokes all restored
+service grants while preserving request history. IT must issue fresh credentials
+after a restore. The initial API is a bounded local
 request ledger, not a multi-tenant SaaS job service. Production network
 hardening, recovery automation, structured data endpoints and delegated MCP
 write orchestration remain future work.

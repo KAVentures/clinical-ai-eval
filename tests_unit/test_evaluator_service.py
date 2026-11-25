@@ -71,6 +71,45 @@ class ServiceTests(unittest.TestCase):
         with self.assertRaises(access.AccessDenied):
             api.status(self.root,self.token,rid)
 
+    def test_browser_administrator_approval_and_revocation(self):
+        from tests_unit.test_institution_research import StudioTests
+        from caeval import institution_web
+        access.provision(self.root,"admin","admin","Synthetic long password")
+        self.tokens={uid:access.login(self.root,uid,"Synthetic long password") for uid in ("admin","operator")}
+        self.actors={uid:access.session(self.root,tok) for uid,tok in self.tokens.items()}
+        self.app=institution_web.InstitutionApp(self.root,"https://clinical.example")
+        row=api.submit(self.root,self.token,self.key)
+        rid=row["request_id"]
+        job={"id":"job-fictional","assessment_id":self.aid,"status":"queued"}
+        fields={"request_id":rid,"job_id":job["id"],"confirm":"yes"}
+        with patch.object(api.jobs,"list_jobs",return_value=[job]),patch.object(api.jobs,"status",return_value=job):
+            self.assertEqual(StudioTests.request(self,"operator","/evaluator-requests")["status"],"403 Forbidden")
+            page=StudioTests.request(self,"admin","/evaluator-requests")
+            self.assertEqual(page["status"],"200 OK")
+            self.assertIn(b"job-fictional",page["body"])
+            self.assertNotIn(self.token.encode(),page["body"])
+            self.assertEqual(StudioTests.request(self,"admin","/evaluator-request-link","POST",fields)["status"],"403 Forbidden")
+            form={**fields,"csrf":self.actors["admin"]["csrf"]}
+            self.assertEqual(StudioTests.request(self,"admin","/evaluator-request-link","POST",form)["status"],"303 See Other")
+            self.assertEqual(api.status(self.root,self.token,rid)["status"],"queued")
+        revoke={"grant_id":self.grant["grant_id"],"confirm":"yes","csrf":self.actors["admin"]["csrf"]}
+        self.assertEqual(StudioTests.request(self,"admin","/evaluator-request-revoke","POST",revoke)["status"],"303 See Other")
+        with self.assertRaises(access.AccessDenied):
+            api.status(self.root,self.token,rid)
+
+    def test_restore_invalidates_machine_grants(self):
+        from caeval import institution_backup as backup
+        row=api.submit(self.root,self.token,self.key)
+        checkpoint=self.root.parent/"checkpoint"
+        restored=self.root.parent/"restored"
+        backup.create(self.root,checkpoint,services_stopped=True)
+        result=backup.restore(checkpoint,restored,services_stopped=True)
+        self.assertTrue(result["evaluator_service_grants_revoked"])
+        with self.assertRaises(access.AccessDenied):
+            api.status(restored,self.token,row["request_id"])
+        self.assertEqual(api.status(self.root,self.token,row["request_id"])["status"],"awaiting_local_approval")
+        self.assertFalse(api.inventory(restored)[0]["grant_active"])
+
     def test_expiry_disabled_owner_and_strict_fields(self):
         path="/v1/evaluation-requests"
         self.assertEqual(self.call("POST",path,{"idempotency_key":self.key,"assessment_id":"b"*64})["code"],"403 Forbidden")

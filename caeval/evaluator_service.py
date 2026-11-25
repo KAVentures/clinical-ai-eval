@@ -6,7 +6,6 @@ existing, independently authorized canonical job with the request. All API
 responses are restricted metadata; no arbitrary workspace paths are accepted.
 """
 import hashlib
-import hmac
 import json
 import re
 import secrets
@@ -73,15 +72,17 @@ def issue(directory,owner,assessment_id,ttl,*,confirmed=False):
     return {"grant_id":gid,"token":token,"assessment_id":assessment_id,"expires":expires}
 
 
-def revoke(directory,gid):
+def revoke(directory,gid,*,actor=None):
     if not isinstance(gid,str) or not ID.fullmatch(gid):
         _fail()
     with access.db(directory) as conn:
         _schema(conn)
         conn.execute("BEGIN IMMEDIATE")
+        if actor is not None:
+            _admin(conn,actor)
         if conn.execute("UPDATE evaluator_service_grants SET revoked=1 WHERE id=? AND revoked=0",(gid,)).rowcount!=1:
             _fail()
-        access._audit(conn,"local-admin","evaluator-service-grant-revoked",gid)
+        access._audit(conn,actor["user_id"] if actor is not None else "local-admin","evaluator-service-grant-revoked",gid)
 
 
 def _grant(conn,token):
@@ -133,18 +134,38 @@ def submit(directory,token,key):
         return _summary(_request(conn,grant["id"],rid))
 
 
-def inventory(directory):
-    """Trusted local administrator only. Never exposed on HTTP."""
+def inventory(directory,actor=None):
+    """Local CLI or authenticated institutional administrator; not machine API."""
     with access.db(directory) as conn:
         _schema(conn)
-        return [{**_summary(r),"grant_id":r["grant_id"],"job_id":r["job_id"]}
-                for r in conn.execute("SELECT * FROM evaluator_service_requests ORDER BY created,id")]
+        if actor is not None:
+            _admin(conn,actor)
+        rows=conn.execute("SELECT r.*,g.owner,g.revoked,g.expires FROM evaluator_service_requests r "
+                          "JOIN evaluator_service_grants g ON r.grant_id=g.id ORDER BY r.created,r.id").fetchall()
+        return [{**_summary(r),"grant_id":r["grant_id"],"job_id":r["job_id"],
+                 "owner":r["owner"],"grant_active":not r["revoked"] and r["expires"]>int(time.time())
+                     and _enabled_owner(conn,r["owner"])} for r in rows]
 
 
-def link(directory,rid,job_id,*,confirmed=False):
+def _enabled_owner(conn,owner):
+    row=conn.execute("SELECT role,enabled FROM users WHERE id=?",(owner,)).fetchone()
+    return bool(row and row["enabled"] and row["role"] in ("admin","operator"))
+
+
+def _admin(conn,actor):
+    access.require(actor,"admin")
+    row=conn.execute("SELECT role,enabled FROM users WHERE id=?",(actor["user_id"],)).fetchone()
+    if not row or not row["enabled"] or row["role"]!="admin":
+        _fail()
+
+
+def link(directory,rid,job_id,*,confirmed=False,actor=None):
     if confirmed is not True or not isinstance(rid,str) or not ID.fullmatch(rid):
         _fail()
     manual._identifier(job_id)
+    if actor is not None:
+        with access.db(directory) as conn:
+            _admin(conn,actor)
     # Job status revalidates completed packages and may open the access store.
     # Do not hold its SQLite write lock during the expensive verification.
     job=jobs.status(directory,job_id)
@@ -153,6 +174,8 @@ def link(directory,rid,job_id,*,confirmed=False):
     with access.db(directory) as conn:
         _schema(conn)
         conn.execute("BEGIN IMMEDIATE")
+        if actor is not None:
+            _admin(conn,actor)
         row=conn.execute("SELECT r.*,g.owner,g.revoked,g.expires FROM evaluator_service_requests r "
                          "JOIN evaluator_service_grants g ON r.grant_id=g.id WHERE r.id=?",(rid,)).fetchone()
         if (not row or row["revoked"] or row["expires"]<=int(time.time()) or
@@ -164,7 +187,7 @@ def link(directory,rid,job_id,*,confirmed=False):
             _fail()
         if row["job_id"] is None:
             conn.execute("UPDATE evaluator_service_requests SET job_id=? WHERE id=?",(job_id,rid))
-            access._audit(conn,"local-admin","evaluator-service-job-linked",rid+":"+job_id)
+            access._audit(conn,actor["user_id"] if actor is not None else "local-admin","evaluator-service-job-linked",rid+":"+job_id)
     return {"request_id":rid,"job_id":job_id,"status":"linked","decision_grade":False}
 
 

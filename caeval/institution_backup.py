@@ -318,6 +318,8 @@ def restore(backup,destination,*,services_stopped=False):
                 tables={r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
                 if "agent_grants" in tables:
                     conn.execute("UPDATE agent_grants SET revoked=1")
+                if "evaluator_service_grants" in tables:
+                    conn.execute("UPDATE evaluator_service_grants SET revoked=1")
                 if "monitoring_schedules" in tables:
                     conn.execute("UPDATE monitoring_schedules SET enabled=0")
                 if "research_collections" in tables:
@@ -332,7 +334,7 @@ def restore(backup,destination,*,services_stopped=False):
             p.rename(dest/p.name)
         stage.rmdir()
         return {"backup_id":doc["backup_id"],"restored":True,
-                "sessions_revoked":True,"agent_grants_revoked":True,
+                "sessions_revoked":True,"agent_grants_revoked":True,"evaluator_service_grants_revoked":True,
                 "monitoring_schedules_disabled":True,"decision_grade":False,
                 "clinical_validity":"not_established"}
     except BaseException:
