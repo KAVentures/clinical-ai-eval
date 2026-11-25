@@ -169,6 +169,12 @@ class ServiceTests(unittest.TestCase):
             api.link(self.root,rid,job["id"],confirmed=True)
             self.assertEqual(api.status(self.root,self.token,rid)["status"],"queued")
             with access.db(self.root) as conn:
+                conn.execute("UPDATE evaluator_service_requests SET job_id=NULL WHERE id=?",(rid,))
+            with self.assertRaises(access.AccessDenied):
+                api.status(self.root,self.token,rid)
+            with self.assertRaises(access.AccessDenied):
+                api.link(self.root,rid,job["id"],confirmed=True)
+            with access.db(self.root) as conn:
                 conn.execute("UPDATE evaluator_service_requests SET job_id='job-replaced' WHERE id=?",(rid,))
             with self.assertRaises(access.AccessDenied):
                 api.status(self.root,self.token,rid)

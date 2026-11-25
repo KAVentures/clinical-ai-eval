@@ -61,11 +61,11 @@ def _audit_exact(conn,action,obj,actor=None):
 
 
 def _grant_event(row):
-    return buyer_plan._digest([row[k] for k in ("id","token_hash","owner","assessment_id","expires")])
+    return row["id"]+":"+buyer_plan._digest([row[k] for k in ("id","token_hash","owner","assessment_id","expires")])
 
 
 def _request_event(row):
-    return buyer_plan._digest([row[k] for k in ("id","grant_id","idempotency_key","assessment_id","created")])
+    return row["id"]+":"+buyer_plan._digest([row[k] for k in ("id","grant_id","idempotency_key","assessment_id","created")])
 
 
 def _issued(conn,row):
@@ -94,10 +94,26 @@ def _check_request(conn,row):
 
 
 def _link_event(row,jid):
-    return buyer_plan._digest([_request_event(row),jid])
+    return row["id"]+":"+buyer_plan._digest([_request_event(row),jid])
+
+
+def _link_inventory(conn,row):
+    events=conn.execute("SELECT action,object_id FROM audit WHERE outcome='ok' "
+                        "AND action IN ('evaluator-service-job-linked','evaluator-service-queue-approved') "
+                        "AND substr(object_id,1,33)=?",(row["id"]+":",)).fetchall()
+    jid=row["job_id"]
+    if jid is None:
+        if events:
+            _fail()
+    else:
+        action=("evaluator-service-queue-approved" if jid.startswith("job-service-")
+                else "evaluator-service-job-linked")
+        if len(events)!=1 or events[0]["action"]!=action or events[0]["object_id"]!=_link_event(row,jid):
+            _fail()
 
 
 def _check_link(conn,row):
+    _link_inventory(conn,row)
     jid=row["job_id"]
     if jid is None:
         return
@@ -297,6 +313,7 @@ def _queue_approval(conn,jid,assessment_id=None):
     _check_request(conn,row)
     if row["job_id"]!=jid or (assessment_id is not None and row["assessment_id"]!=assessment_id):
         _fail()
+    _link_inventory(conn,row)
     _audit_exact(conn,"evaluator-service-queue-approved",_link_event(row,jid))
     return row["assessment_id"]
 
