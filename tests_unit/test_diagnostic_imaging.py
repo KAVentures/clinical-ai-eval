@@ -184,3 +184,14 @@ def test_offline_cli_round_trip(tmp_path, capsys):
     bad.write_text('{"a": 1, "a": 2}')
     with pytest.raises(ValueError):
         d._read(bad)
+
+
+def test_main_cli_dispatch(tmp_path, capsys):
+    from caeval.cli import main
+    path = tmp_path / "spec.json"
+    path.write_text(json.dumps(spec()), encoding="utf-8")
+    main(["diagnostic-imaging", "freeze", str(path), "--confirm-prospective"])
+    out = json.loads(capsys.readouterr().out)
+    assert out["schema"] == d.SCHEMA and out["decision_grade"] is False
+    with pytest.raises(SystemExit):
+        main(["diagnostic-imaging", "freeze", str(path)])
