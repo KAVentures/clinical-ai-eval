@@ -86,6 +86,21 @@ class ConnectorTests(unittest.TestCase):
         with self.assertRaises(buyer.BuyerError):
             self.queue()
 
+    def test_standard_protocol_uses_same_canonical_handoff(self):
+        from caeval import candidate_protocol as protocol
+        cfg={k:v for k,v in self.cfg.items() if k not in ("prompt_field","answer_path")}
+        cfg["protocol"]=protocol.PROTOCOL
+        self.file.write_text(json.dumps(cfg))
+        row=self.queue()
+        with patch.object(connector,"_call",return_value="Fictional answer"):
+            result=connector.execute(self.root,row["id"],row["binding_hash"],"operator")
+        self.assertEqual(result["state"],"complete_unscored")
+        self.assertEqual(result["receipt"]["n_provided"],2)
+        self.assertEqual(connector.connectors(self.root)[0]["protocol"],protocol.PROTOCOL)
+        self.file.write_text(json.dumps({**cfg,"protocol":"unknown"}))
+        with self.assertRaises(buyer.BuyerError):
+            self.queue()
+
     def test_redirect_refused_and_receipt_tamper_detected(self):
         with self.assertRaises(adapters.AdapterError):
             connector._NoRedirect().redirect_request(None,None,302,"",{},"https://example.org/")

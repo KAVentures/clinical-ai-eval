@@ -528,3 +528,7 @@ The [synthetic FHIR readiness workflow](SYNTHETIC_FHIR_READINESS.md) tests fixed
 ## Governed retention
 
 Use the [institutional retention policy and offline maintenance workflow](INSTITUTIONAL_RETENTION.md) to record versioned local retention decisions and legal holds. Only expired authentication artifacts and eligible unexported synthetic FHIR rehearsals can be deleted by this workflow. It does not support erasure of actual clinical evidence, backups or third-party copies.
+
+## Provider-neutral candidate integration
+
+Use the [candidate endpoint contract](UNIVERSAL_CANDIDATE_API.md) for a versioned REST/JSON single-turn adapter, regardless of EHR, programming language, model or internal data format. Existing custom JSON connectors remain supported. The evaluator only contacts approved literal-loopback adapters; external routing remains under separately approved institutional IT control. This is a candidate-side endpoint, not an unrestricted remote execution API.
