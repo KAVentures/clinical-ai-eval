@@ -37,6 +37,9 @@ def submit(directory,actor,plan_id,responses,*,confirmed=False):
              "vendor_id":p["vendor_id"],"submitted_by":actor["user_id"],
              "package":package,"decision_grade":False}
         ident=buyer_plan._digest(doc)
+        from . import institution_retention as retention
+        if any(r["id"]==ident for r in retention.tombstones(conn)):
+            raise access.AccessDenied("retention-deleted evidence cannot be silently restored")
         old=conn.execute("SELECT * FROM synthetic_fhir_reports WHERE id=?",(ident,)).fetchone()
         if old:
             _read(directory,conn,old)
@@ -101,4 +104,6 @@ def inventory(directory,actor):
             except (ValueError,RuntimeError,OSError,KeyError,TypeError,AttributeError):
                 pass
             result.append(item)
+        from . import institution_retention as retention
+        result.extend(retention.tombstones(conn))
         return result
