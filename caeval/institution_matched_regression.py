@@ -101,15 +101,17 @@ def _read(conn,row):
     if (regression.protocol(row["kind"],old,plan,doc["parameters"])!=doc or doc["digest"]!=row["id"]
             or row["audit_seq"]<=earliest or (exposure is not None and row["audit_seq"]>=exposure)):
         raise access.AccessDenied("longitudinal registration binding or order mismatch")
+    if new and row["kind"]=="imaging" and not new["report"]["roster_complete"]:
+        return doc,None,"successor_roster_incomplete"
     result=regression.analyse(old,new,doc) if new else None
-    return doc,result
+    return doc,result,"sealed_descriptive_comparison" if result else "registered"
 
 
-def _coverage(doc,result):
+def _coverage(doc,result,state):
     return {"id":doc["digest"],"kind":doc["kind"],"baseline_study":doc["baseline_study"],
             "successor_study":doc["successor_study"],"baseline":doc["baseline"],"successor":doc["successor"],
             "primary_endpoint":doc["parameters"]["endpoint"],
-            "state":"sealed_descriptive_comparison" if result else "registered",
+            "state":state,
             "comparison_digest":result["digest"] if result else None,"decision_grade":False}
 
 
@@ -132,8 +134,8 @@ def detail(directory,actor,ident):
         row=conn.execute("SELECT * FROM matched_version_regressions WHERE id=?",(ident,)).fetchone()
         if not row:
             raise access.AccessDenied("unknown longitudinal registration")
-        doc,result=_read(conn,row)
-        return {"coverage":_coverage(doc,result),"protocol":doc,"result":result}
+        doc,result,state=_read(conn,row)
+        return {"coverage":_coverage(doc,result,state),"protocol":doc,"result":result}
 
 
 def export(directory,actor,ident,approval,*,confirmed=False):
@@ -147,7 +149,7 @@ def export(directory,actor,ident,approval,*,confirmed=False):
         row=conn.execute("SELECT * FROM matched_version_regressions WHERE id=?",(ident,)).fetchone()
         if not row:
             raise access.AccessDenied("unknown longitudinal registration")
-        _,result=_read(conn,row)
+        _,result,_=_read(conn,row)
         if not result or result["digest"]!=approval:
             raise access.AccessDenied("exact sealed comparison required")
         u._audit(conn,actor,"matched-version-regression-exported",ident+":"+approval)
