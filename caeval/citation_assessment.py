@@ -7,6 +7,7 @@ No automatic extraction, clinical correctness or canonical claim promotion.
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 from pathlib import Path
 
@@ -40,6 +41,12 @@ def _text(value,limit=MAX_TEXT):
 
 def _id(value):
     return manual._identifier(value)
+
+
+def _source_id(value):
+    if not isinstance(value,str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}",value):
+        fail("invalid source identifier")
+    return value
 
 
 def _strict(obj,keys):
@@ -79,7 +86,7 @@ def build_plan(spec):
     catalog={}
     for s in sources:
         _strict(s,("source_id","text","version","status"))
-        sid=_id(s["source_id"])
+        sid=_source_id(s["source_id"])
         if sid in catalog or s["status"] not in atomic.SOURCE_STATUSES:
             fail("duplicate source or invalid currency")
         _text(s["text"])
@@ -97,7 +104,7 @@ def build_plan(spec):
             fail("duplicate case")
         seen.add(cid)
         question=_text(case["question"],8000)
-        current,old,distractor,ghost=(_id(case[k]) for k in
+        current,old,distractor,ghost=(_source_id(case[k]) for k in
             ("current_source","superseded_source","distractor_source","ghost_source"))
         if (len({current,old,distractor,ghost})!=4 or ghost in catalog
                 or any(x not in catalog for x in (current,old,distractor))
@@ -143,6 +150,7 @@ def capture(plan,tracepack):
     misattributed citations. Failed calls remain in the fixed denominator.
     """
     verify_plan(plan)
+    _bounded(tracepack)
     vendor_trace.validate_tracepack(tracepack)
     if (tracepack["target"]!=plan["spec"]["target"] or tracepack["sources"]!=plan["spec"]["sources"]):
         fail("target or source catalog differs from frozen plan")
@@ -182,7 +190,7 @@ def capture(plan,tracepack):
                 fail("claim must identify exact verbatim answer span")
             text=_text(c["text"],8000)
             for sid in c["cited_source_ids"]:
-                _id(sid)
+                _source_id(sid)
             key=buyer_plan._digest([qid,local])
             claim={"claim_id":key,"text":text,"cited_source_ids":c["cited_source_ids"]}
             claims.append(claim)
@@ -410,7 +418,7 @@ def analyze(directory):
     report={"schema":"controlled-citation-report/1","binding_hash":b["binding_hash"],"plan_hash":plan["plan_hash"],
             "synthetic":plan["spec"]["synthetic"],"tracepack_hash":evidence["tracepack_hash"],
             "submission_digests":{rid:r["digest"] for rid,r in records.items()},"summary":summary,
-            "rows":rows,"atomic_support":atomic_report,"retrieval":vendor_trace.score_tracepack(trace),
+            "rows":rows,"component_atomic_support_before_coverage_gate":atomic_report,"retrieval":vendor_trace.score_tracepack(trace),
             "decision_grade":False,"limitations":["Controlled-context trace is operator/vendor supplied, not independently instrumented.",
             "Source status and authored probe relevance are not independently validated by software.",
             "Coverage is independently attested, not proof of exhaustive extraction.",
