@@ -50,7 +50,7 @@ def _inventory(conn):
             ("diagnostic_imaging_studies", FROZEN, ("id", "digest")),
             ("diagnostic_imaging_submissions", SUBMITTED, ("study", "candidate", "digest")),
             ("diagnostic_imaging_seals", SEALED, ("study", "digest"))):
-        rows = conn.execute("SELECT * FROM " + table).fetchall()
+        rows = conn.execute("SELECT audit_seq,actor," + ",".join(cols) + " FROM " + table).fetchall()
         expected = {(r["audit_seq"], r["actor"], ":".join(r[k] for k in cols)) for r in rows}
         events = conn.execute("SELECT seq,actor,object_id FROM audit WHERE action=? AND outcome='ok'", (action,)).fetchall()
         actual = {(r["seq"], r["actor"], r["object_id"]) for r in events}
@@ -110,6 +110,7 @@ def preview(directory, actor, spec):
     with access.db(directory) as conn:
         _actor(conn, actor, "admin")
         _schema(conn)
+        conn.execute("BEGIN")
         _inventory(conn)
         # Deterministic validation only. The preview nonce is never exported.
         p = imaging.freeze(spec, private_nonce="0"*64, confirmed=True)
@@ -145,6 +146,7 @@ def overview(directory, actor, *, committee=False):
     with access.db(directory) as conn:
         _actor(conn, actor, *(("admin", "operator", "observer") if committee else ("admin", "operator")))
         _schema(conn)
+        conn.execute("BEGIN")
         _inventory(conn)
         result = []
         for row in conn.execute("SELECT id FROM diagnostic_imaging_studies ORDER BY audit_seq").fetchall():
@@ -159,6 +161,7 @@ def detail(directory, actor, ident):
     with access.db(directory) as conn:
         _actor(conn, actor, "admin", "operator")
         _schema(conn)
+        conn.execute("BEGIN")
         _inventory(conn)
         return _status(*_get(conn, ident), committee=actor["role"] != "admin")
 
@@ -214,6 +217,7 @@ def seal_preview(directory, actor, ident):
     with access.db(directory) as conn:
         _actor(conn, actor, "admin")
         _schema(conn)
+        conn.execute("BEGIN")
         _inventory(conn)
         plan, docs, evidence = _get(conn, ident)
         if evidence:
