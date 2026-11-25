@@ -161,6 +161,7 @@ def _dashboard(directory, actor):
         body += "<p><a href='/patient-review'>Patient transcript physician review</a></p>"
         body += "<p><a href='/world-review'>Patient-world validity review</a></p>"
     if role == "reviewer":
+        body += "<p><a href='/my-independent-reviews'>My independent reviews</a></p>"
         body += "<h2>Assigned blinded reviews</h2>"
         for row in access.assignments(directory, actor):
             link = "/review?" + urllib.parse.urlencode({"job":row["job"],"family":row["family"]})
@@ -654,6 +655,12 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=image_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
+            if path=="/my-independent-reviews" and method=="GET":
+                from . import institution_reviewer_inbox as inbox
+                access.require(actor,"reviewer")
+                if _query(env):
+                    raise access.AccessDenied("invalid review inbox filter")
+                return respond("200 OK",inbox.render(self.directory,actor))
             if path in ("/cockpit-policy-setup","/cockpit-monitor-setup") and method=="GET":
                 from . import institution_lifecycle_guided as guided
                 access.require(actor,"admin")
