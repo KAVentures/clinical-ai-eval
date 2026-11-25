@@ -599,6 +599,18 @@ class InstitutionApp:
                 _csrf(actor,form)
                 evaluator_service_web.dispatch(self.directory,actor,path,form)
                 return respond("303 See Other",extra=[("Location","/evaluator-requests")])
+            if path=="/mixed-evaluation" and method=="GET":
+                from . import mixed_evaluation_web as mixed
+                q=_query(env)
+                if set(q)!={"plan_id"}:
+                    raise access.AccessDenied("select exact parent plan")
+                return respond("200 OK",mixed.render(self.directory,actor,q["plan_id"]))
+            if path=="/mixed-evaluation-freeze" and method=="POST":
+                from . import mixed_evaluation_web as mixed
+                form=_form(env)
+                _csrf(actor,form)
+                mixed.freeze(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/mixed-evaluation?plan_id="+form["parent_id"])])
             if path=="/guided-collection" and method=="GET":
                 from . import guided_onboarding_web as guided
                 q=_query(env)

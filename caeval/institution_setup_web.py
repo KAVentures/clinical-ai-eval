@@ -40,6 +40,8 @@ def render(directory,actor):
             continue
         body+="<p>"+esc(plan["target"]["name"])+" "+esc(plan["target"]["version"])+" · "+("Current definitions" if plan["current"] else "Stale definitions")+"</p>"
         if plan["current"]:
+            if len(plan["profiles"])>1:
+                body+="<p><a href='/mixed-evaluation?plan_id="+esc(plan["id"])+"'>Mixed-profile evaluation programme</a></p>"
             body+="<p><a href='/guided-collection?plan_id="+esc(plan["id"])+"'>Guided candidate onboarding and collection</a></p>"
             body+="<p><a href='/research-buyer-coverage?plan_id="+esc(plan["id"])+"'>View related experimental research coverage</a></p>"
         body+="<p><a href='/buyer-risk?plan_id="+esc(plan["id"])+"'>Buyer clinical risk protocol</a></p>"

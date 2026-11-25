@@ -69,7 +69,8 @@ def overview(directory,actor):
         try:
             p=plans.load(directory,ident)
             saved.append({"id":ident,"vendor_id":p["vendor_id"],"target":p["plan"]["target"],
-                          "current":p["definitions_current"],"selection":p["plan"]["selection"]})
+                          "current":p["definitions_current"],"selection":p["plan"]["selection"],
+                          "profiles":p["plan"]["target_profile"]["types"]})
         except (OSError,ValueError,RuntimeError,KeyError,TypeError):
             saved.append({"id":ident,"invalid":True})
     exchanges=[]

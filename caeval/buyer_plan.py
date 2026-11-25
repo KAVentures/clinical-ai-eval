@@ -43,7 +43,7 @@ def _plan_dir(directory):
     return path
 
 
-def preview(directory, spec: dict) -> dict:
+def preview(directory, spec: dict, *, save=True) -> dict:
     state = buyer.load(directory)
     if not isinstance(spec, dict) or set(spec) != {
             "vendor_id", "target_name", "target_version", "profiles", "answers"}:
@@ -89,6 +89,8 @@ def preview(directory, spec: dict) -> dict:
     }
     plan_id = _digest(record)
     record = {**record, "plan_id": plan_id}
+    if save is False:
+        return record
     folder = _plan_dir(directory)
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
     dest = folder / (plan_id + ".json")

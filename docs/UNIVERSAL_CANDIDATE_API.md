@@ -169,3 +169,17 @@ binding approval before transmission. This is a single-turn path; patient
 conversation and experimental workflows retain separate prerequisites.
 
 Guided collection IDs are deterministic and require one matching committed institutional approval audit before a worker can transmit anything. An orphaned queue entry from an interrupted approval is inert until the identical approval is repeated. Connector configuration drift stops subsequent transmissions. Terminal guided collections are reverified on repeated approval.
+
+## Mixed-profile institutional programme
+
+For a saved plan with multiple clinical product profiles, open Mixed-profile
+evaluation programme. The preview generates exact separate profile-specific
+plans without writing them, preserves the original parent audience gate and
+shows each lane's runnable and blocked suites. Explicit digest approval freezes
+those child plans. The programme tracks verified canonical job packages and
+related experimental reports for the exact child plan IDs. It never treats a
+narrower-scoped result as proof of the parent mixed-audience requirement,
+combines scores, or approves network calls. The same intake answers are copied
+unchanged; operators must confirm these describe each specific profile before
+approval. Each existing worker retains its own execution approval. A missing
+or modified approved child plan is refused, not silently recreated.
