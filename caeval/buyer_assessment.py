@@ -196,6 +196,9 @@ def check(directory, assessment_id):
 def prepare_file(directory, source_file):
     with Path(source_file).expanduser().open("rb") as handle:
         spec = manual._parse(handle.read(manual.MAX_REQUEST_BYTES + 1))
-    if not isinstance(spec, dict) or set(spec) != {"submission_id", "panel_id", "governance"}:
-        raise buyer.BuyerError("provide submission_id, panel_id and governance")
-    return prepare(directory, spec["submission_id"], spec["panel_id"], spec["governance"])
+    required={"submission_id", "panel_id", "governance"}
+    if not isinstance(spec, dict) or not required<=set(spec) or set(spec)-required-{"conditions_hash"}:
+        raise buyer.BuyerError("provide submission_id, panel_id, governance and optional conditions_hash")
+    if "conditions_hash" in spec and not isinstance(spec["conditions_hash"],str):
+        raise buyer.BuyerError("explicit activated conditions hash required")
+    return prepare(directory, spec["submission_id"], spec["panel_id"], spec["governance"], conditions_hash=spec.get("conditions_hash"))
