@@ -61,6 +61,10 @@ class FormalReviewTests(unittest.TestCase):
         self.assertTrue(out["canonical_adjudication"]["validity_adjudicated"])
         self.assertFalse(out["canonical_adjudication"]["l2_adjudication_gate_passed"])
         self.assertFalse(out["decision_grade"])
+        calibration=out["selected_queue_calibration"]
+        self.assertTrue(calibration["synthetic"])
+        self.assertFalse(calibration["decision_grade"])
+        self.assertEqual(sum(calibration["exclusive_coverage"].values()),calibration["n_locked_review_cells"])
         self.assertEqual(out,formal.analyze(self.root,ident))
         self.assertEqual(self.before,{p.relative_to(self.source):p.read_bytes() for p in self.source.rglob("*") if p.is_file()})
         self.assertEqual(jobs.status(self.root,self.job)["status"],"completed")
@@ -95,6 +99,7 @@ class FormalReviewTests(unittest.TestCase):
             self.submit(ident,rid,self.fill(ident,rid,negative=rid=="doc-validity"))
         out=formal.analyze(self.root,ident)
         self.assertEqual(out["n_invalid_or_indeterminate_validity"],1)
+        self.assertEqual(out["selected_queue_calibration"]["exclusive_coverage"]["invalid_or_indeterminate_validity"],1)
         self.assertFalse(out["canonical_adjudication"]["validity_adjudicated"])
         self.assertFalse(out["canonical_adjudication"]["l2_adjudication_gate_passed"])
         packet=self.root/"formal-reviews"/ident/"review_packets"/"doc-a.packet.json"

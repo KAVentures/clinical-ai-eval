@@ -114,7 +114,20 @@ def dispatch(directory,actor,path,form):
     elif path=="/formal-analyze" and set(form)=={"id"} and not confirmed:
         result=coord.analyze(directory,actor,form["id"])
         canonical=result["canonical_adjudication"]
-        return page("Formal adjudication report","<p><a href='/formal'>Formal review</a></p><p>Source package unchanged. Conditional scientific output, not a decision-grade or clinical approval.</p><p>Source manifest: "+esc(result["source_manifest"])+"</p><p>Invalid or indeterminate validity findings: "+esc(result["n_invalid_or_indeterminate_validity"])+"</p><pre style='white-space:pre-wrap'>"+esc(canonical["summary_md"])+"</pre><p>Report digest: "+esc(result["digest"])+"</p>")
+        from . import review_calibration
+        calibration=result["selected_queue_calibration"]
+        coverage=calibration["exclusive_coverage"]
+        details="<h2>Selected-queue judge calibration</h2><p>"+esc(coverage)+"</p>"
+        details+="<p>Locked review cells: "+str(calibration["n_locked_review_cells"])+" / "+str(calibration["n_full_run_variant_cells"])+" full-run variants. Not population-level validation.</p>"
+        details+="<table><tr><th>Evaluator</th><th>Paired / eligible</th><th>Case clusters</th><th>Sensitivity</th><th>Specificity</th></tr>"
+        for row in calibration["comparisons"]:
+            details+="<tr>"+"".join("<td>"+esc(x)+"</td>" for x in
+                (row["name"],str(row["n_paired"])+"/"+str(row["n_reference_eligible"]),
+                 row["n_paired_case_clusters"],
+                 "Not estimable" if row["sensitivity"] is None else f'{row["sensitivity"]:.1%}',
+                 "Not estimable" if row["specificity"] is None else f'{row["specificity"]:.1%}'))+"</tr>"
+        details+="</table><ul>"+"".join("<li>"+esc(x)+"</li>" for x in calibration["limitations"])+"</ul>"
+        return page("Formal adjudication report","<p><a href='/formal'>Formal review</a></p><p>Source package unchanged. Conditional scientific output, not a decision-grade or clinical approval.</p><p>Source manifest: "+esc(result["source_manifest"])+"</p><p>Invalid or indeterminate validity findings: "+esc(result["n_invalid_or_indeterminate_validity"])+"</p><pre style='white-space:pre-wrap'>"+esc(canonical["summary_md"])+"</pre>"+details+"<p>Report digest: "+esc(result["digest"])+"</p>")
     else:
         raise access.AccessDenied("invalid formal review action")
     return None

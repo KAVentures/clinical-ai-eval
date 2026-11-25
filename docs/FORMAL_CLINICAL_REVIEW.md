@@ -111,3 +111,19 @@ filesystem administrator can alter local files and reissue HMAC packets;
 this is not PKI or tamper-proof audit. Browser-based formal issuance and
 submission, institutional identity federation and production acceptance
 are future work.
+
+## Selected-queue judge calibration
+
+Formal analysis additionally emits selected_queue_calibration, a descriptive
+comparison with independently determined human majority labels. The locked
+review queue is enriched and is not a random clinical population sample.
+Every reviewed opportunity is counted once in an exclusive coverage category:
+invalid/indeterminate human validity, insufficient determinate reviewers,
+no majority of the frozen independent roster, incomplete automated evaluation,
+or reference eligible. Per-judge and panel confusion counts are computed only
+for reference-eligible cells with available binary automated labels. Missing
+judge labels are counted, and sensitivity/specificity missing-label bounds are
+shown (not confidence intervals). Case-cluster counts are explicit. Consensus
+never changes this independent calibration reference. No claim promotion, new
+clinical validity threshold or population extrapolation is made. The canonical
+adjudication report and original source package remain separate and unchanged.
