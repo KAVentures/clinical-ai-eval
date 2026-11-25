@@ -14,7 +14,9 @@ MAX_CANDIDATES=6
 MAX_TEXT=16000
 MAX_CLAIMS=20
 MAX_TOTAL=1000000
-MAX_TRACE_BYTES=1000000
+MAX_TRACE_BYTES=800000
+MAX_EXCHANGE_BYTES=4000000
+MAX_TOTAL_CLAIMS_PER_CANDIDATE=300
 CONDITIONS=("supported","support_removed")
 LABELS=("supported","unsupported","uncertain")
 LIMITATIONS=[
@@ -61,6 +63,7 @@ def freeze(spec,*,nonce=None,confirmed=False):
         by[doc["id"]]=doc
     d._require(total<=MAX_TOTAL,"corpus size limit")
     qids=set()
+    exchange_bytes=0
     questions=spec["questions"]
     d._require(isinstance(questions,list) and 1<=len(questions)<=MAX_CASES,"bounded question cohort required")
     for q in questions:
@@ -72,6 +75,9 @@ def freeze(spec,*,nonce=None,confirmed=False):
                    and not set(q["reference_ids"])&set(q["distractor_ids"])
                    and all(by[x]["state"]=="current" for x in q["reference_ids"]),
                    "current reference and disjoint nonempty distractor corpus required")
+        import json
+        exchange_bytes+=2*len(q["query"].encode("utf-8"))+sum(len(json.dumps(by[x],ensure_ascii=True)) + 128 for x in q["reference_ids"])+2*sum(len(json.dumps(by[x],ensure_ascii=True))+128 for x in q["distractor_ids"])+512
+        d._require(exchange_bytes<=MAX_EXCHANGE_BYTES,"repeated candidate corpus exchange exceeds budget")
     candidates=spec["candidates"]
     d._require(isinstance(candidates,list) and 1<=len(candidates)<=MAX_CANDIDATES,"bounded candidate roster")
     ids=set()
@@ -172,6 +178,7 @@ def _validate(plan,doc):
                        and bool(row["answer"][a:b].strip()),"invalid or overlapping claim span")
             end=b
             d._require(d._unique_tokens(claim["citations"],0,MAX_DOCS),"invalid citation inventory")
+    d._require(sum(len(r["claims"]) for r in rows)<=MAX_TOTAL_CLAIMS_PER_CANDIDATE,"candidate claim inventory limit")
     import json
     d._require(len(json.dumps(doc,ensure_ascii=True).encode("ascii"))<=MAX_TRACE_BYTES,"candidate trace byte limit")
     return c["id"]
