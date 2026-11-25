@@ -1870,6 +1870,10 @@ def main(argv=None):
     from . import monitor_alert_store
     pstore = sub.add_parser("monitor-alert-store", help="manage durable single-monitor alert delivery state")
     monitor_alert_store.configure(pstore)
+
+    from . import monitor_alert_worker
+    pworker = sub.add_parser("monitor-alert-worker", help="execute one approved local alert delivery cycle")
+    monitor_alert_worker.configure(pworker)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")
