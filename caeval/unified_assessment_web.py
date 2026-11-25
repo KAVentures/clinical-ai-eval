@@ -8,7 +8,18 @@ def home(directory,actor):
     from .institution_web import page,esc,_hidden
     body="<p><a href='/'>Dashboard</a></p><p>Buyer-owned cross-modality evidence inventory. No combined score, pass or deployment decision.</p>"
     if actor["role"]=="admin":
-        body+=("<section><h2>Freeze a new assessment programme</h2><p>Choose saved buyer plan IDs and explicit requirements. Every required canonical suite not included remains visible as a gap.</p>"
+        plans=service.available_plans(directory,actor)
+        if plans:
+            body+=("<section><h2>Guided programme setup</h2><p>Select current saved plans. Supported text and conversation requirements are generated automatically; select any additional independent evidence lanes. Unsupported suites remain explicit gaps.</p><form method='post' action='/unified-assessment-guided-preview'>"+_hidden("csrf",actor["csrf"])+
+                   "<label>Programme ID<input name='programme_id' required maxlength='80'></label>")
+            for p in plans:
+                pid=p["plan_id"]
+                body+="<section><label><input type='checkbox' name='plan_"+esc(pid)+"' value='yes'> "+esc(p["vendor_id"])+" · "+esc(p["target"]["version"])+" · "+esc(", ".join(p["profiles"]))+"</label>"
+                for kind in ("research","imaging","fhir","hl7","image_text"):
+                    body+="<label><input type='checkbox' name='kind_"+esc(pid)+"_"+kind+"' value='yes'> "+esc(kind.replace("_"," "))+"</label>"
+                body+="</section>"
+            body+="<button>Preview selected plans</button></form></section>"
+        body+=("<section><h2>Advanced JSON programme setup</h2><p>Choose saved buyer plan IDs and explicit requirements. Every required canonical suite not included remains visible as a gap.</p>"
                "<form method='post' action='/unified-assessment-preview'>"+_hidden("csrf",actor["csrf"])+
                "<label>Programme specification JSON<textarea name='spec' required rows='12' maxlength='1048576'></textarea></label><button>Preview programme</button></form></section>")
     for doc in service.overview(directory,actor):
@@ -99,3 +110,27 @@ def dispatch(directory,actor,path,form):
         forms._exact(form,"id approval confirm")
         return service.export(directory,actor,form["id"],form["approval"],confirmed=True)
     raise access.AccessDenied("unknown programme action")
+
+
+def guided_preview(directory,actor,form):
+    if "programme_id" not in form:
+        raise access.AccessDenied("programme ID required")
+    choices={}
+    extra=[]
+    for key,value in form.items():
+        if key=="programme_id":
+            continue
+        if value!="yes":
+            raise access.AccessDenied("invalid guided selection")
+        if key.startswith("plan_"):
+            choices[key[5:]]=[]
+        elif key.startswith("kind_") and len(key)>70 and key[69]=="_":
+            extra.append((key[5:69],key[70:]))
+        else:
+            raise access.AccessDenied("unexpected guided field")
+    for pid,kind in extra:
+        if pid not in choices:
+            raise access.AccessDenied("select the plan for every additional evidence lane")
+        choices[pid].append(kind)
+    spec=service.guided_spec(directory,actor,form["programme_id"],choices)
+    return preview(directory,actor,{"spec":json.dumps(spec)})
