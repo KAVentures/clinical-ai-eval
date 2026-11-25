@@ -75,6 +75,21 @@ def _source(directory,pack_id):
     return json.loads(buyer_plan._canonical(source)),items
 
 
+def _separate_transcript_rosters(db,source,reviewers):
+    """Do not disclose hidden reference facts to previously assigned reviewers."""
+    transcript._schema(db)
+    conversation._schema(db)
+    for row in db.execute("SELECT id,job,binding,digest FROM patient_review_handoffs"):
+        b=json.loads(row["binding"])
+        ids={r[0] for r in db.execute("SELECT reviewer FROM patient_review_roster WHERE handoff=?",(row["id"],))}
+        if buyer_plan._digest(b)!=row["digest"] or set(b["reviewers"])!=ids:
+            raise access.AccessDenied("transcript roster integrity mismatch")
+        pack=conversation._row(db,row["job"])["binding"]["pack_descriptor"]
+        if (pack["content_hash"]==source["descriptor"]["content_hash"]
+                or pack["pack_id"]==source["descriptor"]["pack_id"]) and ids.intersection(reviewers):
+            raise access.AccessDenied("reviewer previously assigned to transcripts for this pack")
+
+
 def create(directory,actor,pack_id,reviewers,*,confirmed=False):
     if confirmed is not True or not isinstance(reviewers,list) or not 2<=len(reviewers)<=5:
         raise access.AccessDenied("two to five predeclared independent validity reviewers required")
@@ -88,6 +103,7 @@ def create(directory,actor,pack_id,reviewers,*,confirmed=False):
         if not all(transcript._reviewer(db,rid) for rid in ids):
             raise access.AccessDenied("active physician reviewer accounts required")
         source,items=_source(directory,pack_id)
+        _separate_transcript_rosters(db,source,ids)
         source_hash=buyer_plan._digest(source)
         if db.execute("SELECT 1 FROM patient_validity_handoffs WHERE source_digest=?",(source_hash,)).fetchone():
             raise access.AccessDenied("validity roster already frozen for this exact source")

@@ -94,12 +94,23 @@ class WorldValidityTests(unittest.TestCase):
         b=validity.create(self.root,a,"fixture",["valid-a","valid-b"],confirmed=True)
         job=conversation.prepare(self.root,self.actor,self.spec)
         self.assertEqual(conversation.execute(self.root,job["id"],job["binding_hash"],allow_candidate_calls=True)["status"],"completed")
-        transcript.prepare(self.root,a,job["id"],["valid-a","transcript-b"],confirmed=True)
+        with self.assertRaises(access.AccessDenied):
+            transcript.prepare(self.root,a,job["id"],["valid-a","transcript-b"],confirmed=True)
+        transcript.prepare(self.root,a,job["id"],["transcript-a","transcript-b"],confirmed=True)
         with access.db(self.root) as db:
             validity._schema(db)
             binding,_,_=validity._load(self.root,db,b["id"])
-            with self.assertRaises(access.AccessDenied):
-                validity._job_link(self.root,db,binding,job["id"])
+            self.assertTrue(validity._job_link(self.root,db,binding,job["id"])["separate_transcript_roster"])
+
+    def test_transcript_first_prevents_reference_exposure(self):
+        _,a=self.login("admin")
+        job=conversation.prepare(self.root,self.actor,self.spec)
+        self.assertEqual(conversation.execute(self.root,job["id"],job["binding_hash"],allow_candidate_calls=True)["status"],"completed")
+        transcript.prepare(self.root,a,job["id"],["transcript-a","transcript-b"],confirmed=True)
+        with self.assertRaises(access.AccessDenied):
+            validity.create(self.root,a,"fixture",["valid-a","transcript-a"],confirmed=True)
+        self.assertEqual(validity.overview(self.root,a),[])
+        validity.create(self.root,a,"fixture",["valid-a","valid-b"],confirmed=True)
 
 
 class SummaryTests(unittest.TestCase):

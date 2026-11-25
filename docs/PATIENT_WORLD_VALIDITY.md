@@ -34,7 +34,11 @@ agree; uncertainty remains indeterminate. Neither is treated as a pass.
 The administrator may link the report to a completed verified patient
 conversation job. The pack descriptor, file hashes and relevant scientific
 definitions must match exactly. If a transcript-review roster exists,
-overlapping reviewer accounts are refused for the linked report. When no
+overlapping reviewer accounts are refused for the linked report. In addition,
+assignment in either direction is refused when an account was previously
+assigned to the other review type for the same pack ID or content hash,
+even if that reviewer never submitted answers. This conservatively protects
+blinding across versions with the same pack ID. When no
 transcript roster exists, the report explicitly records that separation
 has not been established. A changed pack or definition invalidates the
 current review, requiring a fresh version and review.
