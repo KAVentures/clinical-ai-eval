@@ -1721,11 +1721,13 @@ def main(argv=None):
     pcmp.add_argument("--baseline", required=True); pcmp.add_argument("--candidate", required=True)
     pcmp.add_argument("--out"); pcmp.add_argument("--allow-environment-change", action="store_true")
     pcmp.set_defaults(func=cmd_compare)
-    from . import experimental_evidence
     px = sub.add_parser("verify-experimental-evidence", help="replay experimental research evidence offline")
     px.add_argument("package")
     px.add_argument("--expected-digest", help="independently communicated package digest")
-    px.set_defaults(func=experimental_evidence.cli)
+    def run_experimental_evidence(args):
+        from . import experimental_evidence
+        return experimental_evidence.cli(args)
+    px.set_defaults(func=run_experimental_evidence)
     pvp = sub.add_parser("verify-package", help="independently verify an evidence package")
     pvp.add_argument("package"); pvp.add_argument("--verbose", action="store_true")
     pvp.set_defaults(func=cmd_verify_package)
