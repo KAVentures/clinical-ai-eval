@@ -224,3 +224,7 @@ status, not claim support. Responses are operator-attested, and the application
 does not verify model execution or the provenance of pasted text. The workflow
 is an explicitly demonstration-grade rehearsal, does not satisfy canonical
 clinical requirements and cannot support deployment or procurement conclusions.
+
+## Independent RAG grounding research
+
+The separate [controlled RAG grounding research workflow](RAG_GROUNDING_RESEARCH.md) adds authorized versioned corpora, paired support-available/support-removed controls, product-reported retrieval traces and two blinded reviewer accounts. Select `rag_grounding` as an additional experimental requirement (`family: null`). Evidence matching is vendor ID and exact declared version only; clinical relevance and actual model execution remain externally verified responsibilities. This does not satisfy the canonical RAG family.
