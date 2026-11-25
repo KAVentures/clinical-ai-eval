@@ -145,3 +145,5 @@ report retains invalid, uncertain and missing results and reuses independent
 reference calibration. It does not alter or promote the original run. Full pack
 coverage is not a population-representative sample, and only one family is
 included per cohort. Do not enter real patient identifiers.
+
+The prospective guarantee applies only to the full case inventory and reviewer roster. The completed job and evaluator configuration are selected afterwards and are not prospectively fixed by this protocol. Report this limitation in any research use; do not treat the cohort as a confirmatory preregistered validation study.

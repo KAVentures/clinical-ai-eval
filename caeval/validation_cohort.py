@@ -144,7 +144,9 @@ def _source(directory,d,job_id):
     b=manual._read(folder/"binding.json")
     if b["plan_id"]!=d["plan_id"] or b["exchange_id"]!=d["exchange_id"] or b["pack_content_hash"]!=d["pack_content_hash"]:
         raise access.AccessDenied("job differs from prospective cohort")
-    pkg=next(p for p in job["result"]["packages"] if p["family_id"]==d["family_id"])
+    packages=[p for p in job["result"]["packages"] if p["family_id"]==d["family_id"]]
+    if len(packages)!=1:raise access.AccessDenied("exact family package required")
+    pkg=packages[0]
     ws=folder/"out"/("run_"+d["family_id"])
     meta=research._preflight(ws)
     if meta["manifest_hash"]!=pkg["manifest_hash"] or manifest.verify_manifest(ws)["verdict"]!=manifest.VALID:
@@ -223,9 +225,10 @@ def packet(directory,actor,ident):
     with access.db(directory) as c:
         _schema(c)
         _actor(c,actor,"reviewer")
-        d,link,responses,_,_=_context(directory,c,ident)
+        d=_read(c,ident)
         rid=actor["user_id"]
-        if rid not in _roster(d):raise access.AccessDenied("not assigned")
+        if not d or rid not in _roster(d):raise access.AccessDenied("not assigned")
+        d,link,responses,_,_=_context(directory,c,ident)
         return _packet(d,link,responses,rid)[0]
 
 
@@ -262,9 +265,10 @@ def submit(directory,actor,ident,request_digest,answers,*,confirmed=False):
         _schema(c)
         c.execute("BEGIN IMMEDIATE")
         _actor(c,actor,"reviewer")
-        d,link,responses,_,_=_context(directory,c,ident)
+        d=_read(c,ident)
         rid=actor["user_id"]
-        if rid not in _roster(d):raise access.AccessDenied("not assigned")
+        if not d or rid not in _roster(d):raise access.AccessDenied("not assigned")
+        d,link,responses,_,_=_context(directory,c,ident)
         req,_=_packet(d,link,responses,rid)
         if plans._digest(req)!=request_digest:raise access.AccessDenied("review packet changed")
         payload={"request_digest":request_digest,"answers":_answers(req,answers)}
@@ -304,7 +308,11 @@ def inventory(directory,actor):
         _schema(c)
         _actor(c,actor,"admin","reviewer")
         out=[]
-        for row in c.execute("SELECT id FROM validation_cohorts ORDER BY id").fetchall():
+        rows=c.execute("SELECT id FROM validation_cohorts ORDER BY id").fetchall()
+        events=c.execute("SELECT object_id FROM audit WHERE action=? AND outcome='ok'",(EVENT,)).fetchall()
+        if len(rows)!=len(events) or {r["id"] for r in rows}!={e["object_id"].split(":",1)[0] for e in events}:
+            raise access.AccessDenied("cohort inventory differs from audit")
+        for row in rows:
             d=_read(c,row["id"])
             if actor["role"]=="reviewer" and actor["user_id"] not in _roster(d):continue
             link=_link(c,d)
@@ -346,6 +354,8 @@ def analyze(directory,actor,ident):
             labels[d["validity_reviewer"]],synthetic=panel.get("all_mock",True) or panel.get("mock_in_headline",False))
         calibration["limitations"]=[x for x in calibration["limitations"] if not x.startswith("The locked review queue is enriched")]
         calibration["limitations"].insert(0,"All variants of a single fixed family and staged case pack were reviewed; not a random patient-population sample.")
+        calibration["limitations"].append("The cohort inventory and roster were frozen before exchange, but the evaluator configuration and completed source job were not prospectively selected by this protocol.")
         out={"schema":"prospective-cohort-calibration/1","cohort":ident,"source_manifest":link["manifest"],
-             "calibration":calibration,"decision_grade":False,"independent_credentials_verified_by_software":False}
+             "calibration":calibration,"decision_grade":False,"independent_credentials_verified_by_software":False,
+             "evaluator_and_job_prospectively_bound":False}
         return {**out,"digest":plans._digest(out)}
