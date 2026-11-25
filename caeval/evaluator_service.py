@@ -19,6 +19,8 @@ MAX_TTL=86400
 MAX_REQUESTS=200
 MAX_GRANTS=200
 MAX_BODY=4096
+MAX_REPLY=256*1024
+RECEIPT_SCHEMA="clinical-ai-eval-service-receipt/1"
 TOKEN=re.compile(r"[A-Za-z0-9_-]{43}")
 KEY=re.compile(r"[A-Za-z0-9_-]{16,80}")
 ID=re.compile(r"[0-9a-f]{32}")
@@ -134,6 +136,28 @@ def submit(directory,token,key):
         return _summary(_request(conn,grant["id"],rid))
 
 
+def discover(directory,token):
+    """Describe only the assessment authorized by this grant."""
+    with access.db(directory) as conn:
+        _schema(conn)
+        grant=_grant(conn,token)
+        return {"schema":SCHEMA,"assessment_id":grant["assessment_id"],"expires":grant["expires"],
+                "operations":["discover","list_requests","request_evaluation","evaluation_status","result_receipt"],
+                "execution_authorized_by_api":False,"decision_grade":False}
+
+
+def list_requests(directory,token):
+    """Allow reconnecting clients to recover their own request identifiers."""
+    with access.db(directory) as conn:
+        _schema(conn)
+        grant=_grant(conn,token)
+        rows=conn.execute("SELECT * FROM evaluator_service_requests WHERE grant_id=? ORDER BY created,id",
+                          (grant["id"],)).fetchall()
+        if len(rows)>MAX_REQUESTS or any(r["assessment_id"]!=grant["assessment_id"] for r in rows):
+            _fail()
+        return {"schema":SCHEMA,"requests":[_summary(r) for r in rows],"decision_grade":False}
+
+
 def inventory(directory,actor=None):
     """Local CLI or authenticated institutional administrator; not machine API."""
     with access.db(directory) as conn:
@@ -221,8 +245,57 @@ def status(directory,token,rid):
     return result
 
 
+def receipt(directory,token,rid):
+    result=status(directory,token,rid)
+    if result["status"]!="completed":
+        _fail()
+    payload={"schema":RECEIPT_SCHEMA,"result":result,
+             "scope":"verified_package_metadata_only","decision_grade":False}
+    return {**payload,"digest":buyer_plan._digest(payload)}
+
+
+def verify_receipt(doc,expected_digest):
+    """Offline integrity check of metadata, NOT independent scientific replay."""
+    import hmac
+    if (not isinstance(doc,dict) or set(doc)!={"schema","result","scope","decision_grade","digest"}
+            or doc["schema"]!=RECEIPT_SCHEMA or doc["scope"]!="verified_package_metadata_only"
+            or doc["decision_grade"] is not False):
+        _fail()
+    manual._identifier(expected_digest,digest=True)
+    manual._identifier(doc["digest"],digest=True)
+    if (not hmac.compare_digest(doc["digest"],expected_digest)
+            or buyer_plan._digest({k:v for k,v in doc.items() if k!="digest"})!=doc["digest"]):
+        _fail()
+    result=doc["result"]
+    if (not isinstance(result,dict) or set(result)!={"schema","request_id","assessment_id","status",
+            "execution_authorized_by_api","decision_grade","packages","required_but_not_run"}
+            or result["schema"]!=SCHEMA or result["status"]!="completed"
+            or result["execution_authorized_by_api"] is not False or result["decision_grade"] is not False
+            or not isinstance(result["request_id"],str) or not ID.fullmatch(result["request_id"])):
+        _fail()
+    manual._identifier(result["assessment_id"],digest=True)
+    packages=result["packages"]
+    if not isinstance(packages,list) or not 1<=len(packages)<=100:
+        _fail()
+    families=set()
+    for p in packages:
+        if not isinstance(p,dict) or set(p)!={"family_id","manifest_hash","claim","n_responses","review_count"}:
+            _fail()
+        family=manual._identifier(p["family_id"])
+        manual._identifier(p["manifest_hash"],digest=True)
+        if (family in families or p["claim"] not in ("none","demonstration","internal_regression")
+                or any(type(p[k]) is not int or p[k]<0 for k in ("n_responses","review_count"))
+                or p["review_count"]>p["n_responses"]):
+            _fail()
+        families.add(family)
+    if not isinstance(result["required_but_not_run"],list):
+        _fail()
+    return {"status":"METADATA_INTEGRITY_VERIFIED","digest":doc["digest"],
+            "expected_digest_matched":True,"scientific_replay_verified":False,"decision_grade":False}
+
+
 def openapi():
-    return {"openapi":"3.1.0","info":{"title":"Clinical AI Eval request service","version":"1.0.0",
+    spec={"openapi":"3.1.0","info":{"title":"Clinical AI Eval request service","version":"1.0.0",
             "description":"Request and status metadata for a preapproved assessment. No remote execution."},
             "components":{"securitySchemes":{"grant":{"type":"http","scheme":"bearer"}}},
             "security":[{"grant":[]}],"paths":{
@@ -235,6 +308,14 @@ def openapi():
               "parameters":[{"name":"request_id","in":"path","required":True,
                              "schema":{"type":"string","pattern":"^[0-9a-f]{32}$"}}],
               "responses":{"200":{"description":"Scoped verified job metadata"},"403":{"description":"Denied"}}}}}}
+    spec["paths"]["/v1/assessment"]={"get":{"operationId":"discoverAssessment",
+        "responses":{"200":{"description":"Authorized assessment metadata"},"403":{"description":"Denied"}}}}
+    spec["paths"]["/v1/evaluation-requests"]["get"]={"operationId":"listRequests",
+        "responses":{"200":{"description":"Requests scoped to this grant"},"403":{"description":"Denied"}}}}
+    spec["paths"]["/v1/evaluation-requests/{request_id}/receipt"]={"get":{"operationId":"resultReceipt",
+        "parameters":[{"name":"request_id","in":"path","required":True,"schema":{"type":"string","pattern":"^[0-9a-f]{32}$"}}],
+        "responses":{"200":{"description":"Digest-bound completed metadata receipt"},"403":{"description":"Denied"}}}}
+    return spec
 
 
 class App:
@@ -266,11 +347,19 @@ class App:
                 if not isinstance(doc,dict) or set(doc)!={"idempotency_key"}:
                     _fail()
                 result=submit(self.directory,token,doc["idempotency_key"])
+            elif method=="GET" and path=="/v1/assessment":
+                result=discover(self.directory,token)
+            elif method=="GET" and path==base:
+                result=list_requests(self.directory,token)
+            elif method=="GET" and path.startswith(base+"/") and path.endswith("/receipt"):
+                result=receipt(self.directory,token,path[len(base)+1:-len("/receipt")])
             elif method=="GET" and path.startswith(base+"/"):
                 result=status(self.directory,token,path[len(base)+1:])
             else:
                 _fail()
             body=buyer_plan._canonical({"ok":True,"result":result})
+            if len(body)>MAX_REPLY:
+                _fail()
             code="200 OK"
         except (OSError,ValueError,RuntimeError,KeyError,TypeError,AttributeError,RecursionError):
             code="403 Forbidden"
@@ -296,6 +385,16 @@ def cli(args):
     try:
         if args.action=="openapi":
             result=openapi()
+        elif args.action=="verify-receipt":
+            from pathlib import Path
+            path=Path(args.file)
+            if path.is_symlink() or not path.is_file():
+                _fail()
+            with path.open("rb") as f:
+                raw=f.read(MAX_REPLY+1)
+            if len(raw)>MAX_REPLY:
+                _fail()
+            result=verify_receipt(manual._parse(raw),args.expected_digest)
         else:
             if not args.path:
                 _fail()

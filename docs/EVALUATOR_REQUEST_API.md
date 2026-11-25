@@ -75,3 +75,30 @@ after a restore. The initial API is a bounded local
 request ledger, not a multi-tenant SaaS job service. Production network
 hardening, recovery automation, structured data endpoints and delegated MCP
 write orchestration remain future work.
+
+## Agent orchestration and recoverable requests
+
+GET /v1/assessment discovers the exact granted assessment and expiry.
+GET /v1/evaluation-requests lists only requests belonging to the same grant.
+GET /v1/evaluation-requests/REQUEST_ID/receipt returns a digest-bound metadata
+receipt only for a completed verified job. Store its digest independently;
+verify the receipt offline with:
+
+    clinical-ai-eval evaluator-api verify-receipt --file receipt.json --expected-digest DIGEST
+
+This checks metadata integrity, not clinical validity, digital signature,
+or independent scientific replay. Full canonical packages remain available
+only through authorized institutional evidence workflows.
+
+A machine or local coding agent can use the separate stdio MCP client:
+
+    clinical-ai-eval evaluator-mcp --port 8771 --token-file /approved/private/service-token
+
+The agent host launches this executable with the approved arguments. Tools
+discover the granted assessment, list requests, request human approval with
+an idempotency key, inspect status and retrieve completed metadata receipts.
+No workspace filesystem access or model execution is needed by the MCP relay.
+The client connects only to the fixed literal loopback port, refuses redirects
+and proxies, and does not accept a caller-selected URL. Remote installations
+need a separately approved secure local bridge; this client is not a hosted
+MCP service. Use the existing human approval and local worker execution flow.

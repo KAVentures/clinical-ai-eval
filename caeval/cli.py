@@ -1895,7 +1895,7 @@ def main(argv=None):
 
     from . import evaluator_service
     peval = sub.add_parser("evaluator-api", help="scoped institutional request and status service")
-    peval.add_argument("action",choices=["openapi","issue","revoke","inventory","link","serve"])
+    peval.add_argument("action",choices=["openapi","issue","revoke","inventory","link","serve","verify-receipt"])
     peval.add_argument("path",nargs="?")
     peval.add_argument("--owner")
     peval.add_argument("--assessment-id")
@@ -1906,7 +1906,15 @@ def main(argv=None):
     peval.add_argument("--job-id")
     peval.add_argument("--port",type=int,default=8771)
     peval.add_argument("--confirm",action="store_true",help="explicit approval of grant or existing job linkage")
+    peval.add_argument("--file")
+    peval.add_argument("--expected-digest")
     peval.set_defaults(func=evaluator_service.cli)
+
+    from . import evaluator_mcp
+    pmachine = sub.add_parser("evaluator-mcp",help="scoped machine client over stdio MCP")
+    pmachine.add_argument("--port",type=int,default=8771)
+    pmachine.add_argument("--token-file",required=True)
+    pmachine.set_defaults(func=evaluator_mcp.cli)
 
     pcap = sub.add_parser("capabilities", help="what this build can actually run")
     pcap.add_argument("--json", action="store_true")

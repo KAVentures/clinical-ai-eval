@@ -110,6 +110,28 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(api.status(self.root,self.token,row["request_id"])["status"],"awaiting_local_approval")
         self.assertFalse(api.inventory(restored)[0]["grant_active"])
 
+    def test_discovery_scoped_history_and_receipt_integrity(self):
+        path="/v1/evaluation-requests"
+        info=self.call("GET","/v1/assessment")["body"]["result"]
+        self.assertEqual(info["assessment_id"],self.aid)
+        self.assertNotIn("owner",info)
+        row=api.submit(self.root,self.token,self.key)
+        rid=row["request_id"]
+        self.assertEqual(self.call("GET",path)["body"]["result"]["requests"],[row])
+        self.assertEqual(self.call("GET",path,token=self.other["token"])["body"]["result"]["requests"],[])
+        self.assertEqual(self.call("GET",path+"/"+rid+"/receipt")["code"],"403 Forbidden")
+        job={"id":"job-fixture","assessment_id":self.aid,"status":"completed",
+             "result":{"packages":[{"family_id":"fixture","manifest_hash":"c"*64,
+             "claim":"demonstration","n_responses":2,"review_count":1}],"required_but_not_run":[]}}
+        with patch.object(api.jobs,"status",return_value=job):
+            api.link(self.root,rid,job["id"],confirmed=True)
+            receipt=self.call("GET",path+"/"+rid+"/receipt")["body"]["result"]
+            self.assertEqual(api.verify_receipt(receipt,receipt["digest"])["status"],"METADATA_INTEGRITY_VERIFIED")
+            self.assertEqual(self.call("GET",path+"/"+rid+"/receipt",token=self.other["token"])["code"],"403 Forbidden")
+            receipt["result"]["packages"][0]["n_responses"]=100
+            with self.assertRaises(access.AccessDenied):
+                api.verify_receipt(receipt,receipt["digest"])
+
     def test_expiry_disabled_owner_and_strict_fields(self):
         path="/v1/evaluation-requests"
         self.assertEqual(self.call("POST",path,{"idempotency_key":self.key,"assessment_id":"b"*64})["code"],"403 Forbidden")
