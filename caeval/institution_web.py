@@ -140,6 +140,8 @@ def _dashboard(directory, actor):
     role = actor["role"]
     body = nav + "<p>Account: " + esc(actor["user_id"]) + " · " + esc(role) + "</p>"
     body += "<p>Research and clinical assessment remain experimental. No procurement or deployment approval.</p>"
+    if role in ("admin","reviewer"):
+        body += "<p><a href='/formal'>Formal independent clinical review</a></p>"
     if role == "reviewer":
         body += "<h2>Assigned blinded reviews</h2>"
         for row in access.assignments(directory, actor):
@@ -150,7 +152,9 @@ def _dashboard(directory, actor):
             body += "</section>"
     else:
         body += "<p><a href='/lifecycle'>Implementation and monitoring register</a></p>"
+        body += "<p><a href='/monitoring'>Longitudinal regression monitoring</a></p>"
         body += "<p><a href='/evidence'>Scientific evidence overview</a></p>"
+        body += "<p><a href='/conversation'>Patient conversation assessments</a></p>"
         body += "<p><a href='/committee'>Procurement committee</a></p>"
         if role in ("admin","operator"):
             body += "<p><a href='/setup'>Candidate intake and assessment setup</a></p>"
@@ -264,6 +268,35 @@ class InstitutionApp:
                     body+="<tr>"+"".join("<td>"+esc(row[k])+"</td>" for k in ("seq","actor","action","object_id","outcome"))+"</tr>"
                 access.event(self.directory,actor["user_id"],"audit-opened")
                 return respond("200 OK",page("Access audit",body+"</table>"))
+            if path=="/formal" and method=="GET":
+                from . import institution_formal_web as formal
+                return respond("200 OK",formal.render(self.directory,actor))
+            if path in ("/formal-review","/formal-consensus") and method=="GET":
+                from . import institution_formal_web as formal
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("select one formal handoff")
+                view=formal.review_page if path=="/formal-review" else formal.consensus_page
+                return respond("200 OK",view(self.directory,actor,q["id"]))
+            if path in ("/formal-prepare","/formal-lock","/formal-attest","/formal-consensus","/formal-analyze") and method=="POST":
+                from . import institution_formal_web as formal
+                access.require(actor,"reviewer" if path=="/formal-lock" else "admin")
+                form=_form(env)
+                _csrf(actor,form)
+                result=formal.dispatch(self.directory,actor,path,form)
+                if result is not None:
+                    return respond("200 OK",result)
+                return respond("303 See Other",extra=[("Location","/formal")])
+            if path=="/conversation" and method=="GET":
+                from . import institution_conversation_web as conversation
+                return respond("200 OK",conversation.render(self.directory,actor))
+            if path in ("/conversation-queue","/conversation-cancel") and method=="POST":
+                from . import institution_conversation_web as conversation
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                conversation.dispatch(self.directory,actor,path,form)
+                return respond("303 See Other",extra=[("Location","/conversation")])
             if path=="/setup" and method=="GET":
                 from . import institution_setup_web as setup
                 return respond("200 OK",setup.render(self.directory,actor))
@@ -338,6 +371,16 @@ class InstitutionApp:
                 form=_form(env)
                 _csrf(actor,form)
                 return respond("200 OK",evidence.analyze(self.directory,actor,form))
+            if path=="/monitoring" and method=="GET":
+                from . import institution_monitoring_web as monitoring
+                return respond("200 OK",monitoring.render(self.directory,actor))
+            if path in ("/monitoring-create","/monitoring-disable") and method=="POST":
+                from . import institution_monitoring_web as monitoring
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                monitoring.dispatch(self.directory,actor,path,form)
+                return respond("303 See Other",extra=[("Location","/monitoring")])
             if path=="/lifecycle":
                 from . import institution_lifecycle_web as lifecycle
                 if method=="GET":

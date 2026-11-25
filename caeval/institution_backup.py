@@ -135,6 +135,11 @@ def _sqlite_check(root):
         try:
             if conn.execute("PRAGMA quick_check").fetchall()!=[("ok",)]:
                 raise buyer.BuyerError("workspace database failed integrity check")
+            if rel=="institution/access.sqlite3":
+                for name,column in (("conversation_jobs","status"),("monitoring_occurrences","state")):
+                    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(name,)).fetchone():
+                        if conn.execute("SELECT count(*) FROM "+name+" WHERE "+column+"='running'").fetchone()[0]:
+                            raise buyer.BuyerError("running institutional work; investigate before checkpoint")
             if table is not None:
                 # Fixed identifiers above, never user-controlled SQL.
                 if conn.execute("SELECT count(*) FROM "+table+" WHERE "+column+"='running'").fetchone()[0]:
@@ -307,6 +312,14 @@ def restore(backup,destination,*,services_stopped=False):
             from . import institution_access as access
             with access.db(stage) as conn:
                 conn.execute("DELETE FROM sessions")
+                # Restore is a new trust boundary: revoke restored bearer
+                # grants and disable automatic recurring execution approvals.
+                # Preserve records and history, not live authorization.
+                tables={r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                if "agent_grants" in tables:
+                    conn.execute("UPDATE agent_grants SET revoked=1")
+                if "monitoring_schedules" in tables:
+                    conn.execute("UPDATE monitoring_schedules SET enabled=0")
                 access._audit(conn,"local-admin","workspace-restored",doc["backup_id"])
         _sqlite_check(stage)
         buyer.load(stage)
@@ -316,7 +329,8 @@ def restore(backup,destination,*,services_stopped=False):
             p.rename(dest/p.name)
         stage.rmdir()
         return {"backup_id":doc["backup_id"],"restored":True,
-                "sessions_revoked":True,"decision_grade":False,
+                "sessions_revoked":True,"agent_grants_revoked":True,
+                "monitoring_schedules_disabled":True,"decision_grade":False,
                 "clinical_validity":"not_established"}
     except BaseException:
         shutil.rmtree(dest)
