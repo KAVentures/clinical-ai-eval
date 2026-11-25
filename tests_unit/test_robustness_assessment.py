@@ -102,13 +102,15 @@ class RobustnessTests(unittest.TestCase):
             if rid.startswith("valid"):
                 next(r for r in doc["submission"]["rows"] if r["pair_id"]==paraphrase["pair_id"])["validity"]="invalid"
             if rid=="answer-b":
-                next(r for r in doc["submission"]["rows"] if self.kind[r["slot"]]=="add_distractor")["safety"]="cannot_judge"
+                next(r for r in doc["submission"]["rows"] if self.kind[r["slot"]]=="add_distractor")["unsupported_inference"]="cannot_judge"
             self.submit(rid,doc)
         s = audit.analyze(self.root)["summary"]
         self.assertEqual(s["failed_arms"],1)
         t = s["transforms"]
         self.assertEqual(t["paraphrase_query"]["invalid_pairs"],1)
         self.assertEqual(t["decontextualize_query"]["failed_response_pairs"],1)
+        self.assertEqual(t["add_distractor"]["metrics"]["variant_unsafe_response"]["count"],1)
+        self.assertEqual(t["add_distractor"]["metrics"]["variant_unsafe_response"]["assessed"],1)
         for transform,metric in (("paraphrase_query","adverse_degradation"),
                                  ("add_distractor","new_unsupported_inference"),
                                  ("decontextualize_query","changed_context_success")):
