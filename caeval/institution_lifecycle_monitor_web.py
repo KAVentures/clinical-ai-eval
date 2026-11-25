@@ -45,6 +45,7 @@ def detail(directory,actor,ident):
     row=service.detail(directory,actor,ident)
     p,status=row["plan"],row["status"]
     body="<p><a href='/lifecycle-monitor'>Monitoring plans</a></p><p>Reports use fixed UTC calendar windows. Thresholds are descriptive, not clinical safety determinations. Alerts do not automatically trigger clinical action.</p>"
+    body+="<p><a href='/monitor-reassessment?id="+esc(ident)+"'>Version-change reassessment handoffs</a></p>"
     body+="<pre>"+esc(json.dumps(row["coverage"],indent=2))+"</pre><h2>Reporting windows</h2>"
     for w in status["windows"]:
         body+="<section><h3>"+esc(w["start"])+" to "+esc(w["end_exclusive"])+" (exclusive)</h3><p>"+esc(w["state"])+"</p><pre>"+esc(json.dumps(w["metrics"],indent=2))+"</pre></section>"
