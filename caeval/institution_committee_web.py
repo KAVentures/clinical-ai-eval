@@ -41,6 +41,19 @@ def _inventory(data):
                 body+="<p>"+esc(module["kind"])+" · "+esc(module["state"])+" · report "+esc(module["report_digest"] or "unavailable")+"</p>"
             for row in programme["coverage"]:
                 body+="<p>"+esc(row["suite"])+" · "+("Canonical runnable" if row["canonical_runnable"] else "Required but not run")+" · Experimental reports "+esc(", ".join(row["integrity_checked_reports"]) or "None")+"</p>"
+    for programme in data.get("mixed_evaluation_programmes",[]):
+        body+="<h3>Mixed-profile evaluation programme "+esc(programme["id"])+"</h3><p>"+esc(programme["state"])+"</p>"
+        if programme["state"]!="current":
+            continue
+        body+="<p>Candidate "+esc(programme["vendor_id"])+" · Version "+esc(programme["target_version"])+"</p>"
+        body+="<p>Unresolved original parent requirements: "+esc(programme["parent_required_but_not_run"])+"</p>"
+        for lane in programme["lanes"]:
+            body+="<h4>"+esc(lane["profile"])+"</h4>"
+            for row in lane["coverage"]:
+                body+="<p>"+esc(row["suite"])+" · "+esc(row["state"])+" · "+str(len(row["packages"]))+" canonical packages · "+str(row["related_experimental_reports"])+" related experimental reports</p>"
+            if lane["unavailable_research_associations"]:
+                body+="<p>Unavailable research associations: "+str(lane["unavailable_research_associations"])+"</p>"
+        body+="<p>Scoped evidence inventory, not a pooled score or parent-level clinical verdict.</p>"
     for risk in data.get("buyer_risk_protocols",[]):
         body+="<h3>Buyer risk protocol "+esc(risk["id"])+"</h3><p>"+esc(risk["state"])+" · Candidate "+esc(risk.get("vendor_id","unavailable"))+" · Version "+esc(risk.get("target_version","unavailable"))+"</p>"
         if "hazard_count" in risk:
@@ -57,7 +70,7 @@ def _inventory(data):
             counts=row["summary"]
             body+="<p>Exact extraction: "+esc(counts["exact_match"])+" / "+esc(counts["planned"])+" · Mismatch: "+esc(counts["mismatch"])+" · Unavailable: "+esc(counts["unavailable"])+"</p>"
         body+="<p>Fixed synthetic extraction only; not HL7 v2 conformance or clinical validity.</p>"
-    if not any(data.get(k,[]) for k in ("assessments","reviews","pilots","schedules","experimental_research_programmes","buyer_risk_protocols","synthetic_fhir_assessments","synthetic_hl7_assessments")):
+    if not any(data.get(k,[]) for k in ("assessments","reviews","pilots","schedules","experimental_research_programmes","buyer_risk_protocols","synthetic_fhir_assessments","synthetic_hl7_assessments","mixed_evaluation_programmes")):
         body+="<p>No lifecycle evidence recorded.</p>"
     return body+"</section>"
 

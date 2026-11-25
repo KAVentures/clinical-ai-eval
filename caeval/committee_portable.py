@@ -144,6 +144,29 @@ def _inventory(payload):
     for job in lifecycle.get("assessments",[]):
         for row in job["packages"]:
             add(row,row["family_id"],job["vendor_id"],job["target_version"],None,"assessment_inventory")
+    # Mixed programmes may reference only canonical packages independently
+    # listed in this exact snapshot. No new attachments or pooled claims.
+    jobs={(j["id"],row["family_id"],row["manifest_hash"],row["claim"],j["vendor_id"],j["target_version"])
+          for j in lifecycle.get("assessments",[]) if j["status"]=="completed" for row in j["packages"]}
+    seen_programmes=set()
+    for programme in lifecycle.get("mixed_evaluation_programmes",[]):
+        if programme["id"] in seen_programmes or programme.get("decision_grade") is not False:
+            _fail("invalid mixed programme reference")
+        seen_programmes.add(programme["id"])
+        if programme["state"]=="unavailable":
+            continue
+        if programme["state"]!="current" or programme.get("parent_canonical_requirements_satisfied") is not False:
+            _fail("promoted mixed programme claim")
+        _hash(programme["programme_digest"])
+        for lane in programme["lanes"]:
+            _hash(lane["plan_id"])
+            for row in lane["coverage"]:
+                if row.get("decision_grade") is not False or (row["state"]=="verified_scoped_package")!=bool(row["packages"]):
+                    _fail("mixed programme coverage differs from references")
+                for pkg in row["packages"]:
+                    if (pkg["suite"]!=row["suite"] or
+                        (pkg["job_id"],row["suite"],pkg["manifest_hash"],pkg["claim"],programme["vendor_id"],programme["target_version"]) not in jobs):
+                        _fail("mixed programme package missing from canonical inventory")
     return {"documents":docs,"experimental_reports":research,"canonical_manifests":canonical}
 
 

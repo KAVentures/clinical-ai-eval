@@ -197,3 +197,9 @@ a new version not explicitly approved under those conditions is refused.
 Disabling the schedule or changing its eligible owner/pilot stops subsequent
 candidate calls (a call already in flight cannot be recalled). No new clinical
 validity or deployment claim is inferred from matched-cell changes.
+
+Mixed programmes are included in committee snapshots and portable dossier
+verification. Only aggregate profile coverage and independently listed
+canonical package references are included. An audited missing programme is
+reported as unavailable; experimental study material is not exposed. No
+profile-level result is pooled or promoted into a parent-level clinical claim.

@@ -60,3 +60,23 @@ class MixedTests(unittest.TestCase):
             conn.execute("DELETE FROM mixed_evaluation_programmes")
         with self.assertRaises(access.AccessDenied):
             mixed.preview(*args)
+
+
+    def test_committee_inventory_preserves_missing_programme(self):
+        from caeval import institution_committee
+        access.provision(self.root,"observer","observer","Synthetic observer password")
+        observer={"user_id":"observer","role":"observer"}
+        args=(self.root,self.actor,self.pid)
+        p=mixed.preview(*args)
+        mixed.freeze(*args,p["digest"],confirmed=True)
+        report=institution_committee.overview(self.root,observer)
+        items=report["lifecycle_inventory"]["mixed_evaluation_programmes"]
+        self.assertEqual(len(items),1)
+        self.assertEqual(items[0]["state"],"current")
+        self.assertFalse(items[0]["parent_canonical_requirements_satisfied"])
+        self.assertEqual(len(items[0]["lanes"]),2)
+        self.assertNotIn("governance",str(items))
+        with access.db(self.root) as conn:
+            conn.execute("DELETE FROM mixed_evaluation_programmes")
+        items=institution_committee.overview(self.root,observer)["lifecycle_inventory"]["mixed_evaluation_programmes"]
+        self.assertEqual(items,[{"id":self.pid,"state":"unavailable","decision_grade":False}])

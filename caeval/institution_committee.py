@@ -179,6 +179,8 @@ def overview(directory,actor):
     inventory["synthetic_fhir_assessments"]=institution_fhir.inventory(root,actor)
     from . import institution_hl7
     inventory["synthetic_hl7_assessments"]=institution_hl7.inventory(root,actor)
+    from . import mixed_evaluation
+    inventory["mixed_evaluation_programmes"]=mixed_evaluation.committee_inventory(root,actor,ids,inventory["assessments"])
     if buyer.load(root)!=source:
         raise access.AccessDenied("buyer register changed during evidence reconstruction")
     return {"schema":"institution-committee-evidence/1","project_name":state["project_name"],
