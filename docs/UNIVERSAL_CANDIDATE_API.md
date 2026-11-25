@@ -154,3 +154,16 @@ The client refuses non-loopback endpoints, redirects and mismatched versions,
 checks drift before each probe, and stops after three failed calls or its
 runtime budget. Failed/unattempted probes remain unavailable. This tests
 fixed synthetic extraction only, not production messaging or certification.
+
+## Guided institutional onboarding
+
+From a current saved buyer plan, choose Guided candidate onboarding and collection.
+Only exact registered vendor, product and version matches are displayed. Select
+an approved pack and connector, review the full runnable suite inventory and
+required-but-not-runnable gaps, then approve the exact digest. The guided path
+prepares the canonical blinded exchange and queues collection without network
+access. Repeated approval of an identical binding reuses its collection ID,
+including a terminal collection; deliberately repeated experiments use the
+ordinary collection queue. The existing worker still needs explicit exact
+binding approval before transmission. This is a single-turn path; patient
+conversation and experimental workflows retain separate prerequisites.

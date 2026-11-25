@@ -139,6 +139,11 @@ def connectors(directory):
 
 def _binding(directory, exchange_id, connector_id):
     record=manual._load(directory,exchange_id)
+    return _binding_from_record(directory,record,connector_id)
+
+
+def _binding_from_record(directory,record,connector_id):
+    exchange_id=record["exchange_id"]
     cfg=_config(directory,connector_id)
     if cfg.get("protocol") in (citation_trace_protocol.PROTOCOL,interoperability_protocol.PROTOCOL):
         raise buyer.BuyerError("structured connector requires its dedicated assessment workflow")
@@ -155,12 +160,22 @@ def _binding(directory, exchange_id, connector_id):
             "transport":"literal_loopback_http","decision_grade":False},cfg,record
 
 
-def queue(directory, exchange_id, connector_id):
+def queue(directory, exchange_id, connector_id, *, expected_binding=None, guided=False):
     binding,_,_=_binding(directory,exchange_id,connector_id)
     digest=buyer_plan._digest(binding)
-    identifier="collect-"+uuid.uuid4().hex
+    if expected_binding is not None and digest!=expected_binding:
+        raise buyer.BuyerError("collection binding changed since preview")
+    if guided is True and expected_binding is None:
+        raise buyer.BuyerError("guided collection requires exact preview")
+    identifier="collect-"+(digest[:32] if guided is True else uuid.uuid4().hex)
     with _db(directory) as conn:
         conn.execute("BEGIN IMMEDIATE")
+        existing=conn.execute("SELECT id FROM collections WHERE id=?",(identifier,)).fetchone()
+        if existing:
+            prior=_row(conn,identifier)
+            if guided is not True or prior["binding"]!=binding or prior["binding_hash"]!=digest:
+                raise buyer.BuyerError("collection identifier conflict")
+            return prior
         if conn.execute("SELECT count(*) FROM collections").fetchone()[0]>=MAX_COLLECTIONS:
             raise buyer.BuyerError("collection limit reached")
         conn.execute("INSERT INTO collections(id,binding,binding_hash,state) VALUES(?,?,?,?)",

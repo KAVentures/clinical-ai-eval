@@ -599,6 +599,20 @@ class InstitutionApp:
                 _csrf(actor,form)
                 evaluator_service_web.dispatch(self.directory,actor,path,form)
                 return respond("303 See Other",extra=[("Location","/evaluator-requests")])
+            if path=="/guided-collection" and method=="GET":
+                from . import guided_onboarding_web as guided
+                q=_query(env)
+                if set(q)!={"plan_id"}:
+                    raise access.AccessDenied("select exact saved plan")
+                return respond("200 OK",guided.render(self.directory,actor,q["plan_id"]))
+            if path in ("/guided-collection-preview","/guided-collection-approve") and method=="POST":
+                from . import guided_onboarding_web as guided
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/guided-collection-preview":
+                    return respond("200 OK",guided.preview(self.directory,actor,form))
+                guided.approve(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/collections")])
             if path=="/setup" and method=="GET":
                 from . import institution_setup_web as setup
                 return respond("200 OK",setup.render(self.directory,actor))
