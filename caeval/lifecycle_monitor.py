@@ -44,6 +44,7 @@ def plan(programme,spec):
     start=_date(spec["start_date"])
     d._require(type(spec["window_days"]) is int and 1<=spec["window_days"]<=31
                and type(spec["windows"]) is int and 1<=spec["windows"]<=MAX_WINDOWS,"bounded fixed reporting schedule required")
+    d._require(start<=date(9990,1,1),"reporting start exceeds supported calendar range")
     end=start+timedelta(days=spec["window_days"]*spec["windows"])
     metrics=spec["metrics"]
     d._require(isinstance(metrics,list) and 1<=len(metrics)<=MAX_METRICS,"bounded metrics required")
