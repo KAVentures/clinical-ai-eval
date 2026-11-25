@@ -110,3 +110,23 @@ independently observed retrieval. The new adapter reports candidate-side data;
 this is not independent instrumentation or unrestricted real-world RAG recall
 assessment. A failed probe retains its supplied fixture context for denominator
 accounting, not as evidence of a successful retrieval.
+
+## Multi-turn conversation adapter
+
+Export the full-history contract:
+
+    clinical-ai-eval buyer conversation-openapi
+
+In approved-conversations, stage the usual vendor_id, target_name,
+target_version, url, headers and timeout_seconds, replacing the legacy
+history_field, answer_path and session_field mappings with protocol:
+clinical-ai-eval-conversation/1. The candidate receives alternating patient
+and system messages ending in a patient turn, an opaque episode nonce and a
+fresh request nonce. Reply with the exact protocol, request_id, episode_id,
+served target, status and answer. Use unavailable with an empty answer for
+failure. Each reset issues a new episode nonce; only visible transcript text
+is transmitted. This contract is full-history, not incremental stateful chat.
+The local adapter checks correlation and rejects wrong product versions or
+episodes; it cannot prove the vendor actually isolates state. Existing
+patient-world simulation, safety endpoints, independent review, call budget
+and explicit worker approval remain authoritative. No clinical claim elevation.

@@ -80,18 +80,23 @@ def options(directory):
 def _connector(directory,identifier,plan):
     path=manual._directory(directory,"approved-conversations")/(manual._identifier(identifier)+".json")
     cfg=manual._parse(_read(path,MAX_CONFIG_BYTES))
-    required={"vendor_id","target_name","target_version","url","history_field",
-              "answer_path","session_field","headers","timeout_seconds"}
-    if not isinstance(cfg,dict) or set(cfg)!=required:
+    from . import conversation_protocol
+    common={"vendor_id","target_name","target_version","url","headers","timeout_seconds"}
+    if not isinstance(cfg,dict) or set(cfg) not in (common|{"history_field","answer_path","session_field"},common|{"protocol"}):
+        raise buyer.BuyerError("invalid staged conversation connector")
+    if "protocol" in cfg and cfg["protocol"]!=conversation_protocol.PROTOCOL:
         raise buyer.BuyerError("invalid staged conversation connector")
     target=plan["plan"]["target"]
     if (cfg["vendor_id"]!=plan["vendor_id"] or cfg["target_name"]!=target["name"]
             or cfg["target_version"]!=target["version"]):
         raise buyer.BuyerError("connector must match exact planned candidate")
     subject={"kind":"http","modality":"conversation","local_only":True,
-             "url":cfg["url"],"history_field":cfg["history_field"],
-             "answer_path":cfg["answer_path"],"session_field":cfg["session_field"],
+             "url":cfg["url"],"history_field":cfg.get("history_field","messages"),
+             "answer_path":cfg.get("answer_path","answer"),"session_field":cfg.get("session_field",""),
              "headers":cfg["headers"],"timeout":cfg["timeout_seconds"],"retries":1}
+    if "protocol" in cfg:
+        subject.update(protocol=cfg["protocol"],target_name=cfg["target_name"],
+                       name=cfg["target_name"],version=cfg["target_version"])
     cli._conversation_spec(subject)
     return subject
 
@@ -165,6 +170,8 @@ def _material(directory,plan_id,connector_id,pack_id,panel_id,governance):
     # canonical evidence manifests did not include them.
     defs.update(("caeval/adapters.py","caeval/patient/session.py","caeval/patient/run.py",
                  "caeval/cli.py","caeval/lifecycle.py","tests/"+FAMILY+"/family.yaml"))
+    if subject.get("protocol"):
+        defs.update(("caeval/conversation_protocol.py","caeval/candidate_protocol.py"))
     definitions={k:manifest.hash_file(manifest.definition_file(k)) for k in sorted(defs)}
     if not all(definitions.values()):
         raise buyer.BuyerError("scientific definition missing")
