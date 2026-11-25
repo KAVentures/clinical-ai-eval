@@ -64,3 +64,35 @@ class MatchedTests(unittest.TestCase):
         a,b=entry("a",[1,2]),entry("b",[0,1])
         hazards=[{"hazard_id":"h","acceptance_criterion":{"metric":"metric"}}]
         self.assertEqual(m.family([a,b],hazards,["0","1"],authorized=True)["status"],"unavailable")
+
+
+class ReverificationTests(unittest.TestCase):
+    def test_stored_verified_flag_is_not_enough(self):
+        import copy
+        import tempfile
+        from unittest.mock import patch
+        from caeval import procurement_workflow as pw
+        family="family"
+        rec={"cells":[{"cell_id":"case::original","item_id":"case","metric":1}],
+             "environment":{"package_digest":"digest"},
+             "package":{"workspace":"/fixture"},"ingestion":"verified_package"}
+        state={"vendors":[{"vendor_id":"a"}],"results":{"a":{family:rec}},
+               "conditions":{"risk_activation":{"cell_inventory":{family:["case::original"]}}}}
+        state["conditions_hash"]=pw.conditions_hash(state["conditions"])
+        with tempfile.TemporaryDirectory() as tmp:
+            pw.save(tmp,state)
+            with patch.object(pw,"ingest_package",return_value=copy.deepcopy(state)):
+                self.assertTrue(pw._reverify_matched_entries(tmp,state,family))
+            changed=copy.deepcopy(state)
+            changed["results"]["a"][family]["cells"][0]["metric"]=0
+            with patch.object(pw,"ingest_package",return_value=changed):
+                self.assertFalse(pw._reverify_matched_entries(tmp,state,family))
+            with patch.object(pw,"ingest_package",side_effect=OSError("missing package")):
+                self.assertFalse(pw._reverify_matched_entries(tmp,state,family))
+            self.assertEqual(pw.load(tmp),state)
+
+    def test_legacy_helper_no_independent_cell_inference(self):
+        from caeval import procurement
+        a=entry("a",[1]*20,[0]*10+[1]*10)
+        b=entry("b",[0]*20,[0]*10+[1]*10)
+        self.assertIsNone(procurement.pairwise_difference(a,b,"metric")["p_value"])

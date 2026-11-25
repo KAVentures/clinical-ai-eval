@@ -240,3 +240,5 @@ not establish those assumptions. Holm adjustment includes every declared
 hazard/product pair within the family, including unavailable tests. There is no
 across-family multiplicity adjustment, clinical equivalence or recommendation.
 The committee view and Markdown dossier expose these exploratory results.
+
+Before emitting matched contrasts, the workflow re-ingests the actual verified packages into a scratch study and checks that normalized cells, provenance and canonical case cluster identities match the recorded results. Missing or altered source evidence suppresses inference. The legacy pairwise helper is descriptive only; it no longer reports an independent-cell p-value.

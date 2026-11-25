@@ -293,6 +293,42 @@ def _record_result(directory, vendor_id: str, family_id: str, cells: list,
     return state
 
 
+def _reverify_matched_entries(directory,state,family_id):
+    """Re-ingest from actual evidence; a stored verified_package flag is not proof.
+
+    Use a scratch study, never replace the original records. Recheck the
+    source study and require exact normalized cells and environment.
+    """
+    import copy
+    import tempfile
+    from . import matched_procurement
+    try:
+        fresh=copy.deepcopy(state)
+        fresh["results"]={}
+        with tempfile.TemporaryDirectory(prefix="caeval-matched-") as tmp:
+            save(tmp,fresh)
+            for vendor in state["vendors"]:
+                vid=vendor["vendor_id"]
+                recorded=state["results"][vid][family_id]
+                if recorded.get("ingestion")!="verified_package":
+                    return False
+                verified=ingest_package(tmp,vid,recorded["package"]["workspace"])["results"][vid][family_id]
+                if any(verified.get(k)!=recorded.get(k) for k in ("cells","environment","package","ingestion")):
+                    return False
+                for cell in verified["cells"]:
+                    cid=cell.get("cell_id","")
+                    # Canonical generic executor IDs bind the base item before
+                    # the first separator. Do not let edited cluster labels
+                    # increase the apparent independent sample size.
+                    if "::" not in cid or cid.split("::",1)[0]!=cell.get("item_id"):
+                        return False
+                matched_procurement._index({"cells":verified["cells"]},
+                    state["conditions"]["risk_activation"]["cell_inventory"][family_id])
+        return load(directory)==state
+    except (OSError,ValueError,RuntimeError,KeyError,TypeError,AttributeError):
+        return False
+
+
 def compare(directory, family_id: str) -> dict:
     """Build the buyer-facing comparison for one family."""
     state = load(directory)
@@ -370,6 +406,20 @@ def compare(directory, family_id: str) -> dict:
               and len(entries)==len(activation.candidates(risk_bound))
               and all(e["environment"].get("judge_config_digest")==risk_bound["judge_config_digest"]
                       for e in entries))
+    if eligible and not _reverify_matched_entries(directory,state,family_id):
+        eligible=False
+        out["comparability"]["status"]=procurement.INCOMPARABLE
+        out["comparability"]["reasons"].append("Stored results failed independent package re-ingestion.")
+        out["comparability"]["note"]="Stored results failed re-verification; no matched inference is available."
+        for hazard in out["per_hazard"]:
+            for row in hazard["products"]:
+                if row["status"] in ("MEETS","DOES_NOT_MEET"):
+                    row["status"]="INCONCLUSIVE"
+                    row["meets_threshold"]=None
+                    row["note"]="Stored results failed package re-verification."
+            hazard["meets"]=[]
+            hazard["does_not_meet"]=[]
+            hazard["inconclusive"]=sorted(r["product_id"] for r in hazard["products"] if r["status"]=="INCONCLUSIVE")
     out["matched_contrasts"]=matched_procurement.family(
         entries,hazards,risk_bound["cell_inventory"][family_id] if risk_bound is not None else [],
         authorized=eligible,
