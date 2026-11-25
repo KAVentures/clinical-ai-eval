@@ -42,6 +42,8 @@ def render(directory,actor):
         if plan["current"]:
             body+="<p><a href='/research-buyer-coverage?plan_id="+esc(plan["id"])+"'>View related experimental research coverage</a></p>"
         body+="<p><a href='/buyer-risk?plan_id="+esc(plan["id"])+"'>Buyer clinical risk protocol</a></p>"
+        if plan["current"]:
+            body+="<p><a href='/fhir?plan_id="+esc(plan["id"])+"'>Synthetic FHIR interoperability rehearsal</a></p>"
         for r in plan["selection"]["required_suites"]:
             body+="<p>"+esc(r["suite"])+" — "+("Runnable" if r["implemented"] else "Required, not runnable")+"</p>"
         if plan["current"] and data["packs"]:
