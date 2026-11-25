@@ -24,6 +24,8 @@ def render(directory,actor):
         body+="<p><a href='/setup-download?kind=questionnaire&amp;id="+esc(vid)+"'>Download vendor questionnaire</a></p>"
         body+=form("questionnaire",upload(),"Import completed questionnaire",True,(("vendor_id",vid),))
         body+=form("document",select("kind","Evidence category",[(k,k) for k in buyer.EVIDENCE_KINDS])+text("title","Document title")+upload(),"Store evidence document",True,(("vendor_id",vid),))
+        for document in v["documents"]:
+            body+="<p>"+esc(document["title"])+" · "+esc(document["integrity"])+" · <a href='/vendor-document-review?id="+esc(document["evidence_id"])+"'>Review original source and freshness</a></p>"
         body+="</section>"
     if vendor_options:
         body+="<section><h2>2. Scientific evaluation plan</h2>"
