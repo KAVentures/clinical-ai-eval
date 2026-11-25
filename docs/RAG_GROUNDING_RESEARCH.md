@@ -281,3 +281,95 @@ The adapter is responsible for its own access controls and egress policy.
 Journal files, exchanges, receipts and private evidence packages are
 restricted organizational data. Manage their storage and deletion according
 to approved policy; do not remove a journal simply to permit redispatch.
+
+
+## Prospectively registered paired comparisons
+
+For a grounding study with two or more candidate identities, an administrator
+can freeze one ordered baseline/candidate comparison before the institution
+records any candidate exchange/template export or trace submission. The
+comparison is optional and does not change the candidate or reviewer packets.
+Once exposure is recorded, prospective registration is refused. This audit
+ordering is local evidence only; it cannot prove that external exposure or
+prior knowledge did not occur.
+
+The frozen protocol identifies the exact study digest, the two declared
+candidate identities and versions, one primary endpoint, familywise alpha,
+a research margin (candidate minus baseline), a maximum unknown-pair
+fraction, minimum independent clusters, and an explicit independence
+attestation. Four fixed endpoints are always reported:
+
+- **Reference hit:** at least one reference document reportedly retrieved
+  in the supported condition; unavailable traces are unknown.
+- **Reviewed grounded answer:** in the supported condition, declared answered
+  status, all reference documents retrieved, nonempty claims, every declared
+  claim cited only to retrieved current sources, both reviewers agree that
+  the claim inventory is complete and every declared claim is supported.
+  Deterministic defects and agreed negative reviews are failures.
+  Disagreement or uncertainty without a known failure is unknown.
+  This is an operational grounding proxy, not a clinical correctness verdict.
+- **Declared abstention:** the candidate declares abstention in the
+  support-removed condition; unavailable is unknown. This does not establish
+  appropriate or safe abstention.
+- **Paired availability:** both conditions have available traces; otherwise
+  failure. Availability itself is observed even when answer outcomes are not.
+
+Each predeclared question has a matched pair of values, one for each
+candidate. The difference is candidate minus baseline, in [-1,1]. For each
+cluster calculate the mean difference across its questions; the study
+estimate is the mean over clusters, **not** over questions. This avoids
+overweighting larger clusters but changes the estimand. The complete-pair
+mean uses only known pairs and clusters with at least one known pair;
+it is descriptive and potentially selection-biased. For unknown binary
+outcomes, replace candidate missing values with 0/1 and baseline missing
+values with 1/0 to get lower/upper differences. Average both envelopes
+over all questions within each cluster and then over all clusters.
+The unknown-pair fraction is similarly equal-cluster weighted.
+
+If the prespecified minimum (at least 10) clusters and independence
+attestation are met, simultaneous conservative bounds use Hoeffding's
+inequality for independent bounded cluster observations, without assuming
+independence of questions within a cluster. For K clusters, m=4 endpoints
+and familywise alpha, use one-sided tail probability alpha/(2m):
+
+```text
+radius = sqrt(2 * log(2*m/alpha) / K)
+interval = [max(-1, mean_lower - radius), min(1, mean_upper + radius)]
+```
+
+The union bound covers both ends of all four endpoints, including unknown
+outcomes through their envelopes. The target is the equal-weight mean of
+the independent cluster expectations; population representativeness,
+independence and reference accuracy are not established by this software.
+These deliberately wide bounds do not collapse to zero width if every
+observed pair agrees. No normal approximation, data-driven endpoint
+selection or bootstrap resampling is performed. With the current limit
+of 40 questions, power is limited; inconclusive results are expected.
+No inference is emitted without the cluster gate. The missingness bounds
+are separately shown even when inference is withheld.
+
+The primary endpoint produces a research signal only when the unknown
+fraction is within the prespecified maximum and inference is available.
+A lower interval endpoint strictly above the margin produces
+`lower_bound_strictly_above_margin`; an upper endpoint strictly below
+produces `upper_bound_strictly_below_margin`; otherwise inconclusive.
+No equivalence, clinical noninferiority, clinical safety or procurement
+acceptance decision follows from this signal. The other endpoints remain
+visible. One pair is registered per study; post-hoc pair selection and
+cross-study pooling are not implemented. Comparing product releases
+requires a deliberately matched design with distinct candidate identities;
+the current protocol does not support two entries with the same candidate ID.
+
+After the study is independently reviewed and sealed, an administrator
+can inspect and explicitly export the derived comparison. The committee
+snapshot records the protocol and analysis digests, not the full endpoint
+results. Replay the private study and comparison together:
+
+```sh
+clinical-ai-eval rag-comparison verify study.json comparison.json --expected-digest COMPARISON_DIGEST
+```
+
+The verifier reconstructs endpoints, bounds and research signal. A trusted
+digest can establish the expected comparison identity. Offline replay
+does not establish when a plan was registered, actual model execution,
+external scientific validity or deployment authorization.
