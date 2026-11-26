@@ -105,6 +105,7 @@ def validate(doc):
     require(isinstance(doc['events'],list) and 1<=len(doc['events'])<=MAX_EVENTS,'invalid event inventory')
     seen=set()
     for event in doc['events']:
+        require(isinstance(event,dict) and 'transition' in event,'invalid transition record')
         transition=event['transition']
         require(transition in ('newly_reported','severity_changed','no_longer_reported'),'invalid transition')
         keys(event,'transition alert previous_severity' if transition=='severity_changed' else 'transition alert')
@@ -143,7 +144,13 @@ def accept(path,doc,key):
         if row:
             require(_row(row,scope)==doc,'conflicting content for attempt')
         else:
-            require(conn.execute('SELECT count(*) FROM batches').fetchone()[0]<MAX_BATCHES,'relay capacity exhausted')
+            count,distinct,maximum=conn.execute('SELECT count(*),count(DISTINCT sequence),max(sequence) FROM batches').fetchone()
+            require(count<MAX_BATCHES,'relay capacity exhausted')
+            require(count==distinct,'duplicate relay sequences; investigate history')
+            if maximum is not None:
+                require(type(maximum) is int and doc['sequence']>maximum,'new attempt must advance relay sequence')
+                prior=conn.execute('SELECT * FROM batches WHERE sequence=?',(maximum,)).fetchone()
+                require(doc['as_of']>=_row(prior,scope)['as_of'],'new attempt date moved backwards')
             conn.execute('INSERT INTO batches VALUES(?,?,?,?,?,NULL,NULL)',(key,doc['sequence'],canonical(doc),digest(doc),int(time.time())))
     return {'schema':'monitor-alert-delivery-receipt/1','attempt_digest':key,'accepted':True}
 
