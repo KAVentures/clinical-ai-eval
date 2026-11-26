@@ -319,6 +319,19 @@ class InstitutionApp:
                 _csrf(actor,form)
                 conversation.dispatch(self.directory,actor,path,form)
                 return respond("303 See Other",extra=[("Location","/conversation")])
+            if path=="/research-buyer-coverage" and method=="GET":
+                from . import research_buyer_coverage_web as coverage
+                q=_query(env)
+                if set(q)!={"plan_id"}:
+                    raise access.AccessDenied("select one saved plan")
+                return respond("200 OK",coverage.render(self.directory,actor,q["plan_id"]))
+            if path=="/research-buyer-link" and method=="POST":
+                from . import research_buyer_coverage_web as coverage
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                identifier=coverage.link(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/research-buyer-coverage?plan_id="+identifier)])
             if path=="/research-comparisons" and method=="GET":
                 from . import research_comparison_web as comparison
                 return respond("200 OK",comparison.render(self.directory,actor))

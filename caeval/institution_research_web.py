@@ -46,6 +46,8 @@ def render(directory,actor):
         elif role in ("admin","operator"):
             if "plan_hash" in row:
                 body+="<p>Plan approval hash: "+esc(row["plan_hash"])+"</p>"
+            body+="<form method='post' action='/research-buyer-link'>"+_hidden("csrf",actor["csrf"])+_hidden("study",ident)
+            body+="<label>Saved buyer plan ID <input name='plan_id' required minlength='64' maxlength='64'></label>"+checkbox("I confirm this study belongs to the exact buyer scope and version. This association is immutable and not a canonical pass.")+"<button>Associate with buyer plan</button></form>"
             for kind,label in (("plan","Frozen plan"),("exchange","Candidate inputs"),("responses","Response template")):
                 body+=link("/research-download",label,id=ident,kind=kind)+" · "
             if state=="planned" and row.get("connectors"):

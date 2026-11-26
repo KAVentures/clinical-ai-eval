@@ -36,6 +36,8 @@ def render(directory,actor):
             body+="<p>Invalid plan.</p></section>"
             continue
         body+="<p>"+esc(plan["target"]["name"])+" "+esc(plan["target"]["version"])+" · "+("Current definitions" if plan["current"] else "Stale definitions")+"</p>"
+        if plan["current"]:
+            body+="<p><a href='/research-buyer-coverage?plan_id="+esc(plan["id"])+"'>View related experimental research coverage</a></p>"
         for r in plan["selection"]["required_suites"]:
             body+="<p>"+esc(r["suite"])+" — "+("Runnable" if r["implemented"] else "Required, not runnable")+"</p>"
         if plan["current"] and data["packs"]:
