@@ -379,8 +379,8 @@ class InstitutionApp:
                     form=_form(env)
                     _csrf(actor,form)
                     studio.dispatch(self.directory,actor,action,form)
-                elif action in ("assign","attest","analyze","lock"):
-                    access.require(actor,"reviewer" if action=="lock" else "admin")
+                elif action in ("assign","attest","analyze","lock","lock-form"):
+                    access.require(actor,"reviewer" if action in ("lock","lock-form") else "admin")
                     form=_form(env)
                     _csrf(actor,form)
                     studio.dispatch(self.directory,actor,action,form)
