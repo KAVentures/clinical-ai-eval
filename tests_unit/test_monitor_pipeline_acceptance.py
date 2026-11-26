@@ -143,7 +143,12 @@ class PipelineAcceptanceTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 self.cycle()  # sequence 3 accepted, but not acknowledged
         rogue = {**relay.inbox(self.relay)['batches'][0]['envelope'], 'attempt_digest': '1'*64, 'sequence': 2}
-        relay.accept(self.relay, rogue, rogue['attempt_digest'])
+        with self.assertRaises(ValueError):
+            relay.accept(self.relay, rogue, rogue['attempt_digest'])
+        # Simulate a corrupted or legacy store to exercise independent detection.
+        with closing(sqlite3.connect(self.relay)) as conn, conn:
+            conn.execute('INSERT INTO batches VALUES(?,?,?,?,?,NULL,NULL)',
+                         (rogue['attempt_digest'],2,relay.canonical(rogue),relay.digest(rogue),0))
         self.assertIn('event_free_ack_has_relay_record', self.check()['issues'])
 
     def test_last_ack_date_conflict(self):
