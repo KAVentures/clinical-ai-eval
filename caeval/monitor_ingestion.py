@@ -9,11 +9,12 @@ import hmac
 import json
 import re
 import secrets
+import sqlite3
 import time
 from wsgiref.simple_server import make_server, WSGIRequestHandler
 from . import institution_access as access, unified_assessment as u
 from . import institution_lifecycle_monitor as monitor, diagnostic_imaging as d
-from . import buyer_manual, buyer_agent
+from . import buyer_manual, buyer_agent, monitor_grant_policy as grant_policy
 
 MAX_GRANTS=200
 MAX_TTL=86400
@@ -234,9 +235,24 @@ def submit(directory,token,doc):
         # Recheck expiry after the batch; an expired transaction rolls back.
         _grant(conn,token)
         seq=u._audit(conn,actor,USE,grant["id"]+":"+doc["request_id"]+":"+request_digest+":"+digest)
+        grant_policy.assert_receipt_lifetime(conn,seq,grant["expires"])
         conn.execute("INSERT INTO lifecycle_ingestion_requests VALUES(?,?,?,?,?,?)",
                      (grant["id"],doc["request_id"],request_digest,json.dumps(payload),digest,seq))
         return payload
+
+
+def check_polling_credential(directory,token,monitor_id,plan_digest,*,minimum_remaining):
+    """Local IT preflight: verify an active check-only grant without network calls."""
+    with access.db(directory) as conn:
+        _schema(conn)
+        conn.execute("BEGIN")
+        grant,_=_grant(conn,token)
+        _inventory(conn)
+        if grant["monitor"]!=monitor_id:
+            raise access.AccessDenied("polling credential monitor mismatch")
+        _,plan,_,_=monitor._get(conn,monitor_id,monitor._today())
+        return grant_policy.check_polling_grant(grant,monitor_id,plan_digest,plan["digest"],
+            now=int(time.time()),minimum_remaining=minimum_remaining)
 
 
 def check(directory,token):
@@ -284,7 +300,7 @@ class App:
                     raise ValueError("incomplete body")
                 return respond("200 OK",submit(self.directory,token,buyer_manual._parse(raw)))
             return respond("404 Not Found",{"error":"not_found"})
-        except (buyer_agent.BuyerError,ValueError,RuntimeError,KeyError,TypeError,OSError,AttributeError,RecursionError):
+        except (buyer_agent.BuyerError,ValueError,RuntimeError,KeyError,TypeError,OSError,AttributeError,RecursionError,sqlite3.Error):
             return respond("403 Forbidden",{"error":"request_refused"})
 
 
