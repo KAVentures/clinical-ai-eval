@@ -73,8 +73,9 @@ class DeploymentTests(unittest.TestCase):
             worker.bind(paths['outbox'],config,s['approval'],confirmed=True)
             health.initialize(paths['heartbeat'],s['approval'],s['max_gap'],s['max_run'])
             relay.initialize(paths['relay'],'m',s['plan_digest'])
-            with patch.object(deployment,'_paths',return_value=paths):
+            with patch.object(deployment,'_paths',return_value=paths), patch.object(deployment,'_credential_status',return_value={"scope":"check"}) as credential:
                 doc=deployment.check(s)
+                credential.assert_called_once_with(paths,s)
                 self.assertEqual(doc,deployment.render(s))
                 dest=root/'bundle'
                 with self.assertRaises(ValueError): deployment.export(s,'0'*64,str(dest),confirmed=True)
