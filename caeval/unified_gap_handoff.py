@@ -88,7 +88,7 @@ def build(coverage, work, *, project):
     """Call the same projector on native and redacted inputs; refuse any drift."""
     summary = summarize(work)
     report = project(coverage, work)
-    require(report == project(coverage, expand(summary)), 'work-count projection lost information')
+    require(digest(report) == digest(project(coverage, expand(summary))), 'work-count projection lost information')
     return seal({'schema':'unified-evidence-gap-handoff/1', 'coverage':coverage, 'work_summary':summary,
                  'report':report, 'source_records_reverified':False, 'decision_grade':False,
                  'deployment_authorized':False})
@@ -103,7 +103,7 @@ def verify(package, expected_digest=None, *, project, verify_coverage):
             (expected_digest is None or expected_digest==package['digest']), 'handoff digest mismatch')
     verify_coverage(package['coverage'])
     report = project(package['coverage'], expand(package['work_summary']))
-    require(report == package['report'], 'handoff report replay mismatch')
+    require(digest(report) == digest(package['report']), 'handoff report replay mismatch')
     return {'status':'HANDOFF_PROJECTION_REPLAYED', 'digest':package['digest'],
             'expected_digest_matched':expected_digest is not None, 'source_records_reverified':False,
             'decision_grade':False, 'deployment_authorized':False}
