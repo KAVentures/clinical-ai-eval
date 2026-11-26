@@ -219,3 +219,8 @@ def verify_result(project_path, frozen, approved_digest, result, *, expected_dig
             "uncompleted_planned_modules":actual["uncompleted_planned_modules"],
             "unplanned_related_modules":actual["unplanned_related_modules"],
             "coverage":actual["coverage"],"decision_grade":False}
+
+def inspect_result(project_path, frozen, approved_digest, result, *, expected_digest=None):
+    """Replay the full native result before returning a redacted administrative projection."""
+    receipt = verify_result(project_path, frozen, approved_digest, result, expected_digest=expected_digest)
+    return inspection.project_result(frozen, result, receipt)
