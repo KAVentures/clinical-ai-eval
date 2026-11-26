@@ -68,7 +68,11 @@ def expand(summary):
         require(isinstance(rid, str) and rid not in seen, 'duplicate work requirement')
         seen.add(rid)
         scan = r['work_inventory_state']
-        require(scan in STATES and (r['scan_truncated'] is None or type(r['scan_truncated']) is bool), 'invalid scan metadata')
+        truncated = r['scan_truncated']
+        require(scan in STATES and ((scan == 'bounded_legacy_scan' and truncated is None) or
+                (scan == 'partial' and type(truncated) is bool) or
+                (scan in ('bounded_scan', 'unavailable', 'stale_plan') and truncated is False)),
+                'inconsistent scan metadata')
         c = r['counts']; keys(c, 'ready active other')
         require(all(type(v) is int and 0 <= v <= MAX_COUNT for v in c.values()) and sum(c.values()) <= MAX_COUNT,
                 'invalid work counts')
