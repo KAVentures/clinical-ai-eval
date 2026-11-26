@@ -1,46 +1,57 @@
-"""Browser preparation of a version-only reassessment; no execution."""
+"""Browser version reassessment planning and exact-scope progress."""
 from . import version_reassessment as version, institution_access as access
 
 
-def render(directory,actor):
+def _coverage(doc):
+    from .institution_web import esc
+    return "".join("<p>"+esc(r["suite"])+" · "+esc(r["state"])+" · "+str(len(r["packages"]))+" verified packages</p>" for r in doc["suites"])
+
+
+def render(directory,actor,baseline_id):
     from .institution_web import page,esc,_hidden
-    from . import buyer_jobs,buyer_connector
-    access.require(actor,"admin")
-    body="<p><a href='/monitoring'>Monitoring schedules</a></p><p>Prepare a new exact product version using a completed baseline's pack, panel and intended use. Staging does not authorize transmission.</p>"
-    body+="<form method='post' action='/version-reassessment-preview'>"+_hidden("csrf",actor["csrf"])
-    body+="<label>Completed baseline job<select name='baseline_job' required><option value=''>Choose</option>"
-    for row in buyer_jobs.list_jobs(directory):
-        if row["status"]=="completed":
-            body+="<option>"+esc(row["id"])+"</option>"
-    body+="</select></label><label>New exact version<input name='new_version' maxlength='300' required></label>"
-    body+="<label>Approved new-version connector<select name='connector_id' required><option value=''>Choose</option>"
-    for c in buyer_connector.connectors(directory):
-        body+="<option value='"+esc(c["connector_id"])+"'>"+esc(c["connector_id"]+" · "+c["target_name"]+" "+c["target_version"])+"</option>"
-    body+="</select></label><button>Preview retest preparation</button></form>"
-    return page("Prepare version reassessment",body)
+    d=version.history(directory,actor,baseline_id)
+    body="<p><a href='/setup'>Assessment setup</a></p><p>"+esc(d["target_name"])+" · baseline "+esc(d["baseline_version"])+"</p>"
+    body+="<p>Versions are opaque vendor identifiers, not inferred chronological order. No previous evidence, approval or clinical conclusion transfers to a new version.</p><h2>Baseline evidence coverage</h2>"+_coverage(d["baseline_coverage"])
+    body+="<form method='post' action='/version-reassessment-preview'>"+_hidden("csrf",actor["csrf"])+_hidden("baseline_id",baseline_id)
+    body+="<label>Exact successor product version<input name='version' maxlength='300' list='staged-versions' required></label>"
+    body+="<datalist id='staged-versions'>"+"".join("<option value='"+esc(r["version"])+"'></option>" for r in d["staged_unplanned_versions"])+"</datalist><button>Preview reassessment</button></form>"
+    if d["staged_unplanned_versions"]:
+        body+="<h2>Other locally staged versions</h2><p>These are declared connector versions, not remotely verified releases or automatic execution approvals.</p>"
+        for row in d["staged_unplanned_versions"]:
+            body+="<p>"+esc(row["version"])+" · "+esc(row["connectors"])+"</p>"
+    for row in d["successors"]:
+        rec=row["reassessment"]
+        body+="<section><h2>Successor "+esc(rec["successor_version"])+"</h2><p>Frozen plan "+esc(rec["successor_id"])+"</p>"
+        body+="<p>Scientific definition changes: "+esc(rec["definition_delta"])+"</p>"+_coverage(row["coverage"])
+        body+="<p>Exact staged connectors: "+esc(row["matching_staged_connectors"])+"</p>"
+        pid=esc(rec["successor_id"])
+        if row["coverage"]["definitions_current"]:
+            body+="<p><a href='/guided-collection?plan_id="+pid+"'>Guided single-turn collection (if eligible)</a> · <a href='/research-buyer-coverage?plan_id="+pid+"'>Research coverage</a> · <a href='/conversation?plan_id="+pid+"'>Patient conversation setup</a></p>"
+            if len(rec["profiles"])>1:
+                body+="<p><a href='/mixed-evaluation?plan_id="+pid+"'>Mixed-profile programme</a></p>"
+        body+="</section>"
+    return page("Version reassessment",body)
 
 
 def preview(directory,actor,form):
     from .institution_web import page,esc,_hidden
-    if set(form)!={"baseline_job","new_version","connector_id"}:
+    if set(form)!={"baseline_id","version"}:
         raise access.AccessDenied("invalid version preview")
-    d=version.preview(directory,actor,**form)
-    body="<p>"+esc(d["target_name"])+" · "+esc(d["baseline_version"])+" → "+esc(d["target_version"])+"</p>"
-    body+="<p>Frozen pack "+esc(d["pack_id"])+" · panel "+esc(d["panel_id"])+" · "+str(d["n_prompts"])+" prompts</p>"
-    body+="<p>Families: "+esc(d["families"])+" · Required but not run: "+esc(d["required_but_not_run"])+"</p>"
-    body+="<p>Procurement conditions: "+esc(d["conditions_hash"] or "Unbound research")+"</p><p>Digest: "+esc(d["digest"])+"</p>"
-    body+="<form method='post' action='/version-reassessment-prepare'>"+_hidden("csrf",actor["csrf"])+"".join(_hidden(k,v) for k,v in form.items())+_hidden("digest",d["digest"])
-    body+="<label><input type='checkbox' name='confirm' value='yes' required> Approve the exact version-only scope. No calls or schedule are authorized.</label><button>Prepare new-version exchange</button></form>"
+    d=version.preview(directory,actor,form["baseline_id"],form["version"])
+    body="<p>"+esc(d["target_name"])+" · "+esc(d["baseline_version"])+" → "+esc(d["successor_version"])+"</p>"
+    body+="<p>Profiles: "+esc(d["profiles"])+"</p><p>Definitions changed: "+esc(d["definition_delta"])+"</p>"
+    body+="<p>New runnable suites: "+esc(d["successor_selection"]["runnable_suites"])+"</p><p>Required but not runnable: "+esc(d["successor_selection"]["required_but_not_run"])+"</p>"
+    body+="<p>Digest: "+esc(d["digest"])+"</p>"
+    if d["frozen"]:
+        body+="<p>This exact reassessment is already frozen.</p>"
+    else:
+        body+="<form method='post' action='/version-reassessment-freeze'>"+_hidden("csrf",actor["csrf"])+_hidden("baseline_id",d["baseline_id"])+_hidden("version",d["successor_version"])+_hidden("digest",d["digest"])
+        body+="<label><input type='checkbox' name='confirm' value='yes' required> Confirm the original intake and intended scope still describe this version. Approve only the new scope plan, not clinical equivalence or execution.</label><button>Freeze reassessment plan</button></form>"
+    body+="<p><a href='/version-reassessment?plan_id="+esc(d["baseline_id"])+"'>Reassessment history</a></p>"
     return page("Review version reassessment",body)
 
 
-def prepare(directory,actor,form):
-    from .institution_web import page,esc
-    if set(form)!={"baseline_job","new_version","connector_id","digest","confirm"}:
-        raise access.AccessDenied("invalid version preparation")
-    d=version.prepare(directory,actor,form["baseline_job"],form["new_version"],form["connector_id"],form["digest"],confirmed=form["confirm"]=="yes")
-    body="<p>Prepared exact new-version exchange. Copy these values into the monitoring schedule form; select an open pilot for the new version and choose the cadence.</p>"
-    for k in ("baseline_job","exchange_id","connector_id","panel_id","governance"):
-        body+="<p>"+esc(k)+": "+esc(d[k])+"</p>"
-    body+="<p><a href='/monitoring'>Freeze monitoring schedule</a></p>"
-    return page("Version reassessment prepared",body)
+def freeze(directory,actor,form):
+    if set(form)!={"baseline_id","version","digest","confirm"}:
+        raise access.AccessDenied("invalid version approval")
+    return version.freeze(directory,actor,form["baseline_id"],form["version"],form["digest"],confirmed=form["confirm"]=="yes")

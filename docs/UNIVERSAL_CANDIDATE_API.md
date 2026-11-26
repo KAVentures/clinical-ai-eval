@@ -184,6 +184,65 @@ unchanged; operators must confirm these describe each specific profile before
 approval. Each existing worker retains its own execution approval. A missing
 or modified approved child plan is refused, not silently recreated.
 
+## Version reassessment
+
+From any valid saved plan, open Plan version reassessment and review history.
+Enter the exact successor version and review the copied scope and the scientific
+definition delta. An explicit digest approval creates a new immutable plan and
+audited association. Historical definitions can be inspected, but outdated
+packages are not counted as currently verified. Each version retains separate
+canonical package coverage and blocked suites. Exact staged connector matches
+are displayed without contacting any service. Previous scores, risk approvals,
+case packs, judge panels, credentials and clinical conclusions are never carried
+forward automatically. The user must confirm unchanged intended scope and intake;
+use a new scope plan for a change in intended use. No comparison is authorized
+by this operation, and it does not automatically detect vendor releases or run
+models. Existing guided collection, conversation, research and mixed-profile
+workflows can prepare the successor's separate execution approvals.
+
+Locally staged text, structured and conversation connectors are scanned without making calls. Exact vendor/product matches at other declared versions appear as reassessment suggestions; an operator must still review and freeze a new scope. Missing or invalid execution evidence is labelled no_verified_package, not proof that no execution occurred. Connector declarations do not establish release chronology or independently attest the deployed model.
+
+## Synthetic multimodal image + text readiness
+
+The clinical-ai-eval-image-text/1 contract tests exact readings from 12 fixed
+fictional monitor-display images. Use image-text-readiness openapi, or prepare
+with --target-name and --target-version to obtain a blinded exchange and
+response template. Use assess --plan and --responses, and verify --evidence
+with optional --expected-digest. Stage an approved-connectors entry with
+protocol clinical-ai-eval-image-text/1 for automated collection; preview
+WORKSPACE --plan-id PLAN --connector-id CONNECTOR, then run with the same
+arguments plus --approved-digest DIGEST --confirm-candidate-calls. Native
+HTTPS bridge modality image_text is supported. Only fixed synthetic PNGs are
+allowed; missing results remain unavailable. This is not diagnostic imaging
+validation and does not satisfy a canonical clinical family.
+
+The institutional setup page also provides the image-text rehearsal for a current
+saved plan. Operators download the blinded fixture exchange and submit structured
+outcomes, then export deterministic evidence. The committee inventory shows
+exact matches, mismatches and unavailable responses separately from clinical
+verdicts. Imported outcomes are operator-attested, not verified model calls.
+The ledger only accepts bounded three-digit synthetic readings and statuses;
+it is not a general-purpose patient image repository. The FHIR-specific
+retention policy does not automatically delete these fixed synthetic records.
+
+## Matched procurement contrasts
+
+The frozen risk-bound procurement comparison now reports exploratory paired
+binary endpoint contrasts only when all candidates in the frozen roster have
+verified packages and matching conditions, exact cell inventory and judge
+configuration. Pairing is by cell ID with identical base-case cluster identity.
+All planned opportunities remain in the denominator. Missing values contribute
+worst/best-case binary difference bounds; no p-value is emitted for incomplete
+pairs. Complete pairs use an exact sign-flip test on case-cluster sums, not an
+independent-cell McNemar test. The test assumes independent case clusters and
+exchangeable product labels under a sharp null; evidence integrity alone does
+not establish those assumptions. Holm adjustment includes every declared
+hazard/product pair within the family, including unavailable tests. There is no
+across-family multiplicity adjustment, clinical equivalence or recommendation.
+The committee view and Markdown dossier expose these exploratory results.
+
+Before emitting matched contrasts, the workflow re-ingests the actual verified packages into a scratch study and checks that normalized cells, provenance and canonical case cluster identities match the recorded results. Missing or altered source evidence suppresses inference. The legacy pairwise helper is descriptive only; it no longer reports an independent-cell p-value.
+
 ## Version-only retesting
 
 From Longitudinal regression monitoring, prepare a new-version reassessment

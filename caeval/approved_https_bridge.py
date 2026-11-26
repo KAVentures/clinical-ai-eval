@@ -51,9 +51,10 @@ def _parse(raw):
 
 
 def _protocol(config):
-    from . import candidate_protocol, conversation_protocol, citation_trace_protocol, interoperability_protocol
+    from . import candidate_protocol, conversation_protocol, citation_trace_protocol, interoperability_protocol, image_text_readiness
     mods={"single_turn":candidate_protocol,"conversation":conversation_protocol,
-          "citation":citation_trace_protocol,"interoperability":interoperability_protocol}
+          "citation":citation_trace_protocol,"interoperability":interoperability_protocol,
+          "image_text":image_text_readiness}
     mod=mods.get(config["modality"])
     if mod is None or config.get("protocol")!=mod.PROTOCOL:
         raise BridgeError("unsupported native bridge protocol")

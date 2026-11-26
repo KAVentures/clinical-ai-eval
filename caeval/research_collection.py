@@ -69,7 +69,8 @@ def _material(directory,row,connector_id):
     if (cfg["target_name"],cfg["target_version"])!=(target["name"],target["version"]):
         raise access.AccessDenied("connector target/version does not match research plan")
     from . import interoperability_protocol
-    if cfg.get("protocol")==interoperability_protocol.PROTOCOL:
+    from . import image_text_readiness
+    if cfg.get("protocol") in (interoperability_protocol.PROTOCOL,image_text_readiness.PROTOCOL):
         raise access.AccessDenied("synthetic interoperability connector requires dedicated workflow")
     structured=cfg.get("protocol")==citation_trace_protocol.PROTOCOL
     if structured and mod is not studio.citation:

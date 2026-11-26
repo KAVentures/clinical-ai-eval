@@ -101,6 +101,25 @@ def _connector(directory,identifier,plan):
     return subject
 
 
+def staged_connectors(directory):
+    """Validated public connector metadata only; never return URL or headers."""
+    results=[]
+    for identifier in _options(directory,"approved-conversations",True):
+        try:
+            path=manual._directory(directory,"approved-conversations")/(identifier+".json")
+            cfg=manual._parse(_read(path,MAX_CONFIG_BYTES))
+            vendor=manual._identifier(cfg["vendor_id"])
+            name=buyer_plan._text(cfg["target_name"],"target_name",300)
+            version=buyer_plan._text(cfg["target_version"],"target_version",300)
+            subject=_connector(directory,identifier,{"vendor_id":vendor,
+                "plan":{"target":{"name":name,"version":version}}})
+            results.append({"connector_id":identifier,"vendor_id":vendor,"target_name":name,
+                "target_version":version,"protocol":subject.get("protocol","custom-conversation-json")})
+        except (OSError,ValueError,RuntimeError,TypeError,KeyError,AttributeError,RecursionError):
+            continue
+    return results
+
+
 def _pack(directory,identifier):
     if identifier=="builtin:public_smoke":
         cases,desc=packsource.resolve({"source":identifier},"patient_worlds")

@@ -75,7 +75,7 @@ class MonitoringTests(unittest.TestCase):
             run.assert_not_called()
 
     def test_version_reassessment_preserves_baseline_science(self):
-        from caeval import version_reassessment as version,buyer_manual as manual
+        from caeval import version_retest as version,buyer_manual as manual
         cfg=json.loads(self.config.read_text())
         self.config.write_text(json.dumps({**cfg,"target_version":"2.0"}))
         args=(self.root,self.actor,self.baseline,"2.0","local")

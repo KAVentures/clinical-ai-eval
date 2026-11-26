@@ -1853,6 +1853,20 @@ def main(argv=None):
     pinter.add_argument("--approved-digest")
     pinter.add_argument("--confirm-candidate-calls",action="store_true")
     pinter.set_defaults(func=interoperability_protocol.cli)
+    from . import image_text_readiness
+    pimage=sub.add_parser("image-text-readiness",help="fixed synthetic image and text extraction assay")
+    pimage.add_argument("action",choices=["openapi","prepare","assess","verify","preview","run"])
+    pimage.add_argument("path",nargs="?")
+    for key in ("target-name","target-version","plan","responses","evidence","expected-digest",
+                "plan-id","connector-id","approved-digest"):
+        pimage.add_argument("--"+key)
+    pimage.add_argument("--confirm-candidate-calls",action="store_true")
+    pimage.set_defaults(func=image_text_readiness.cli)
+    from . import portable_calibration
+    pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
+    pcal.add_argument("package")
+    pcal.add_argument("--expected-digest")
+    pcal.set_defaults(func=portable_calibration.cli)
     pcd = sub.add_parser("verify-committee-dossier", help="verify frozen portable committee evidence offline")
     pcd.add_argument("dossier")
     pcd.add_argument("--expected-digest", help="independently communicated dossier digest")

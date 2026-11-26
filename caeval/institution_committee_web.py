@@ -70,7 +70,13 @@ def _inventory(data):
             counts=row["summary"]
             body+="<p>Exact extraction: "+esc(counts["exact_match"])+" / "+esc(counts["planned"])+" · Mismatch: "+esc(counts["mismatch"])+" · Unavailable: "+esc(counts["unavailable"])+"</p>"
         body+="<p>Fixed synthetic extraction only; not HL7 v2 conformance or clinical validity.</p>"
-    if not any(data.get(k,[]) for k in ("assessments","reviews","pilots","schedules","experimental_research_programmes","buyer_risk_protocols","synthetic_fhir_assessments","synthetic_hl7_assessments","mixed_evaluation_programmes")):
+    for row in data.get("synthetic_image_text_assessments",[]):
+        body+="<h3>Synthetic image-text rehearsal "+esc(row["id"])+"</h3><p>"+esc(row["state"])+" · "+esc(row.get("vendor_id","unavailable"))+" · Version "+esc(row.get("target_version","unavailable"))+"</p>"
+        if "summary" in row:
+            counts=row["summary"]
+            body+="<p>Exact extraction: "+esc(counts["exact_match"])+" / "+esc(counts["planned"])+" · Mismatch: "+esc(counts["mismatch"])+" · Unavailable: "+esc(counts["unavailable"])+"</p>"
+        body+="<p>Fixed synthetic extraction only; not diagnostic imaging accuracy or clinical validity.</p>"
+    if not any(data.get(k,[]) for k in ("assessments","reviews","pilots","schedules","experimental_research_programmes","buyer_risk_protocols","synthetic_fhir_assessments","synthetic_hl7_assessments","synthetic_image_text_assessments","mixed_evaluation_programmes")):
         body+="<p>No lifecycle evidence recorded.</p>"
     return body+"</section>"
 
@@ -122,6 +128,14 @@ def _evidence(payload):
                 values=(row["product_id"],rate,ci,coverage,row["status"])
                 body+="<tr>"+"".join("<td>"+esc(value)+"</td>" for value in values)+"</tr>"
             body+="</table>"
+        paired=result.get("matched_contrasts")
+        if paired:
+            body+="<h4>Matched exploratory contrasts</h4><p>"+esc(paired["status"])+" · "+esc(paired["reason"])+"</p>"
+            for row in paired["contrasts"]:
+                lo,hi=row["all_expected_difference_bounds"]
+                p=row["p_value_holm_within_family"]
+                body+="<p>"+esc(row["hazard_id"])+" · "+esc(" / ".join(row["products"]))+" · "+esc(row["status"])+" · "+str(row["n_paired"])+"/"+str(row["n_expected"])+" paired cells · "+str(row["n_case_clusters"])+" case clusters · A−B bounds "+esc(f"[{lo:.1%}, {hi:.1%}]")+" · Holm p (within family): "+esc("not estimable" if p is None else f"{p:.4g}")+"</p>"
+            body+="<ul>"+"".join("<li>"+esc(x)+"</li>" for x in paired["limitations"])+"</ul>"
         if result["vendors_without_results"]:
             body+="<p>Missing vendor results: "+esc(", ".join(result["vendors_without_results"]))+"</p>"
     body+="</section><section><h2>Limitations</h2><ul>"+"".join("<li>"+esc(x)+"</li>" for x in payload["limitations"])+"</ul></section>"

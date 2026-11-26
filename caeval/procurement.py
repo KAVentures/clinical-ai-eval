@@ -22,7 +22,7 @@ says INCOMPARABLE rather than printing two numbers next to each other.
 """
 from __future__ import annotations
 
-from .stats import cluster_bootstrap_ci, mcnemar_exact_p
+from .stats import cluster_bootstrap_ci
 
 # Fields that must never appear in this module's output.
 FORBIDDEN_OUTPUT_KEYS = {"overall_score", "safety_score", "combined_score", "score",
@@ -137,34 +137,32 @@ def hazard_evidence(entry: dict, hazard: dict) -> dict:
 
 
 def pairwise_difference(a: dict, b: dict, metric: str) -> dict:
-    """Is the difference between two products distinguishable from noise?
+    """Legacy descriptive helper; inferential output requires frozen procurement.
 
-    Only meaningful when the two ran the SAME cells, so the pairing is by cell id.
-    Unpaired cells are dropped and counted, never silently imputed.
+    Do not run cell-independent McNemar tests on variants sharing a base case.
+    The audited risk-bound workflow supplies the case-clustered inference.
     """
-    a_cells = {c.get("cell_id", c.get("item_id")): c for c in a["cells"]}
-    b_cells = {c.get("cell_id", c.get("item_id")): c for c in b["cells"]}
-    shared = sorted(set(a_cells) & set(b_cells))
-    dropped = len(set(a_cells) ^ set(b_cells))
-    pairs = [(a_cells[k].get(metric), b_cells[k].get(metric)) for k in shared]
-    pairs = [(x, y) for x, y in pairs if x is not None and y is not None]
-    if not pairs:
-        return {"metric": metric, "n_paired": 0, "p_value": None,
-                "distinguishable": None, "dropped_unpaired_cells": dropped,
-                "note": "No shared cells: these products cannot be compared cell-by-cell."}
-    b01 = sum(1 for x, y in pairs if x == 1 and y == 0)
-    b10 = sum(1 for x, y in pairs if x == 0 and y == 1)
-    p = mcnemar_exact_p(b01, b10)
-    return {
-        "metric": metric, "n_paired": len(pairs),
-        f"{a['product_id']}_only_failures": b01,
-        f"{b['product_id']}_only_failures": b10,
-        "p_value": p, "distinguishable": bool(p is not None and p < 0.05),
-        "dropped_unpaired_cells": dropped,
-        "note": ("" if p is not None and p < 0.05 else
-                 "This run does not distinguish these products on this metric. That is "
-                 "NOT evidence they are equivalent — it is absence of evidence."),
-    }
+    from . import matched_procurement
+    result={"metric":metric,"n_paired":0,"p_value":None,"distinguishable":None,
+            "dropped_unpaired_cells":0,"note":"No inference outside a verified frozen matched study."}
+    try:
+        ai=[c["cell_id"] for c in a["cells"]]
+        bi=[c["cell_id"] for c in b["cells"]]
+        if len(ai)!=len(set(ai)) or len(bi)!=len(set(bi)):
+            return result
+        result["dropped_unpaired_cells"]=len(set(ai)^set(bi))
+        if set(ai)!=set(bi):
+            return result
+        row=matched_procurement.contrast(a,b,ai,metric)
+        result.update(n_paired=row["n_paired"],
+                      observed_paired_difference_a_minus_b=row["observed_paired_difference_a_minus_b"],
+                      all_expected_difference_bounds=row["all_expected_difference_bounds"])
+        # Preserve legacy discordance count field names, but not its unsafe p-value.
+        result[f"{a['product_id']}_only_failures"]=row["a_only_positive"]
+        result[f"{b['product_id']}_only_failures"]=row["b_only_positive"]
+    except (ValueError,TypeError,KeyError,AttributeError):
+        pass
+    return result
 
 
 def compare(entries: list, hazards: list) -> dict:
@@ -256,6 +254,17 @@ def render_markdown(cmp_result: dict) -> str:
         if notes:
             L += [""] + notes
         L.append("")
+    paired=cmp_result.get("matched_contrasts")
+    if paired:
+        L += ["## Matched exploratory contrasts", "", paired["status"]+" — "+paired["reason"], ""]
+        for row in paired["contrasts"]:
+            lo,hi=row["all_expected_difference_bounds"]
+            p=row["p_value_holm_within_family"]
+            L.append(f"- {row['hazard_id']}: {row['products'][0]} minus {row['products'][1]}: "
+                     f"{row['n_paired']}/{row['n_expected']} paired cells, {row['n_case_clusters']} case clusters; "
+                     f"all-expected difference bounds [{lo:.1%}, {hi:.1%}]; "
+                     f"within-family Holm p: {'not estimable' if p is None else format(p,'.4g')} ({row['status']}).")
+        L += [""]+["- "+x for x in paired["limitations"]]+[""]
     L.append("## What this does not tell you")
     L += [f"- {x}" for x in cmp_result["what_this_does_not_tell_you"]]
     return "\n".join(L)
