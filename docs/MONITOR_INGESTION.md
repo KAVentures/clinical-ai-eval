@@ -406,3 +406,57 @@ accept attempts previously accepted after the backup. Retain the relay and
 outbox together under an institution-managed recovery procedure; exactly-once
 delivery across restores is not established. A nonzero worker exit or
 unavailable relay must be treated as a monitoring failure.
+
+
+## Institutional browser notification inbox
+
+Administrators and operators can inspect accepted relay transitions directly
+from the native monitoring detail page. Trusted IT must provision the
+relay database at the fixed location:
+
+```text
+WORKSPACE/institution/notification-relays/MONITOR_ID.sqlite3
+```
+
+Use the exact monitor ID and frozen plan digest when initializing the relay.
+The directory must already exist and be controlled by the authorized service
+OS account. Keep the relay token and worker token files **outside** the
+workspace and its ordinary backup inventory. The browser does not accept a
+filesystem path, initialize the relay, read its credential, or mutate its
+database. Its SQLite connection is read-only and checks the exact scope.
+
+An unavailable, mismatched or corrupt relay is not an empty inbox. The page
+shows up to 25 accepted batches without an institutional review and up to
+25 recent locked reviews. Inspect a batch's complete transition inventory
+and submit the external review record SHA-256 with explicit confirmation.
+The authenticated administrator or operator identity and exact notification
+envelope are locked in the institutional audit ledger in one transaction.
+Exact retries by the same account are idempotent; changed or competing
+reviews are refused. Observers and blinded reviewers cannot open the inbox
+or submit reviews. All browser mutations retain the existing CSRF controls.
+
+The institutional review and the relay CLI's local review are independent
+attestations. A CLI review does not hide a batch from the institutional
+inbox, and a browser review does not mark the relay CLI batch reviewed.
+Neither means that a clinician was notified, that an external artifact
+was independently verified, or that an underlying alert was resolved.
+Follow the approved external review and escalation process.
+
+Previously reviewed envelopes remain accessible in the institutional
+ledger if the relay is unavailable. Missing or changed reviewed batch
+digest metadata is explicitly flagged and blocks new reviews until IT
+investigates. This check does not replay every historical relay payload
+on each page and is not a distributed transaction or a privileged
+tamper-resistant audit system. Selected pending records are replayed.
+The review ledger has bounded capacity (2,000 records and 64 MiB of
+serialized review payloads per workspace); capacity exhaustion must
+be investigated rather than silently dropping notifications.
+
+Stop all services and workers before workspace backup or restore,
+including the relay and alert worker. The fixed-path relay database
+is included in the ordinary workspace backup inventory; keep separately
+located outbox databases consistent under the institution's own recovery
+procedure. Restore does not prove delivery history is current. Rotate
+external relay credentials separately and investigate replay/backlog
+before restarting. The lifecycle preflight checks institutional review
+audit inventory, not source authenticity or complete notification delivery.
