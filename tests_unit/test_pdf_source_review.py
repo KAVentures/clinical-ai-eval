@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from caeval import (buyer_agent as buyer, buyer_plan, pdf_source_review as pdf,
                     vendor_document_review as review, institution_committee as committee)
-from tests_unit import test_vendor_document_review as fixture
+from tests_unit import test_vendor_document_review as document_fixture
 
 
 def synthetic_pdf():
@@ -33,11 +33,11 @@ def synthetic_pdf():
 
 
 class PdfReviewTests(unittest.TestCase):
-    setUp=fixture.DocumentReviewTests.setUp
-    request=fixture.DocumentReviewTests.request
-    post=fixture.DocumentReviewTests.post
-    fixture=fixture.DocumentReviewTests.fixture
-    fields=fixture.DocumentReviewTests.fields
+    setUp=document_fixture.DocumentReviewTests.setUp
+    request=document_fixture.DocumentReviewTests.request
+    post=document_fixture.DocumentReviewTests.post
+    fixture=document_fixture.DocumentReviewTests.fixture
+    fields=document_fixture.DocumentReviewTests.fields
 
     def staged(self):
         record=self.fixture(synthetic_pdf())
