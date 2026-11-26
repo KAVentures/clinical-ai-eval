@@ -19,6 +19,10 @@ def inbox(directory,actor,ident):
             e=item["envelope"]
             body+="<section><h2>"+esc(e["as_of"])+" · "+esc(len(e["events"]))+" transitions</h2><p>Attempt "+esc(e["attempt_digest"])+" · local CLI review recorded: "+esc(item["local_review_recorded"])+"</p>"
             body+="<a href='/monitor-notification-detail?id="+esc(ident)+"&amp;attempt="+esc(e["attempt_digest"])+"'>Inspect exact notification</a></section>"
+    if doc["recent_reviews"]:
+        body+="<h2>Recent locked institutional reviews</h2>"
+        for r in doc["recent_reviews"]:
+            body+="<p><a href='/monitor-notification-detail?id="+esc(ident)+"&amp;attempt="+esc(r["attempt"])+"'>"+esc(r["attempt"])+"</a> · "+esc(r["actor"])+"</p>"
     return page("Institutional monitoring notifications",body)
 
 
