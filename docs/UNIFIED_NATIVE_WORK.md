@@ -159,3 +159,21 @@ digest metadata may still be sensitive. The command requires local access
 to the complete evidence bundle for replay, but its output is suitable for
 approved metadata-only coordination workflows. Installed-wheel and native
 integration acceptance are required before release.
+
+
+### Text and conversation inventory integrity
+
+Text and conversation work scans now expose truncated or unverifiable records
+as partial inventory instead of silently dropping failed validations. Text
+records are checked against the verified manual exchange and exact candidate
+version and family; completed jobs additionally require the matching verified
+family package. A multi-family job may still appear under multiple requirements
+when each family is actually covered. Conversation work matches the native
+patient conversation family and exact candidate scope.
+
+Prepared-assessment scanning includes malformed records with expected digest
+names so missing files cannot appear to be an empty queue. The inventory is
+bounded to 200 prepared records and 200 text jobs, or 200 conversation jobs.
+Unverified counts refer to scanned records, not unique clinical cases.
+Records outside the bounded scan may exist. No association or clinical
+acceptance decision is made by this work projection.
