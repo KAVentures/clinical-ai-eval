@@ -138,3 +138,24 @@ Scientific replay comparisons now use canonical JSON content rather than
 Python numeric equality, preserving distinctions between Boolean, integer
 and floating-point values. Native integration and installed-wheel CI remain
 necessary before relying on this workflow operationally.
+
+
+### Redacted research result inspection
+
+```sh
+clinical-ai-eval experimental-project inspect-result --project PROJECT_DIR --plan frozen.json --approve-plan PLAN_DIGEST --result result.json --expected-digest RESULT_DIGEST
+```
+
+This command independently replays the same native packages as the existing
+project verifier, then produces an administrative view containing planned
+and replayed module identifiers, scientific protocol hashes, aggregate
+planned-unit counts, package/report digests and the canonical suite gap
+inventory. It does not include native scores, prompts, transcripts,
+references, response payloads, reviewer identities or connector settings.
+A partial result remains explicitly partial; a replayed module does not
+satisfy a canonical clinical requirement. The result inspection digest is
+not a signature or independent clinical acceptance. Product identity and
+digest metadata may still be sensitive. The command requires local access
+to the complete evidence bundle for replay, but its output is suitable for
+approved metadata-only coordination workflows. Installed-wheel and native
+integration acceptance are required before release.
