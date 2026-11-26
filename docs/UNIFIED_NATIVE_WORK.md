@@ -94,3 +94,27 @@ Handoff replay compares canonical JSON content digests, not Python numeric
 equality, so substituting integers for Boolean claims is refused. These
 structural checks still do not independently establish authenticity of an
 export or the truth of native evidence.
+
+
+## Common offline experimental study entry point
+
+The installed CLI exposes the existing independent experimental workflows:
+
+```sh
+clinical-ai-eval research-study --help
+clinical-ai-eval research-study citation --help
+clinical-ai-eval research-study scribe --help
+clinical-ai-eval research-study decision --help
+clinical-ai-eval research-study robustness --help
+clinical-ai-eval research-study scribe plan --spec approved-spec.json --out new-plan.json
+```
+
+These commands delegate to the existing native study modules with their
+original arguments, approval requirements, immutable publication rules,
+and exit status. The older Python module entry points remain available.
+This is offline experimental research, not a new canonical executor,
+a clinical validation claim, or authorization to run a deployed model.
+For institutional aggregation, use the existing research programme and
+unified assessment workflow. Installed-wheel release acceptance checks
+that each public command creates the same plan as the project workflow
+and refuses invalid specifications or existing output files.
