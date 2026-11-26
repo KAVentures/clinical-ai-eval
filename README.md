@@ -163,6 +163,10 @@ named clinical reviewers for independent human anchoring. Routine demonstration 
 internal-regression screens do not require two clinicians. Ties may be resolved by
 locked consensus after the two independent submissions or by a prespecified third reviewer. See [`PRODUCT_V1.md`](PRODUCT_V1.md) for claim boundaries.
 
+## Project-bound experimental research execution
+
+The four expanded research protocols (citation, scribe, rule-bound decision certifiability and paired robustness) have a separate offline `experimental-project` CLI lane bound to the validated project intake. It freezes exact native plans, prepares independent reviews, executes or finalizes module reports, and assembles independently replayable evidence while preserving all canonical gaps. This does **not** register new canonical executors or promote clinical validity. See [Project-bound experimental assessment execution](docs/PROJECT_EXPERIMENTAL_EXECUTION.md).
+
 ## Quick start (offline, no keys, no downloads)
 ```bash
 cd clinical_ai_eval

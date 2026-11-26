@@ -9,6 +9,7 @@ def render(directory, actor, plan_id):
     body="<p><a href='/setup'>Assessment setup</a> · <a href='/research'>Research studio</a></p>"
     body+="<p>"+esc(target["name"])+" · version "+esc(target["version"])+"</p>"
     body+="<p>Saved plan: "+esc(plan_id)+"</p>"
+    body+="<p><a href='/research-programs?plan_id="+esc(plan_id)+"'>Coordinate a frozen multi-module assessment programme</a></p>"
     body+="<p>Experimental related evidence only. No canonical execution, clinical approval or procurement gate is satisfied by this view. Visibility: "+esc(doc["scope_visibility"])+"</p>"
     body+="<table><thead><tr><th>Required suite</th><th>Canonical availability</th><th>Related studies</th><th>Verified experimental reports</th></tr></thead><tbody>"
     for row in doc["suites"]:

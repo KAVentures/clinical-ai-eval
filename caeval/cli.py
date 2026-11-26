@@ -1728,6 +1728,8 @@ def main(argv=None):
         from . import experimental_evidence
         return experimental_evidence.cli(args)
     px.set_defaults(func=run_experimental_evidence)
+    from . import project_experimental_cli
+    project_experimental_cli.configure(sub.add_parser("experimental-project", help="project-bound experimental research execution (offline)"))
     pvp = sub.add_parser("verify-package", help="independently verify an evidence package")
     pvp.add_argument("package"); pvp.add_argument("--verbose", action="store_true")
     pvp.set_defaults(func=cmd_verify_package)
