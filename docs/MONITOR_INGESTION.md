@@ -460,3 +460,78 @@ procedure. Restore does not prove delivery history is current. Rotate
 external relay credentials separately and investigate replay/backlog
 before restarting. The lifecycle preflight checks institutional review
 audit inventory, not source authenticity or complete notification delivery.
+
+
+## Guarded scheduler cycles and operational heartbeat
+
+Use a separate private local SQLite heartbeat file for each approved worker
+binding. This provides a durable running marker and blocks overlapping
+cycles that use the **same** heartbeat file. It is not a distributed lock
+and does not prevent manual worker commands or another heartbeat file
+from accessing the same outbox. All scheduled cycles must use this wrapper;
+do not concurrently run the unguarded worker or manually advance its store.
+
+Initialize the heartbeat with the digest returned by the worker binding
+approval and locally selected operational thresholds in seconds:
+
+```sh
+clinical-ai-eval monitor-alert-health initialize /private/health.sqlite3 APPROVED_BINDING_DIGEST --max-gap 300 --max-run 120
+```
+
+The thresholds are examples, not clinical recommendations. The maximum
+gap between successful cycle completions is 60–86,400 seconds; maximum
+run duration is 1 second through the maximum gap. The policy is fixed
+for the initialized file. Keep the file and its ancestors private and
+on a trusted local filesystem; do not reset it to bypass an interrupted run.
+
+Have the institution-managed scheduler run this command instead of the
+unguarded worker cycle:
+
+```sh
+clinical-ai-eval monitor-alert-health cycle /private/health.sqlite3 /private/alerts.sqlite3 --approved-digest APPROVED_BINDING_DIGEST --source-secret-file /private/check-token --sink-secret-file /private/relay-token
+```
+
+The wrapper commits a unique running marker before invoking the worker.
+It records success only after the worker returns, and records failed
+operations without copying exception text or credentials into the
+heartbeat. A killed process can leave the running marker intact. A
+subsequent run is refused until an authorized operator investigates.
+The heartbeat and outbox are separate transactions: after an interruption
+the outbox may already be advanced or have a pending attempt. Inspect
+both. Never infer pending delivery state from the heartbeat alone.
+
+An independent local watchdog can inspect:
+
+```sh
+clinical-ai-eval monitor-alert-health status /private/health.sqlite3
+```
+
+Status returns the last run state, consecutive failure count, last
+success time and attention reasons. Its exit code is nonzero when
+attention is required, including no recorded successful cycle, an
+overdue successful cycle, a cycle in progress or overdue, failure,
+interruption, or clock regression. An unreadable heartbeat is also an
+operational failure. A healthy heartbeat does not establish current
+source availability, notification receipt by a clinician, an empty
+outbox, a reviewed inbox or clinical safety. Inspect outbox status and
+institutional/relay inbox backlog separately. A cycle that resumed a
+pending delivery may not have polled the source.
+
+The threshold flags do not kill the worker. Use a service-manager
+deadline and an independent watchdog/notification mechanism. Before
+clearing a running marker, stop the scheduler, verify the old process
+and its children are no longer running, inspect the durable outbox,
+and identify the exact run ID from heartbeat status:
+
+```sh
+clinical-ai-eval monitor-alert-health recover /private/health.sqlite3 RUN_ID --confirm-process-stopped
+```
+
+Recovery records interruption and permits the next guarded cycle to
+resume the outbox. It never discards pending notifications or clears
+clinical alerts. The confirmation is an operator attestation, not
+automatic process-liveness verification. Do not recover a live worker.
+A copied or older restored heartbeat is not proof of current worker
+state; stop all services and inspect the corresponding outbox and
+relay before restarting. No timer, external watchdog or paging
+service is automatically installed.
