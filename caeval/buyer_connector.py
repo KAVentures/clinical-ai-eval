@@ -19,7 +19,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import adapters, buyer_agent as buyer, buyer_manual as manual, buyer_plan, candidate_protocol
+from . import adapters, buyer_agent as buyer, buyer_manual as manual, buyer_plan, candidate_protocol, citation_trace_protocol, interoperability_protocol, image_text_readiness
 
 MAX_CONNECTOR_BYTES = 65536
 MAX_REPLY_BYTES = 256 * 1024
@@ -95,7 +95,7 @@ def _config(directory, connector_id):
     common={"vendor_id","target_name","target_version","url","headers","timeout_seconds"}
     if not isinstance(config,dict) or set(config) not in (common|{"prompt_field","answer_path"},common|{"protocol"}):
         raise buyer.BuyerError("invalid connector configuration fields")
-    if "protocol" in config and config["protocol"]!=candidate_protocol.PROTOCOL:
+    if "protocol" in config and config["protocol"] not in (candidate_protocol.PROTOCOL,citation_trace_protocol.PROTOCOL,interoperability_protocol.PROTOCOL,image_text_readiness.PROTOCOL):
         raise buyer.BuyerError("unsupported candidate protocol")
     manual._identifier(config["vendor_id"])
     for k in ("target_name","target_version"):
@@ -139,7 +139,14 @@ def connectors(directory):
 
 def _binding(directory, exchange_id, connector_id):
     record=manual._load(directory,exchange_id)
+    return _binding_from_record(directory,record,connector_id)
+
+
+def _binding_from_record(directory,record,connector_id):
+    exchange_id=record["exchange_id"]
     cfg=_config(directory,connector_id)
+    if cfg.get("protocol") in (citation_trace_protocol.PROTOCOL,interoperability_protocol.PROTOCOL,image_text_readiness.PROTOCOL):
+        raise buyer.BuyerError("structured connector requires its dedicated assessment workflow")
     if (record["vendor_id"]!=cfg["vendor_id"] or record["target"]["name"]!=cfg["target_name"]
             or record["target"]["version"]!=cfg["target_version"]):
         raise buyer.BuyerError("connector does not match the planned candidate and version")
@@ -153,16 +160,29 @@ def _binding(directory, exchange_id, connector_id):
             "transport":"literal_loopback_http","decision_grade":False},cfg,record
 
 
-def queue(directory, exchange_id, connector_id):
+def queue(directory, exchange_id, connector_id, *, expected_binding=None, guided=False, cohort_id=None):
+    if cohort_id is not None and (guided or expected_binding is None or not isinstance(cohort_id,str)
+                                  or not re.fullmatch(r"collect-cohort-[0-9a-f]{48}",cohort_id)):
+        raise buyer.BuyerError("exact cohort reservation required")
     binding,_,_=_binding(directory,exchange_id,connector_id)
     digest=buyer_plan._digest(binding)
-    identifier="collect-"+uuid.uuid4().hex
+    if expected_binding is not None and digest!=expected_binding:
+        raise buyer.BuyerError("collection binding changed since preview")
+    if guided is True and expected_binding is None:
+        raise buyer.BuyerError("guided collection requires exact preview")
+    identifier=cohort_id or ("collect-guided-"+digest[:32] if guided is True else "collect-"+uuid.uuid4().hex)
     with _db(directory) as conn:
         conn.execute("BEGIN IMMEDIATE")
-        if conn.execute("SELECT count(*) FROM collections").fetchone()[0]>=MAX_COLLECTIONS:
-            raise buyer.BuyerError("collection limit reached")
-        conn.execute("INSERT INTO collections(id,binding,binding_hash,state) VALUES(?,?,?,?)",
-                     (identifier,json.dumps(binding),digest,"queued"))
+        existing=conn.execute("SELECT id FROM collections WHERE id=?",(identifier,)).fetchone()
+        if existing:
+            prior=_row(conn,identifier)
+            if (guided is not True and cohort_id is None) or prior["binding"]!=binding or prior["binding_hash"]!=digest:
+                raise buyer.BuyerError("collection identifier conflict")
+        else:
+            if conn.execute("SELECT count(*) FROM collections").fetchone()[0]>=MAX_COLLECTIONS:
+                raise buyer.BuyerError("collection limit reached")
+            conn.execute("INSERT INTO collections(id,binding,binding_hash,state) VALUES(?,?,?,?)",
+                         (identifier,json.dumps(binding),digest,"queued"))
     return status(directory,identifier)
 
 
@@ -217,6 +237,8 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def _call(cfg,prompt,headers):
+    if cfg.get("protocol") not in (None,candidate_protocol.PROTOCOL):
+        raise adapters.AdapterError("single-turn text connector required")
     # No proxy, DNS lookup, redirects, or hidden case metadata.
     opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),_NoRedirect())
     standard=cfg.get("protocol")==candidate_protocol.PROTOCOL
@@ -243,10 +265,35 @@ def _call(cfg,prompt,headers):
     return value
 
 
+def call_citation_trace(cfg,prompt,headers):
+    if cfg.get("protocol")!=citation_trace_protocol.PROTOCOL:
+        raise adapters.AdapterError("structured citation protocol required")
+    body=citation_trace_protocol.request({"name":cfg["target_name"],"version":cfg["target_version"]},prompt)
+    opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),_NoRedirect())
+    req=urllib.request.Request(_endpoint(cfg["url"]),method="POST",
+        data=buyer_plan._canonical(body),headers={"Content-Type":"application/json",**headers})
+    with opener.open(req,timeout=cfg["timeout_seconds"]) as response:
+        if response.status!=200 or response.headers.get_content_type()!="application/json":
+            raise adapters.AdapterError("citation trace requires HTTP 200 JSON")
+        raw=response.read(MAX_REPLY_BYTES+1)
+    parsed=citation_trace_protocol.parse_response(body,raw)
+    if parsed["status"]!="complete":
+        raise adapters.AdapterError("candidate explicitly unavailable")
+    return parsed["trace"]
+
+
 def execute(directory,identifier,approved_binding_hash,operator):
     """No automatic retries; failed calls become explicit missing responses."""
     if not isinstance(operator,str) or not operator.strip() or len(operator)>200:
         raise buyer.BuyerError("record executing operator")
+    # Check the institutional audit before taking the collection database
+    # lock; the approval path takes these locks in the opposite store order.
+    if isinstance(identifier,str) and identifier.startswith("collect-guided-"):
+        from . import guided_onboarding
+        guided_onboarding.require_approval(directory,identifier,approved_binding_hash)
+    if isinstance(identifier,str) and identifier.startswith("collect-cohort-"):
+        from . import validation_cohort
+        validation_cohort.claim_collection(directory,identifier,approved_binding_hash)
     with _db(directory) as conn:
         conn.execute("BEGIN IMMEDIATE")
         row=_row(conn,identifier)
@@ -276,6 +323,10 @@ def execute(directory,identifier,approved_binding_hash,operator):
             if time.monotonic()>=deadline:
                 stopped=True
             if not stopped:
+                # A changed approved endpoint or credential reference must
+                # stop further transmissions, not just invalidate the receipt.
+                if buyer_plan._digest(_config(directory,binding["connector_id"]))!=binding["connector_hash"]:
+                    raise buyer.BuyerError("connector changed during collection")
                 attempted+=1
                 try:
                     text=_call(cfg,item["prompt"],headers)
@@ -307,6 +358,9 @@ def execute(directory,identifier,approved_binding_hash,operator):
                  "source":"operator_authorized_local_http_collection",
                  "decision_grade":False}
         receipt["receipt_hash"]=buyer_plan._digest(receipt)
+        if identifier.startswith("collect-cohort-"):
+            from . import validation_cohort
+            validation_cohort.seal_collection(directory,identifier,receipt)
     except (OSError,ValueError,RuntimeError,KeyError,TypeError):
         state="failed"
         receipt={"reason":"collection inputs, transport or handoff failed"}

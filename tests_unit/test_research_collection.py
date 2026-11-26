@@ -104,6 +104,39 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(len(draft["responses"]),len(plan["arms"]))
         self.assertTrue(all(r["status"]=="provider_error" and not r["answer"] for r in draft["responses"]))
 
+    def test_structured_citation_exact_reported_trace_and_no_repair(self):
+        from unittest.mock import patch
+        from caeval import citation_trace_protocol as protocol, buyer_connector
+        from tests_unit.test_citation_assessment import CitationAssessmentTests
+        fixture=CitationAssessmentTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        ident,plan=self.create("citation",fixture.spec)
+        cfg=json.loads(self.config.read_text())
+        cfg.pop("prompt_field")
+        cfg.pop("answer_path")
+        cfg["protocol"]=protocol.PROTOCOL
+        self.config.write_text(json.dumps(cfg))
+        catalog={s["source_id"]:s for s in plan["spec"]["sources"]}
+        byprompt={q["query"]:q for q in plan["queries"]}
+        def answer(cfg,prompt,headers):
+            q=byprompt[prompt]
+            return {"retrieval_query":"Vendor reported rewrite","answer":"Fictional answer",
+                    "retrieved_chunks":[{"source_id":sid,"source_version":catalog[sid]["version"],
+                       "text":catalog[sid]["text"],"rank":i+1} for i,sid in enumerate(q["source_ids"])]}
+        digest=self.queue(ident,plan)
+        with patch.object(buyer_connector,"call_citation_trace",side_effect=answer):
+            result=collect.execute(self.root,ident,digest,allow_candidate_calls=True)
+        self.assertEqual(result["counts"]["complete"],4)
+        draft=studio.download(self.root,self.actor["operator"],ident,"responses")
+        self.assertTrue(all(t["retrieval_query"]=="Vendor reported rewrite" for t in draft["traces"]))
+        bad=json.loads(json.dumps(draft))
+        bad["traces"][0]["retrieval_query"]="Edited"
+        with self.assertRaises(access.AccessDenied):
+            studio.collect(self.root,self.actor["operator"],ident,plan["plan_hash"],bad,confirmed=True)
+        studio.collect(self.root,self.actor["operator"],ident,plan["plan_hash"],draft,confirmed=True)
+        self.assertEqual(protocol.openapi()["openapi"],"3.1.0")
+
     def test_connector_drift_cancel_and_restore(self):
         spec,_,_=fixture()
         ident,plan=self.create("scribe",spec)

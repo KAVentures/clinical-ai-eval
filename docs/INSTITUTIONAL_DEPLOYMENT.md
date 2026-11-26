@@ -532,3 +532,7 @@ Use the [institutional retention policy and offline maintenance workflow](INSTIT
 ## Provider-neutral candidate integration
 
 Use the [candidate endpoint contract](UNIVERSAL_CANDIDATE_API.md) for a versioned REST/JSON single-turn adapter, regardless of EHR, programming language, model or internal data format. Existing custom JSON connectors remain supported. The evaluator only contacts approved literal-loopback adapters; external routing remains under separately approved institutional IT control. This is a candidate-side endpoint, not an unrestricted remote execution API.
+
+## HL7 v2 interoperability rehearsal
+
+The fixed synthetic HL7 v2.5.1 ORU_R01 workflow is available alongside FHIR from candidate setup. It tests narrow numeric observation extraction, not general HL7 conformance or live interface connectivity. Use `clinical-ai-eval hl7-readiness prepare --target-name NAME --target-version VERSION`, then `assess --plan plan.json --responses responses.json` and `verify evidence.json --expected-digest DIGEST`. CLI output is a JSON result envelope; save its plan, response_template and evidence objects separately. Browser submissions are bound to saved target scope and appear in committee inventory. Only synthetic messages are supported. No live MLLP, ADT, orders, ACKs, correction lifecycle, production EHR access, or write-back. Retention deletion currently applies only to the existing FHIR workflow; HL7 reports are preserved.

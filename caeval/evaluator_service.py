@@ -53,12 +53,83 @@ def _hash(token):
     return hashlib.sha256(token.encode("ascii")).hexdigest()
 
 
+def _audit_exact(conn,action,obj,actor=None):
+    events=conn.execute("SELECT seq,actor FROM audit WHERE action=? AND object_id=? AND outcome='ok'",
+                        (action,obj)).fetchall()
+    if len(events)!=1 or (actor is not None and events[0]["actor"]!=actor):
+        _fail()
+
+
+def _grant_event(row):
+    return row["id"]+":"+buyer_plan._digest([row[k] for k in ("id","token_hash","owner","assessment_id","expires")])
+
+
+def _request_event(row):
+    return row["id"]+":"+buyer_plan._digest([row[k] for k in ("id","grant_id","idempotency_key","assessment_id","created")])
+
+
+def _issued(conn,row):
+    if not row:
+        _fail()
+    _audit_exact(conn,"evaluator-service-grant-issued",_grant_event(row),"local-admin")
+
+
+def _active_grant(conn,row):
+    _issued(conn,row)
+    if (row["revoked"] or row["expires"]<=int(time.time()) or
+            conn.execute("SELECT 1 FROM audit WHERE action='evaluator-service-grant-revoked' AND object_id=? AND outcome='ok'",(row["id"],)).fetchone()):
+        _fail()
+    _owner(conn,row["owner"])
+
+
+def _check_request(conn,row):
+    if not row:
+        _fail()
+    grant=conn.execute("SELECT * FROM evaluator_service_grants WHERE id=?",(row["grant_id"],)).fetchone()
+    _issued(conn,grant)
+    if row["assessment_id"]!=grant["assessment_id"]:
+        _fail()
+    _audit_exact(conn,"evaluator-service-requested",_request_event(row),grant["owner"])
+    return grant
+
+
+def _link_event(row,jid):
+    return row["id"]+":"+buyer_plan._digest([_request_event(row),jid])
+
+
+def _link_inventory(conn,row):
+    events=conn.execute("SELECT action,object_id FROM audit WHERE outcome='ok' "
+                        "AND action IN ('evaluator-service-job-linked','evaluator-service-queue-approved') "
+                        "AND substr(object_id,1,33)=?",(row["id"]+":",)).fetchall()
+    jid=row["job_id"]
+    if jid is None:
+        if events:
+            _fail()
+    else:
+        action=("evaluator-service-queue-approved" if jid.startswith("job-service-")
+                else "evaluator-service-job-linked")
+        if len(events)!=1 or events[0]["action"]!=action or events[0]["object_id"]!=_link_event(row,jid):
+            _fail()
+
+
+def _check_link(conn,row):
+    _link_inventory(conn,row)
+    jid=row["job_id"]
+    if jid is None:
+        return
+    if jid.startswith("job-service-"):
+        if jid!="job-service-"+row["id"]:
+            _fail()
+        _queue_approval(conn,jid,row["assessment_id"])
+    else:
+        _audit_exact(conn,"evaluator-service-job-linked",_link_event(row,jid))
+
+
 def issue(directory,owner,assessment_id,ttl,*,confirmed=False):
     if confirmed is not True or type(ttl) is not int or not 1<=ttl<=MAX_TTL:
         _fail()
     manual._identifier(owner)
     manual._identifier(assessment_id,digest=True)
-    assessment.check(directory,assessment_id)
     token=secrets.token_urlsafe(32)
     gid=secrets.token_hex(16)
     expires=int(time.time())+ttl
@@ -66,11 +137,13 @@ def issue(directory,owner,assessment_id,ttl,*,confirmed=False):
         _schema(conn)
         conn.execute("BEGIN IMMEDIATE")
         _owner(conn,owner)
+        assessment.check(directory,assessment_id,conn=conn)
         if conn.execute("SELECT count(*) FROM evaluator_service_grants").fetchone()[0]>=MAX_GRANTS:
             _fail()
         conn.execute("INSERT INTO evaluator_service_grants VALUES(?,?,?,?,?,0)",
                      (gid,_hash(token),owner,assessment_id,expires))
-        access._audit(conn,"local-admin","evaluator-service-grant-issued",gid)
+        row=conn.execute("SELECT * FROM evaluator_service_grants WHERE id=?",(gid,)).fetchone()
+        access._audit(conn,"local-admin","evaluator-service-grant-issued",_grant_event(row))
     return {"grant_id":gid,"token":token,"assessment_id":assessment_id,"expires":expires}
 
 
@@ -91,9 +164,7 @@ def _grant(conn,token):
     if not isinstance(token,str) or not TOKEN.fullmatch(token):
         _fail()
     row=conn.execute("SELECT * FROM evaluator_service_grants WHERE token_hash=?",(_hash(token),)).fetchone()
-    if not row or row["revoked"] or row["expires"]<=int(time.time()):
-        _fail()
-    _owner(conn,row["owner"])
+    _active_grant(conn,row)
     return row
 
 
@@ -101,8 +172,8 @@ def _request(conn,gid,rid):
     if not isinstance(rid,str) or not ID.fullmatch(rid):
         _fail()
     row=conn.execute("SELECT * FROM evaluator_service_requests WHERE id=? AND grant_id=?",(rid,gid)).fetchone()
-    if not row:
-        _fail()
+    _check_request(conn,row)
+    _check_link(conn,row)
     return row
 
 
@@ -122,7 +193,7 @@ def submit(directory,token,key):
         prior=conn.execute("SELECT * FROM evaluator_service_requests WHERE grant_id=? AND idempotency_key=?",
                            (grant["id"],key)).fetchone()
         if prior:
-            return _summary(prior)
+            return _summary(_request(conn,grant["id"],prior["id"]))
         # One outstanding request per grant. The service is not a job launcher.
         if conn.execute("SELECT 1 FROM evaluator_service_requests WHERE grant_id=? AND job_id IS NULL",
                         (grant["id"],)).fetchone():
@@ -132,7 +203,8 @@ def submit(directory,token,key):
         rid=secrets.token_hex(16)
         conn.execute("INSERT INTO evaluator_service_requests VALUES(?,?,?,?,NULL,?)",
                      (rid,grant["id"],key,grant["assessment_id"],int(time.time())))
-        access._audit(conn,grant["owner"],"evaluator-service-requested",rid)
+        row=conn.execute("SELECT * FROM evaluator_service_requests WHERE id=?",(rid,)).fetchone()
+        access._audit(conn,grant["owner"],"evaluator-service-requested",_request_event(row))
         return _summary(_request(conn,grant["id"],rid))
 
 
@@ -142,7 +214,7 @@ def discover(directory,token):
         _schema(conn)
         grant=_grant(conn,token)
         return {"schema":SCHEMA,"assessment_id":grant["assessment_id"],"expires":grant["expires"],
-                "operations":["discover","list_requests","request_evaluation","evaluation_status","result_receipt"],
+                "operations":["discover","list_requests","request_evaluation","evaluation_status","result_receipt","download_approved_package"],
                 "execution_authorized_by_api":False,"decision_grade":False}
 
 
@@ -155,7 +227,7 @@ def list_requests(directory,token):
                           (grant["id"],)).fetchall()
         if len(rows)>MAX_REQUESTS or any(r["assessment_id"]!=grant["assessment_id"] for r in rows):
             _fail()
-        return {"schema":SCHEMA,"requests":[_summary(r) for r in rows],"decision_grade":False}
+        return {"schema":SCHEMA,"requests":[_summary(_request(conn,grant["id"],r["id"])) for r in rows],"decision_grade":False}
 
 
 def inventory(directory,actor=None):
@@ -166,9 +238,18 @@ def inventory(directory,actor=None):
             _admin(conn,actor)
         rows=conn.execute("SELECT r.*,g.owner,g.revoked,g.expires FROM evaluator_service_requests r "
                           "JOIN evaluator_service_grants g ON r.grant_id=g.id ORDER BY r.created,r.id").fetchall()
-        return [{**_summary(r),"grant_id":r["grant_id"],"job_id":r["job_id"],
-                 "owner":r["owner"],"grant_active":not r["revoked"] and r["expires"]>int(time.time())
-                     and _enabled_owner(conn,r["owner"])} for r in rows]
+        result=[]
+        for row in rows:
+            grant=_check_request(conn,row)
+            _check_link(conn,row)
+            active=True
+            try:
+                _active_grant(conn,grant)
+            except access.AccessDenied:
+                active=False
+            result.append({**_summary(row),"grant_id":row["grant_id"],"job_id":row["job_id"],
+                           "owner":grant["owner"],"grant_active":active})
+        return result
 
 
 def _enabled_owner(conn,owner):
@@ -189,10 +270,9 @@ def _active_request(conn,rid):
     row=conn.execute("SELECT r.*,g.owner,g.revoked,g.expires,g.assessment_id AS granted_assessment "
                      "FROM evaluator_service_requests r JOIN evaluator_service_grants g ON r.grant_id=g.id "
                      "WHERE r.id=?",(rid,)).fetchone()
-    if (not row or row["revoked"] or row["expires"]<=int(time.time())
-            or row["assessment_id"]!=row["granted_assessment"]):
-        _fail()
-    _owner(conn,row["owner"])
+    grant=_check_request(conn,row)
+    _active_grant(conn,grant)
+    _check_link(conn,row)
     return row
 
 
@@ -221,7 +301,7 @@ def approve_queue(directory,rid,*,confirmed=False,actor=None):
             _fail()
         conn.execute("UPDATE evaluator_service_requests SET job_id=? WHERE id=?",(jid,rid))
         access._audit(conn,actor["user_id"] if actor is not None else "local-admin",
-                      "evaluator-service-queue-approved",rid+":"+jid+":"+row["assessment_id"])
+                      "evaluator-service-queue-approved",_link_event(row,jid))
         return {"request_id":rid,"job_id":jid,"status":"queued","decision_grade":False}
 
 
@@ -229,13 +309,12 @@ def _queue_approval(conn,jid,assessment_id=None):
     rid=jid[len("job-service-"):]
     if not ID.fullmatch(rid):
         _fail()
-    row=conn.execute("SELECT assessment_id,job_id FROM evaluator_service_requests WHERE id=?",(rid,)).fetchone()
-    if not row or row["job_id"]!=jid or (assessment_id is not None and row["assessment_id"]!=assessment_id):
+    row=conn.execute("SELECT * FROM evaluator_service_requests WHERE id=?",(rid,)).fetchone()
+    _check_request(conn,row)
+    if row["job_id"]!=jid or (assessment_id is not None and row["assessment_id"]!=assessment_id):
         _fail()
-    events=conn.execute("SELECT seq FROM audit WHERE action='evaluator-service-queue-approved' "
-                        "AND object_id=? AND outcome='ok'",(rid+":"+jid+":"+row["assessment_id"],)).fetchall()
-    if len(events)!=1:
-        _fail()
+    _link_inventory(conn,row)
+    _audit_exact(conn,"evaluator-service-queue-approved",_link_event(row,jid))
     return row["assessment_id"]
 
 
@@ -265,18 +344,15 @@ def link(directory,rid,job_id,*,confirmed=False,actor=None):
         conn.execute("BEGIN IMMEDIATE")
         if actor is not None:
             _admin(conn,actor)
-        row=conn.execute("SELECT r.*,g.owner,g.revoked,g.expires FROM evaluator_service_requests r "
-                         "JOIN evaluator_service_grants g ON r.grant_id=g.id WHERE r.id=?",(rid,)).fetchone()
-        if (not row or row["revoked"] or row["expires"]<=int(time.time()) or
-                row["assessment_id"]!=job["assessment_id"] or row["job_id"] not in (None,job_id)):
+        row=_active_request(conn,rid)
+        if row["assessment_id"]!=job["assessment_id"] or row["job_id"] not in (None,job_id):
             _fail()
-        _owner(conn,row["owner"])
         existing=conn.execute("SELECT id FROM evaluator_service_requests WHERE job_id=?",(job_id,)).fetchone()
         if existing and existing["id"]!=rid:
             _fail()
         if row["job_id"] is None:
             conn.execute("UPDATE evaluator_service_requests SET job_id=? WHERE id=?",(job_id,rid))
-            access._audit(conn,actor["user_id"] if actor is not None else "local-admin","evaluator-service-job-linked",rid+":"+job_id)
+            access._audit(conn,actor["user_id"] if actor is not None else "local-admin","evaluator-service-job-linked",_link_event(row,job_id))
     return {"request_id":rid,"job_id":job_id,"status":"linked","decision_grade":False}
 
 
@@ -357,8 +433,17 @@ def verify_receipt(doc,expected_digest):
                 or p["review_count"]>p["n_responses"]):
             _fail()
         families.add(family)
-    if not isinstance(result["required_but_not_run"],list):
+    blocked=result["required_but_not_run"]
+    if not isinstance(blocked,list) or len(blocked)>100:
         _fail()
+    for entry in blocked:
+        if (not isinstance(entry,dict) or set(entry)!={"suite","blocked_reason"}
+                or not isinstance(entry["blocked_reason"],str) or not entry["blocked_reason"].strip()):
+            _fail()
+        family=manual._identifier(entry["suite"])
+        if family in families:
+            _fail()
+        families.add(family)
     return {"status":"METADATA_INTEGRITY_VERIFIED","digest":doc["digest"],
             "expected_digest_matched":True,"scientific_replay_verified":False,"decision_grade":False}
 
@@ -384,6 +469,13 @@ def openapi():
     spec["paths"]["/v1/evaluation-requests/{request_id}/receipt"]={"get":{"operationId":"resultReceipt",
         "parameters":[{"name":"request_id","in":"path","required":True,"schema":{"type":"string","pattern":"^[0-9a-f]{32}$"}}],
         "responses":{"200":{"description":"Digest-bound completed metadata receipt"},"403":{"description":"Denied"}}}}
+    spec["paths"]["/v1/evaluation-requests/{request_id}/packages/{family}"]={"get":{
+        "operationId":"downloadApprovedPackage",
+        "parameters":[{"name":"request_id","in":"path","required":True,"schema":{"type":"string","pattern":"^[0-9a-f]{32}$"}},
+                      {"name":"family","in":"path","required":True,"schema":{"type":"string"}}],
+        "responses":{"200":{"description":"Separately approved exact canonical archive",
+            "content":{"application/zip":{"schema":{"type":"string","format":"binary"}}}},
+            "403":{"description":"Denied or release unavailable"}}}}
     return spec
 
 
@@ -403,6 +495,15 @@ class App:
             path=env["PATH_INFO"]
             method=env["REQUEST_METHOD"]
             base="/v1/evaluation-requests"
+            if method=="GET" and path.startswith(base+"/") and "/packages/" in path:
+                from . import evaluator_package_release as release
+                rid,family=path[len(base)+1:].split("/packages/")
+                raw,meta=release.download(self.directory,token,rid,family)
+                start("200 OK",[("Content-Type","application/zip"),("Content-Length",str(len(raw))),
+                      ("Content-Disposition",'attachment; filename="clinical-evaluation.zip"'),
+                      ("X-Content-SHA256",meta["sha256"]),("Cache-Control","no-store"),
+                      ("X-Content-Type-Options","nosniff")])
+                return [raw]
             if method=="POST" and path==base:
                 if env.get("CONTENT_TYPE","").split(";")[0]!="application/json":
                     _fail()
@@ -488,6 +589,12 @@ def cli(args):
                 result=link(args.path,args.request_id,args.job_id,confirmed=args.confirm)
             elif args.action=="approve-queue":
                 result=approve_queue(args.path,args.request_id,confirmed=args.confirm)
+            elif args.action in ("package-preview","package-approve"):
+                from . import evaluator_package_release as release
+                if args.action=="package-preview":
+                    result=release.preview(args.path,args.request_id,args.family,args.out)
+                else:
+                    result=release.approve(args.path,args.request_id,args.family,args.expected_digest,confirmed=args.confirm)
             else:
                 _fail()
         print(json.dumps({"ok":True,"result":result},allow_nan=False))

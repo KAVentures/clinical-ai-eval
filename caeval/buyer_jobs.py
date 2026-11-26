@@ -58,7 +58,11 @@ def _public(row):
     return obj
 
 
-def enqueue(directory, assessment_id, *, service_request=None, conn=None):
+def enqueue(directory, assessment_id, *, service_request=None, cohort_job=None, conn=None):
+    if cohort_job is not None:
+        import re
+        if conn is None or service_request is not None or not isinstance(cohort_job,str) or not re.fullmatch(r"job-cohort-[0-9a-f]{48}",cohort_job):
+            raise buyer.BuyerError("trusted cohort reservation transaction required")
     if service_request is not None:
         from . import evaluator_service
         if conn is None or not isinstance(service_request,str) or not evaluator_service.ID.fullmatch(service_request):
@@ -68,8 +72,8 @@ def enqueue(directory, assessment_id, *, service_request=None, conn=None):
     real = any(not j["mock"] for j in panel["judges"])
     with _db(directory) as db:
         db.execute("BEGIN IMMEDIATE")
-        job = "job-service-"+service_request if service_request is not None else "job-"+uuid.uuid4().hex
-        if service_request is not None:
+        job = cohort_job or ("job-service-"+service_request if service_request is not None else "job-"+uuid.uuid4().hex)
+        if service_request is not None or cohort_job is not None:
             prior=db.execute("SELECT * FROM jobs WHERE id=?",(job,)).fetchone()
             if prior is not None:
                 if (prior["assessment_id"]!=assessment_id or prior["mode"]!=record["mode"]
@@ -252,6 +256,9 @@ def execute(directory, job_id, *, allow_model_calls=False):
     if isinstance(job_id,str) and job_id.startswith("job-service-"):
         from . import evaluator_service
         approved_assessment=evaluator_service.require_queue_approval(directory,job_id)
+    if isinstance(job_id,str) and job_id.startswith("job-cohort-"):
+        from . import validation_cohort
+        approved_assessment=validation_cohort.require_queue_approval(directory,job_id)
     with _db(directory) as db:
         db.execute("BEGIN IMMEDIATE")
         row = _public(_get(db, job_id))

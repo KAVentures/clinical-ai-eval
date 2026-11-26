@@ -132,10 +132,10 @@ def _base(directory):
     return manual._directory(directory, "prepared-assessments")
 
 
-def prepare(directory, submission_id, panel_id, governance, *, conditions_hash=None, expected_assessment_id=None, conn=None):
+def prepare(directory, submission_id, panel_id, governance, *, conditions_hash=None, conn=None, expected_id=None):
     record, files = _material(directory, submission_id, panel_id, governance, conditions_hash=conditions_hash, conn=conn)
-    if expected_assessment_id is not None and record["assessment_id"]!=expected_assessment_id:
-        raise buyer.BuyerError("prepared inputs changed since explicit approval")
+    if expected_id is not None and record["assessment_id"]!=expected_id:
+        raise buyer.BuyerError("assessment inputs changed since approval")
     base = _base(directory)
     base.mkdir(mode=0o700, exist_ok=True)
     dest = base / record["assessment_id"]

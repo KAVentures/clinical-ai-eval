@@ -17,6 +17,8 @@ def render(directory,actor):
         return "<label>Document <input type='file' name='document' required></label>"
     body="<p><a href='/'>Workspace</a></p><p>Operator preparation only. Do not upload patient identifiers or secrets. No model calls, clinical approvals or purchasing decisions occur here.</p>"
     body+="<p><a href='/buyer-risk-active'>Active risk-bound assessment (if configured)</a></p>"
+    if actor["role"]=="admin":
+        body+="<p><a href='/validation'>Freeze prospective validation cohorts before preparing exchanges</a></p>"
     body+="<section><h2>1. Register candidates</h2>"+form("vendor",text("vendor_id","Candidate ID",64)+text("name","Candidate name"),"Register candidate")+"</section>"
     vendor_options=[(v["vendor_id"],v["name"]) for v in data["vendors"]]
     for v in data["vendors"]:
@@ -39,11 +41,17 @@ def render(directory,actor):
             body+="<p>Invalid plan.</p></section>"
             continue
         body+="<p>"+esc(plan["target"]["name"])+" "+esc(plan["target"]["version"])+" · "+("Current definitions" if plan["current"] else "Stale definitions")+"</p>"
+        body+="<p><a href='/version-reassessment?plan_id="+esc(plan["id"])+"'>Plan version reassessment and review history</a></p>"
         if plan["current"]:
+            if len(plan["profiles"])>1:
+                body+="<p><a href='/mixed-evaluation?plan_id="+esc(plan["id"])+"'>Mixed-profile evaluation programme</a></p>"
+            body+="<p><a href='/guided-collection?plan_id="+esc(plan["id"])+"'>Guided candidate onboarding and collection</a></p>"
             body+="<p><a href='/research-buyer-coverage?plan_id="+esc(plan["id"])+"'>View related experimental research coverage</a></p>"
         body+="<p><a href='/buyer-risk?plan_id="+esc(plan["id"])+"'>Buyer clinical risk protocol</a></p>"
         if plan["current"]:
             body+="<p><a href='/fhir?plan_id="+esc(plan["id"])+"'>Synthetic FHIR interoperability rehearsal</a></p>"
+            body+="<p><a href='/hl7?plan_id="+esc(plan["id"])+"'>Synthetic HL7 v2 interoperability rehearsal</a></p>"
+            body+="<p><a href='/image-text?plan_id="+esc(plan["id"])+"'>Synthetic image-text readiness rehearsal</a></p>"
         for r in plan["selection"]["required_suites"]:
             body+="<p>"+esc(r["suite"])+" — "+("Runnable" if r["implemented"] else "Required, not runnable")+"</p>"
         if plan["current"] and data["packs"]:

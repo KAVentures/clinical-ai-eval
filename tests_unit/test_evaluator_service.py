@@ -161,6 +161,47 @@ class ServiceTests(unittest.TestCase):
         with self.assertRaises(access.AccessDenied):
             api.status(self.root,self.token,rid)
 
+    def test_audit_bound_grant_request_and_existing_job_link(self):
+        row=api.submit(self.root,self.token,self.key)
+        rid=row["request_id"]
+        job={"id":"job-fictional","assessment_id":self.aid,"status":"queued"}
+        with patch.object(api.jobs,"status",return_value=job):
+            api.link(self.root,rid,job["id"],confirmed=True)
+            self.assertEqual(api.status(self.root,self.token,rid)["status"],"queued")
+            with access.db(self.root) as conn:
+                conn.execute("UPDATE evaluator_service_requests SET job_id=NULL WHERE id=?",(rid,))
+            with self.assertRaises(access.AccessDenied):
+                api.status(self.root,self.token,rid)
+            with self.assertRaises(access.AccessDenied):
+                api.link(self.root,rid,job["id"],confirmed=True)
+            with access.db(self.root) as conn:
+                conn.execute("UPDATE evaluator_service_requests SET job_id='job-replaced' WHERE id=?",(rid,))
+            with self.assertRaises(access.AccessDenied):
+                api.status(self.root,self.token,rid)
+            with access.db(self.root) as conn:
+                conn.execute("UPDATE evaluator_service_requests SET job_id=? WHERE id=?",(job["id"],rid))
+                conn.execute("UPDATE evaluator_service_requests SET idempotency_key='changed-request-key' WHERE id=?",(rid,))
+            with self.assertRaises(access.AccessDenied):
+                api.list_requests(self.root,self.token)
+            with access.db(self.root) as conn:
+                conn.execute("UPDATE evaluator_service_requests SET idempotency_key=? WHERE id=?",(self.key,rid))
+                conn.execute("DELETE FROM audit WHERE action='evaluator-service-job-linked'")
+            with self.assertRaises(access.AccessDenied):
+                api.status(self.root,self.token,rid)
+            with self.assertRaises(access.AccessDenied):
+                api.link(self.root,rid,job["id"],confirmed=True)
+        with access.db(self.root) as conn:
+            conn.execute("UPDATE evaluator_service_grants SET assessment_id=? WHERE id=?",("d"*64,self.grant["grant_id"]))
+        with self.assertRaises(access.AccessDenied):
+            api.discover(self.root,self.token)
+
+    def test_revoke_audit_cannot_be_bypassed_by_resetting_flag(self):
+        api.revoke(self.root,self.grant["grant_id"])
+        with access.db(self.root) as conn:
+            conn.execute("UPDATE evaluator_service_grants SET revoked=0 WHERE id=?",(self.grant["grant_id"],))
+        with self.assertRaises(access.AccessDenied):
+            api.discover(self.root,self.token)
+
     def test_expiry_disabled_owner_and_strict_fields(self):
         path="/v1/evaluation-requests"
         self.assertEqual(self.call("POST",path,{"idempotency_key":self.key,"assessment_id":"b"*64})["code"],"403 Forbidden")

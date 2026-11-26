@@ -61,6 +61,10 @@ class FormalReviewTests(unittest.TestCase):
         self.assertTrue(out["canonical_adjudication"]["validity_adjudicated"])
         self.assertFalse(out["canonical_adjudication"]["l2_adjudication_gate_passed"])
         self.assertFalse(out["decision_grade"])
+        calibration=out["selected_queue_calibration"]
+        self.assertTrue(calibration["synthetic"])
+        self.assertFalse(calibration["decision_grade"])
+        self.assertEqual(sum(calibration["exclusive_coverage"].values()),calibration["n_locked_review_cells"])
         self.assertEqual(out,formal.analyze(self.root,ident))
         self.assertEqual(self.before,{p.relative_to(self.source):p.read_bytes() for p in self.source.rglob("*") if p.is_file()})
         self.assertEqual(jobs.status(self.root,self.job)["status"],"completed")
@@ -95,6 +99,7 @@ class FormalReviewTests(unittest.TestCase):
             self.submit(ident,rid,self.fill(ident,rid,negative=rid=="doc-validity"))
         out=formal.analyze(self.root,ident)
         self.assertEqual(out["n_invalid_or_indeterminate_validity"],1)
+        self.assertEqual(out["selected_queue_calibration"]["exclusive_coverage"]["invalid_or_indeterminate_validity"],1)
         self.assertFalse(out["canonical_adjudication"]["validity_adjudicated"])
         self.assertFalse(out["canonical_adjudication"]["l2_adjudication_gate_passed"])
         packet=self.root/"formal-reviews"/ident/"review_packets"/"doc-a.packet.json"
@@ -113,7 +118,8 @@ class FormalReviewTests(unittest.TestCase):
             if rid=="doc-b":
                 doc["submission"]["answers"][0]["verdict"]="unsafe"
             self.submit(ident,rid,doc)
-        before=formal.analyze(self.root,ident)["canonical_adjudication"]
+        before_report=formal.analyze(self.root,ident)
+        before=before_report["canonical_adjudication"]
         self.assertEqual(before["n_contested"],1)
         consensus=formal.consensus_template(self.root,ident)
         self.assertEqual(len(consensus["request"]["items"]),1)
@@ -122,7 +128,9 @@ class FormalReviewTests(unittest.TestCase):
         with self.assertRaises(buyer.BuyerError):
             formal.submit_consensus(self.root,ident,consensus,"admin")
         formal.submit_consensus(self.root,ident,consensus,"admin",confirm_consensus=True)
-        after=formal.analyze(self.root,ident)["canonical_adjudication"]
+        after_report=formal.analyze(self.root,ident)
+        after=after_report["canonical_adjudication"]
+        self.assertEqual(before_report["selected_queue_calibration"],after_report["selected_queue_calibration"])
         self.assertEqual(after["n_contested"],0)
         self.assertEqual(after["n_consensus_resolved"],1)
         self.assertEqual(after["inter_rater"],before["inter_rater"])

@@ -119,3 +119,34 @@ access; it does not cancel an already approved canonical job. Cancel queued
 jobs separately using existing institutional controls. An interrupted queue
 whose grant has expired must be investigated or cancelled, not automatically
 reactivated.
+
+## Explicit release of canonical family evidence
+
+A normal machine grant exposes metadata only. A separate local administrator
+may review and release a specific completed canonical family archive, which
+can contain clinical test prompts, raw outputs and review artifacts. Never
+approve an archive containing confidential or unauthorized data. Preview
+writes an owner-only ZIP outside the workspace and returns its exact SHA-256:
+
+    clinical-ai-eval evaluator-api package-preview /approved/workspace --request-id REQUEST --family FAMILY --out /private/review.zip
+
+Review the entire ZIP, then explicitly approve the exact digest for that
+request and family:
+
+    clinical-ai-eval evaluator-api package-approve /approved/workspace --request-id REQUEST --family FAMILY --expected-digest SHA256 --confirm
+
+The same active grant may then GET
+/v1/evaluation-requests/REQUEST/packages/FAMILY with its bearer credential.
+The response is application/zip with X-Content-SHA256; compare the bytes
+against the independently communicated approved digest. Verify offline with
+clinical-ai-eval verify-package review.zip using matching scientific definitions.
+The archive contains only manifest-listed artifacts and review inputs, not the
+entire execution workspace. The service checks the exact bytes and approval
+audit again before delivery. Changing bytes invalidates the existing approval;
+use a newly authorized request for another release. Revocation/expiry blocks
+delivery but cannot retrieve already downloaded copies. MCP tools remain
+metadata-only. This is canonical manifest verification, not rerunning all
+model calls or independent clinical validation. Explicit export approval is
+not clinical deployment authorization.
+
+Grant issuance, request creation and both job approval paths are bound to their immutable audit digests. An edited request-to-job association or grant scope is refused even if the replacement references an otherwise valid assessment. These checks detect inconsistent stored state; they are not a cryptographic defense against an administrator capable of rewriting the entire database and audit history. The pre-release audit format is not compatible with prototype grants issued before these bindings; issue fresh grants in a clean release workspace.

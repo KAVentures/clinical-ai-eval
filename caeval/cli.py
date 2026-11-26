@@ -355,6 +355,8 @@ def _conversation_spec(subject_spec: dict):
         session_field=subject_spec.get("session_field", ""),
         timeout=subject_spec.get("timeout", 30) if local_only else int(subject_spec.get("timeout", 120)),
         local_only=local_only,
+        protocol=subject_spec.get("protocol",""),
+        target_name=subject_spec.get("target_name",""),
     )
 
 
@@ -1342,13 +1344,19 @@ def cmd_buyer(args):
     from . import buyer_agent as buyer
 
     try:
-        if args.action not in ("contract","candidate-openapi") and not args.path:
+        if args.action not in ("contract","candidate-openapi","citation-trace-openapi","conversation-openapi") and not args.path:
             raise buyer.BuyerError("buyer workspace PATH is required")
         if args.action == "contract":
             result = buyer.contract()
         elif args.action == "candidate-openapi":
             from . import candidate_protocol
             result = candidate_protocol.openapi()
+        elif args.action == "citation-trace-openapi":
+            from . import citation_trace_protocol
+            result = citation_trace_protocol.openapi()
+        elif args.action == "conversation-openapi":
+            from . import conversation_protocol
+            result = conversation_protocol.openapi()
         elif args.action == "init":
             result = buyer.init(args.path, args.name or "",
                                 args.intended_use or "", args.setting or "",
@@ -1405,10 +1413,11 @@ def cmd_buyer(args):
                 raise buyer.BuyerError("--file must contain the approved governance JSON")
             from pathlib import Path
             governance=manual._read(Path(args.file))
+            values=(args.path,None,args.collection_id or "",args.panel_id or "",governance)
             if args.action=="collection-assessment-preview":
-                result=handoff.preview(args.path,args.collection_id or "",args.panel_id or "",governance,args.conditions_hash)
+                result=handoff.preview(*values,conditions_hash=args.conditions_hash)
             else:
-                result=handoff.prepare(args.path,args.collection_id or "",args.panel_id or "",governance,args.conditions_hash,args.approve_binding or "",confirmed=args.confirm_handoff)
+                result=handoff.prepare(*values,args.approve_binding or "",conditions_hash=args.conditions_hash,confirmed=args.confirm_handoff)
         elif args.action in ("connector-list", "collection-queue", "collection-list", "collection-status", "collection-cancel", "collection-execute"):
             from . import buyer_connector as connector
             if args.action == "connector-list":
@@ -1777,6 +1786,45 @@ def main(argv=None):
         from . import fhir_readiness
         return fhir_readiness.cli(args)
     pfhir.set_defaults(func=run_fhir)
+    phl7 = sub.add_parser("hl7-readiness", help="synthetic HL7 v2.5.1 ORU_R01 extraction assessment and offline replay")
+    hl7_sub=phl7.add_subparsers(dest="action",required=True)
+    q=hl7_sub.add_parser("prepare")
+    q.add_argument("--target-name",required=True)
+    q.add_argument("--target-version",required=True)
+    q=hl7_sub.add_parser("assess")
+    q.add_argument("--plan",required=True)
+    q.add_argument("--responses",required=True)
+    q=hl7_sub.add_parser("verify")
+    q.add_argument("evidence")
+    q.add_argument("--expected-digest")
+    def run_hl7(args):
+        from . import hl7_readiness
+        return hl7_readiness.cli(args)
+    phl7.set_defaults(func=run_hl7)
+    from . import interoperability_protocol
+    pinter=sub.add_parser("interoperability-collect",help="collect fixed synthetic FHIR or HL7 probes through approved adapters")
+    pinter.add_argument("action",choices=["openapi","preview","run"])
+    pinter.add_argument("path",nargs="?")
+    pinter.add_argument("--plan-id")
+    pinter.add_argument("--connector-id")
+    pinter.add_argument("--kind",choices=["fhir","hl7"])
+    pinter.add_argument("--approved-digest")
+    pinter.add_argument("--confirm-candidate-calls",action="store_true")
+    pinter.set_defaults(func=interoperability_protocol.cli)
+    from . import image_text_readiness
+    pimage=sub.add_parser("image-text-readiness",help="fixed synthetic image and text extraction assay")
+    pimage.add_argument("action",choices=["openapi","prepare","assess","verify","preview","run"])
+    pimage.add_argument("path",nargs="?")
+    for key in ("target-name","target-version","plan","responses","evidence","expected-digest",
+                "plan-id","connector-id","approved-digest"):
+        pimage.add_argument("--"+key)
+    pimage.add_argument("--confirm-candidate-calls",action="store_true")
+    pimage.set_defaults(func=image_text_readiness.cli)
+    from . import portable_calibration
+    pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
+    pcal.add_argument("package")
+    pcal.add_argument("--expected-digest")
+    pcal.set_defaults(func=portable_calibration.cli)
     pcd = sub.add_parser("verify-committee-dossier", help="verify frozen portable committee evidence offline")
     pcd.add_argument("dossier")
     pcd.add_argument("--expected-digest", help="independently communicated dossier digest")
@@ -1830,7 +1878,7 @@ def main(argv=None):
     pproc.set_defaults(func=cmd_procurement)
 
     pb = sub.add_parser("buyer", help="local-only buyer workspace (JSON for CLI agents)")
-    pb.add_argument("action", choices=["contract", "candidate-openapi", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research", "plan-preview", "plan-show", "rehearsal-run", "rehearsal-show", "manual-packs", "manual-prepare", "manual-template", "manual-import", "manual-responses", "assessment-panels", "assessment-prepare", "assessment-check", "job-enqueue", "job-list", "job-status", "job-cancel", "job-execute", "review-template", "review-submit", "review-inventory", "connector-list", "collection-queue", "collection-list", "collection-status", "collection-cancel", "collection-execute", "collection-assessment-preview", "collection-assessment-prepare"])
+    pb.add_argument("action", choices=["contract", "candidate-openapi", "citation-trace-openapi", "conversation-openapi", "init", "vendor-add", "evidence-add", "status", "dossier", "serve", "questionnaire-template", "questionnaire-import", "research", "plan-preview", "plan-show", "rehearsal-run", "rehearsal-show", "manual-packs", "manual-prepare", "manual-template", "manual-import", "manual-responses", "assessment-panels", "assessment-prepare", "assessment-check", "job-enqueue", "job-list", "job-status", "job-cancel", "job-execute", "review-template", "review-submit", "review-inventory", "connector-list", "collection-queue", "collection-list", "collection-status", "collection-cancel", "collection-execute", "collection-assessment-preview", "collection-assessment-prepare"])
     pb.add_argument("--plan-id", help="content-addressed draft scope plan identifier")
     pb.add_argument("--job-id", help="saved synthetic rehearsal identifier")
     pb.add_argument("--pack-id", help="operator-staged approved-packs directory identifier")
@@ -1907,7 +1955,7 @@ def main(argv=None):
 
     from . import evaluator_service
     peval = sub.add_parser("evaluator-api", help="scoped institutional request and status service")
-    peval.add_argument("action",choices=["openapi","issue","revoke","inventory","link","approve-queue","serve","verify-receipt"])
+    peval.add_argument("action",choices=["openapi","issue","revoke","inventory","link","approve-queue","serve","verify-receipt","package-preview","package-approve"])
     peval.add_argument("path",nargs="?")
     peval.add_argument("--owner")
     peval.add_argument("--assessment-id")
@@ -1920,6 +1968,7 @@ def main(argv=None):
     peval.add_argument("--confirm",action="store_true",help="explicit approval of grant or existing job linkage")
     peval.add_argument("--file")
     peval.add_argument("--expected-digest")
+    peval.add_argument("--family")
     peval.set_defaults(func=evaluator_service.cli)
 
     from . import evaluator_mcp

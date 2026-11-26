@@ -111,3 +111,61 @@ filesystem administrator can alter local files and reissue HMAC packets;
 this is not PKI or tamper-proof audit. Browser-based formal issuance and
 submission, institutional identity federation and production acceptance
 are future work.
+
+## Selected-queue judge calibration
+
+Formal analysis additionally emits selected_queue_calibration, a descriptive
+comparison with independently determined human majority labels. The locked
+review queue is enriched and is not a random clinical population sample.
+Every reviewed opportunity is counted once in an exclusive coverage category:
+invalid/indeterminate human validity, insufficient determinate reviewers,
+no majority of the frozen independent roster, incomplete automated evaluation,
+or complete automated evaluation. Per-judge and panel confusion counts are
+computed only for paired valid independent human references and available
+binary automated labels. Incomplete automated evaluations remain in the
+human-reference denominator as missing, alongside missing judge labels.
+Sensitivity/specificity missing-label bounds are
+shown (not confidence intervals). Case-cluster counts are explicit. Consensus
+never changes this independent calibration reference. No claim promotion, new
+clinical validity threshold or population extrapolation is made. The canonical
+adjudication report and original source package remain separate and unchanged.
+
+## Prospective full-variant validation cohorts
+
+The institutional browser's Prospective validation cohorts page allows an admin
+ to freeze a separate full-variant cohort for one canonical generic paired-text
+family and exact approved pack. Freeze before preparing the candidate exchange;
+choose two to five independent safety reviewers and a distinct validity reviewer.
+The complete variant inventory is determined without candidate outcomes. The
+admin explicitly attests no known prior exposure; local ordering does not prove
+external non-exposure. Attach one exact verified completed job, then assigned
+reviewers independently lock blinded answers and the administrator attests each
+submission's identity, expertise and independence outside the software. The
+report retains invalid, uncertain and missing results and reuses independent
+reference calibration. It does not alter or promote the original run. Full pack
+coverage is not a population-representative sample, and only one family is
+included per cohort. Do not enter real patient identifiers.
+
+The prospective guarantee applies only to the full case inventory and reviewer roster. The completed job and evaluator configuration are selected afterwards and are not prospectively fixed by this protocol. Report this limitation in any research use; do not treat the cohort as a confirmatory preregistered validation study.
+
+### Panel-bound cohort revision
+
+New cohorts require an approved panel ID and freeze the exact panel bytes, parsed evaluator configuration digest, and scientific definition hashes before exchange preparation. After response collection and assessment preparation, reserve a single dedicated deterministic job; its committed institutional approval is required by the worker before execution. Only that completed job can be attached. Failed or cancelled reserved jobs cannot be replaced or retried. Legacy cohorts retain their weaker explicitly labelled protocol. Candidate submission selection is not prospectively bound; local ordering and the reserved job do not rule out prior tests elsewhere, selective submission, runtime provider changes or unrecorded exposure. The earlier limitation about evaluator and job selection applies only to legacy cohorts. No clinical claim is promoted.
+
+### Connector-bound cohort revision
+
+A staged single-turn candidate connector can optionally be frozen at cohort creation. A dedicated collection ID is reserved; a committed audit authorizes exactly one worker attempt, and its receipt is sealed before handoff. Only that exact complete submission, with every planned call attempted and provided, may enter the dedicated evaluation job. Incomplete or failed attempts cannot be substituted, and do not yield calibration. The worker still requires explicit execution approval. This local control does not prove absence of external tests, vendor state changes, or administrator tampering. Cohorts without a frozen connector retain the earlier weaker claim.
+
+### Portable statistical replay
+
+After all independent reviews are locked and attested, an administrator may
+explicitly export a portable cohort calibration JSON. It contains local cluster
+numbers, counts of independent clinician votes, validity responses, automated
+binary outcomes, fixed limitations and study/source digest references. It omits
+case and response text, original case identifiers, reviewer account IDs, judge
+names, credentials and paths. The recipient can run verify-cohort-calibration
+PACKAGE --expected-digest DIGEST (communicated independently) without a model
+call or access to the hospital workspace. Replay verifies the calculation, not
+underlying source evidence, clinician credentials, prospective timing or study
+validity. Structured labels can still be sensitive; institutional authorization
+is necessary for distribution. The export is not a clinical approval.
