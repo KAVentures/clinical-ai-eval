@@ -118,6 +118,14 @@ def _check_dir(path):
         relay.require(not path.stat().st_mode & 0o077, 'service directory must be private')
 
 
+def _credential_status(p,spec):
+    from . import monitor_ingestion as ingestion
+    source=worker._secret(p['source_secret'])
+    relay.require(source!=worker._secret(p['sink_secret']), 'distinct credentials required')
+    return ingestion.check_polling_credential(p['workspace'],source,spec['monitor_id'],spec['plan_digest'],
+        minimum_remaining=spec['interval']+spec['cycle_deadline'])
+
+
 def check(spec):
     """Offline prerequisites, not a liveness test or permission simulation."""
     p = _validate(spec)
@@ -138,7 +146,7 @@ def check(spec):
         relay.require(not hb['run'] or hb['run']['state']!='running', 'active or interrupted run; stop and investigate first')
     with bridge.read_db(p['relay'],spec['monitor_id'],spec['plan_digest']):
         pass
-    relay.require(worker._secret(p['source_secret'])!=worker._secret(p['sink_secret']), 'distinct credentials required')
+    _credential_status(p,spec)
     return render(spec)
 
 
@@ -158,7 +166,7 @@ def export(spec, approval, output, *, confirmed=False):
 
 def configure(parser):
     sub=parser.add_subparsers(dest='deployment_action',required=True)
-    for action in ('render','check','export'):
+    for action in ('render','check','export','credential-status'):
         p=sub.add_parser(action);p.add_argument('spec')
         if action=='export':
             p.add_argument('output');p.add_argument('--approved-digest',required=True);p.add_argument('--confirm-export',action='store_true')
@@ -171,6 +179,7 @@ def cli(args):
         spec=outbox._read(args.spec)
         if args.deployment_action=='render': result=render(spec)
         elif args.deployment_action=='check': result=check(spec)
+        elif args.deployment_action=='credential-status': result=_credential_status(_validate(spec),spec)
         else: result=export(spec,args.approved_digest,args.output,confirmed=args.confirm_export)
         print(relay.canonical(result))
     except ERRORS:
