@@ -153,6 +153,7 @@ def _dashboard(directory, actor):
             body += "</section>"
     else:
         body += "<p><a href='/lifecycle'>Implementation and monitoring register</a></p>"
+        body += "<p><a href='/escalation'>Escalation inbox</a></p>"
         body += "<p><a href='/monitoring'>Longitudinal regression monitoring</a></p>"
         body += "<p><a href='/evidence'>Scientific evidence overview</a></p>"
         body += "<p><a href='/conversation'>Patient conversation assessments</a></p>"
@@ -391,6 +392,18 @@ class InstitutionApp:
                 form=_form(env)
                 _csrf(actor,form)
                 return respond("200 OK",evidence.analyze(self.directory,actor,form))
+            if path=="/escalation" and method=="GET":
+                from . import institution_escalation_web as escalation
+                return respond("200 OK",escalation.render(self.directory,actor))
+            if path=="/escalation-acknowledge" and method=="POST":
+                from . import institution_escalation as escalation
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                if set(form)!={"id"}:
+                    raise access.AccessDenied("select one current notice")
+                escalation.acknowledge(self.directory,actor,form["id"])
+                return respond("303 See Other",extra=[("Location","/escalation")])
             if path=="/monitoring" and method=="GET":
                 from . import institution_monitoring_web as monitoring
                 return respond("200 OK",monitoring.render(self.directory,actor))
