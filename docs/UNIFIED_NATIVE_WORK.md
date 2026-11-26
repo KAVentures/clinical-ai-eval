@@ -118,3 +118,23 @@ For institutional aggregation, use the existing research programme and
 unified assessment workflow. Installed-wheel release acceptance checks
 that each public command creates the same plan as the project workflow
 and refuses invalid specifications or existing output files.
+
+
+### Machine-readable approved research plan inspection
+
+```sh
+clinical-ai-eval experimental-project inspect --project PROJECT --plan frozen.json --approve-plan APPROVED_DIGEST
+```
+
+The inspection revalidates the exact frozen project scope and scientific
+definitions, then reports module-specific workflow steps, planned units,
+related canonical suites and omitted related modules. It exposes product
+name/version, digests and administrative metadata, but not case material,
+reference labels, model outputs, credentials or local paths. These metadata
+can still be institution-sensitive. It does not inspect native workspaces,
+execute models, authorize network calls or assert completion. The output
+uses the existing machine-readable experimental-project CLI envelope.
+Scientific replay comparisons now use canonical JSON content rather than
+Python numeric equality, preserving distinctions between Boolean, integer
+and floating-point values. Native integration and installed-wheel CI remain
+necessary before relying on this workflow operationally.
