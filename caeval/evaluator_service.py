@@ -465,7 +465,7 @@ def openapi():
     spec["paths"]["/v1/assessment"]={"get":{"operationId":"discoverAssessment",
         "responses":{"200":{"description":"Authorized assessment metadata"},"403":{"description":"Denied"}}}}
     spec["paths"]["/v1/evaluation-requests"]["get"]={"operationId":"listRequests",
-        "responses":{"200":{"description":"Requests scoped to this grant"},"403":{"description":"Denied"}}}}
+        "responses":{"200":{"description":"Requests scoped to this grant"},"403":{"description":"Denied"}}}
     spec["paths"]["/v1/evaluation-requests/{request_id}/receipt"]={"get":{"operationId":"resultReceipt",
         "parameters":[{"name":"request_id","in":"path","required":True,"schema":{"type":"string","pattern":"^[0-9a-f]{32}$"}}],
         "responses":{"200":{"description":"Digest-bound completed metadata receipt"},"403":{"description":"Denied"}}}}
