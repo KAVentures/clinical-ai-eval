@@ -768,3 +768,21 @@ does not prove source connectivity. Once the old process has stopped and
 the new credential is verified, revoke the old grant in the institution.
 This is operator-assisted rotation, not automatic renewal, and the existing
 bounded grant inventory still applies.
+
+
+### Long-term grant inventory
+
+The live issuance ceiling is 200 time-active grants (unrevoked and not
+expired). Expired or revoked grants no longer consume that live capacity.
+A separate hard ceiling of 8,192 retained grant records applies to the
+whole workspace. All historical grant bindings, revocations, request
+receipts and audit events remain intact; no automatic deletion or
+authorization renewal is performed. The existing 5,000-receipt ceiling
+and maximum grant lifetime are unchanged. The administrator grant page
+shows live and historical capacity, every time-active grant and up to 100
+recent historical records. Counts are based on expiry and revocation;
+they do not establish that owner accounts remain enabled. The full
+administrative metadata API still returns all verified grant records.
+At the historical ceiling, plan a validated migration rather than deleting
+audit rows. Performance at the expanded history ceiling and production
+migration are not yet validated.
