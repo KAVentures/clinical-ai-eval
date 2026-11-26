@@ -135,5 +135,42 @@ class IngestionTests(unittest.TestCase):
             api.check(self.root,self.token)
 
 
+    def test_commissioning_check_only_credential(self):
+        self.prepare(scopes=("check",))
+        def check(**changes):
+            return api.check_polling_credential(self.root,self.token,changes.get("monitor",self.ident),
+                changes.get("digest",self.p["digest"]),minimum_remaining=changes.get("remaining",60))
+        result=check()
+        self.assertEqual(result["scope"],"check")
+        self.assertFalse(result["live_http_checked"])
+        self.assertNotIn(self.token,json.dumps(result))
+        for change in ({"monitor":"other"},{"digest":"0"*64},{"remaining":601}):
+            with self.subTest(change=change),self.assertRaises(ValueError): check(**change)
+        api.revoke(self.root,self.admin,self.grant["grant_id"])
+        with self.assertRaises(ValueError): check()
+
+    def test_commissioning_refuses_overbroad_credential(self):
+        self.prepare()
+        with self.assertRaises(ValueError):
+            api.check_polling_credential(self.root,self.token,self.ident,self.p["digest"],minimum_remaining=60)
+        self.assertEqual(api.check(self.root,self.token)["monitor_id"],self.ident)
+
+    def test_expiry_at_receipt_audit_rolls_back(self):
+        self.prepare()
+        real_audit=api.u._audit
+        def audit(conn,actor,action,obj):
+            if action==api.USE:
+                with patch.object(api.time,"time",return_value=self.grant["expires"]):
+                    return real_audit(conn,actor,action,obj)
+            return real_audit(conn,actor,action,obj)
+        with patch.object(api.u,"_audit",side_effect=audit):
+            with self.assertRaises(ValueError):
+                api.submit(self.root,self.token,self.batch(("report",report(self.p))))
+        with access.db(self.root) as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM lifecycle_ingestion_requests").fetchone()[0],0)
+            self.assertEqual(conn.execute("SELECT count(*) FROM lifecycle_monitor_events").fetchone()[0],0)
+        self.assertEqual(api.grants(self.root,self.admin)[0]["used"],0)
+
+
 if __name__=="__main__":
     unittest.main()
