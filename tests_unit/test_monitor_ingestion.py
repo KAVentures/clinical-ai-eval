@@ -172,5 +172,32 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(api.grants(self.root,self.admin)[0]["used"],0)
 
 
+    def test_native_polling_grant_rotation_preserves_old_grant(self):
+        import os
+        import tempfile
+        from pathlib import Path
+        from caeval import monitor_credential_rotation as rotation, monitor_alert_worker as worker
+        if os.name!="posix":
+            self.skipTest("POSIX credential replacement")
+        self.prepare(scopes=("check",))
+        replacement=api.issue(self.root,self.admin,{"monitor_id":self.ident,"owner":self.operator["user_id"],
+            "scopes":["check"],"ttl_seconds":600,"max_uses":1},confirmed=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            directory=Path(tmp).resolve()
+            for name,token in (("check-token",self.token),("next-check-token",replacement["bearer_token"]),("relay-token","f"*64)):
+                fd=os.open(directory/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+                with os.fdopen(fd,"w") as handle:handle.write(token+"\n")
+            def validate(token):
+                return api.check_polling_credential(self.root,token,self.ident,self.p["digest"],minimum_remaining=60)
+            approved=rotation.preview(directory,"a"*64,validate)
+            result=rotation.rotate(directory,"a"*64,approved["approval_digest"],validate,confirmed=True)
+            self.assertTrue(result["credential_replaced"])
+            self.assertEqual(api.check(self.root,worker._secret(directory/"check-token")),api.check(self.root,self.token))
+            api.revoke(self.root,self.admin,self.grant["grant_id"])
+            self.assertEqual(api.check(self.root,worker._secret(directory/"check-token"))["monitor_id"],self.ident)
+            with self.assertRaises(ValueError):
+                api.check(self.root,self.token)
+
+
 if __name__=="__main__":
     unittest.main()
