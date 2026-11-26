@@ -103,6 +103,26 @@ def run(root):
     plans={k:v["plan"] for k,v in frozen["modules"].items()}
     packages={}
 
+    # The installed public CLI must reach the same native plans, preserve
+    # immutable publication and report native validation failures as nonzero.
+    env={k:v for k,v in os.environ.items() if k not in ("PYTHONPATH","CAEVAL_HOME")}
+    for kind,spec in specs.items():
+        source=write(root/(kind+"-cli-spec.json"),spec)
+        dest=root/(kind+"-cli-plan.json")
+        command=[sys.executable,"-m","caeval.cli","research-study",kind,"plan",
+                 "--spec",str(source),"--out",str(dest)]
+        result=subprocess.run(command,cwd=root,env=env,capture_output=True,text=True,check=True,timeout=120)
+        require(json.loads(result.stdout)["plan_hash"]==plans[kind]["plan_hash"],"native CLI plan hash differs")
+        require(json.loads(dest.read_text(encoding="utf-8"))==plans[kind],"native CLI plan differs")
+        before=dest.read_bytes()
+        refused=subprocess.run(command,cwd=root,env=env,capture_output=True,text=True,timeout=120)
+        require(refused.returncode!=0 and dest.read_bytes()==before,"native CLI replaced immutable plan or lost failure status")
+        bad=write(root/(kind+"-invalid-spec.json"),{})
+        bad_dest=root/(kind+"-invalid-plan.json")
+        refused=subprocess.run(command[:-4]+["--spec",str(bad),"--out",str(bad_dest)],
+                               cwd=root,env=env,capture_output=True,text=True,timeout=120)
+        require(refused.returncode!=0 and not bad_dest.exists(),"native CLI accepted invalid specification")
+
     # Exact structured candidate response: one expected certificate per probe.
     plan=plans["decision"]
     responses=decision.response_template(plan)
