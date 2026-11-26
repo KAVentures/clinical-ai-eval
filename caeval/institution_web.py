@@ -872,6 +872,13 @@ class InstitutionApp:
                 if path=="/rag-trace-evidence":
                     return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="private-rag-evidence.json"')],content_type="application/json; charset=utf-8")
                 return respond("303 See Other",extra=[("Location","/rag-trace-study?id="+result)])
+            if path=="/unified-assessment-gaps" and method=="GET":
+                from . import unified_evidence_gaps_web as gap_view
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("invalid evidence gap query")
+                return respond("200 OK",gap_view.render(self.directory,actor,q["id"]))
             if path in ("/unified-assessment-discover","/unified-assessment-work","/unified-assessment-lineage","/unified-assessment-compare") and method=="GET":
                 from . import unified_orchestration_web as orchestration
                 q=_query(env)
