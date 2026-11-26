@@ -47,6 +47,14 @@ class GapProjectionAcceptanceTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 self.verify(package)
 
+    def test_json_type_substitution_refused(self):
+        for field, value in [('deployment_authorized', 0), ('partial_work_inventory', 1)]:
+            package = self.package()
+            package['report'][field] = value
+            package = handoff.seal({k:v for k,v in package.items() if k!='digest'})
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                self.verify(package)
+
     def test_inconsistent_scan_metadata_refused(self):
         package = self.package()
         for state, truncated in [('bounded_scan', True), ('bounded_scan', None),
