@@ -174,5 +174,36 @@ class ProjectExperimentalTests(unittest.TestCase):
             evidence.verify(changed)
 
 
+    def test_inspect_result_cli_replays_partial_native_result(self):
+        robust=robustness_spec()
+        robust["target"]=self.spec["target"]
+        frozen=self.freeze({"decision":self.spec,"robustness":robust})
+        package=self.complete(frozen)
+        result=lane.assemble(self.root,frozen,frozen["digest"],{"decision":package})
+        plan=self.root/"inspect-result-plan.json"
+        plan.write_text(json.dumps(frozen))
+        path=self.root/"inspect-result.json"
+        path.write_text(json.dumps(result))
+        bound=["--project",str(self.root),"--plan",str(plan),"--approve-plan",frozen["digest"],
+               "--result",str(path),"--expected-digest",result["digest"]]
+        doc=self.call("inspect-result",*bound)
+        self.assertEqual(doc,lane.inspect_result(self.root,frozen,frozen["digest"],result,expected_digest=result["digest"]))
+        self.assertTrue(doc["result_replayed"])
+        self.assertTrue(doc["expected_digest_matched"])
+        self.assertEqual(doc["uncompleted_planned_modules"],["robustness"])
+        self.assertEqual({r["kind"]:r["completion_state"] for r in doc["modules"]},
+                         {"decision":"replayed","robustness":"not_in_result"})
+        self.assertFalse(doc["scientific_scores_included"])
+        self.assertNotIn("raw_response",json.dumps(doc))
+        self.assertNotIn("EXCLUDED_SECRET_FIXTURE",json.dumps(doc))
+        with redirect_stdout(io.StringIO()),self.assertRaises(SystemExit):
+            cli.main(["experimental-project","inspect-result",*bound[:-1],"0"*64])
+        result["coverage"][0]["canonical_requirement_satisfied"]=True
+        result["digest"]=buyer_plan._digest({k:v for k,v in result.items() if k!="digest"})
+        path.write_text(json.dumps(result))
+        with redirect_stdout(io.StringIO()),self.assertRaises(SystemExit):
+            cli.main(["experimental-project","inspect-result",*bound[:-1],result["digest"]])
+
+
 if __name__=="__main__":
     unittest.main()
