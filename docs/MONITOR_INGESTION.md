@@ -692,3 +692,17 @@ not a live systemd deployment. Production commissioning must verify
 the installed CLI, account ownership, grant expiry and rotation,
 scope, ports, live HTTP behavior, runtime sandbox compatibility,
 watchdog response, recovery and hospital-specific acceptance.
+
+
+### Relay sequence admission and recovery
+
+The local relay accepts an exact retry of a previously recorded attempt
+without creating another record. A new attempt must advance the largest
+accepted sequence and must not move the source date backwards. Sequence
+gaps remain valid because event-free outbox cycles do not deliver envelopes.
+New attempts are refused if duplicate sequence metadata exists in the
+relay, including duplicates inherited from an older database. Investigate
+the outbox and relay histories before restarting; do not delete records
+to make a sequence check pass. This admission rule is not a complete
+historical integrity audit and cannot detect a jointly restored older
+outbox and relay snapshot.
