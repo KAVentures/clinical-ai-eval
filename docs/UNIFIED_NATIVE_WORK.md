@@ -83,3 +83,14 @@ or establish clinical acceptance. External workspace files are not covered by
 an atomic database snapshot. Count and size bounds apply, and projection drift
 after redaction is refused. This is an administrative handoff, not a clinical
 evidence package or a deployment approval.
+
+
+Coverage verification additionally reconstructs the complete frozen plan and
+requirement inventory, the runnable/blocked suite partition, the omitted
+suite list and the native source scope and authority fields. It uses the
+verifier build's registered executors; older exports whose executor
+definitions have changed may require the matching historical build.
+Handoff replay compares canonical JSON content digests, not Python numeric
+equality, so substituting integers for Boolean claims is refused. These
+structural checks still do not independently establish authenticity of an
+export or the truth of native evidence.
