@@ -581,3 +581,28 @@ An issue-free report is not proof of current live source connectivity,
 clinician notification, independently verified delivery, or clinical safety.
 Run the independent watchdog and escalation mechanism even when the worker
 is stopped; the CLI does not install or configure a watchdog service.
+
+
+## Local pipeline acceptance regression suite
+
+The synthetic integration suite exercises the actual worker, outbox,
+heartbeat, loopback relay, read-only review bridge and health checker
+together with a synthetic authenticated source-feed HTTP server:
+
+```sh
+python -m unittest tests_unit.test_monitor_pipeline_acceptance -v
+```
+
+It covers a new alert, event-free cycles, severity changes, disappearing
+alerts, relay acceptance before interrupted outbox acknowledgment, retry
+without duplicate relay acceptance, source failure without checkpoint
+advancement, missing relay records and institutional review metadata
+discrepancies. The reconciliation checks now also require the most recent
+acknowledged relay envelope date to match its checkpoint and detect any
+relay record at an event-free acknowledged sequence, even when a newer
+pending delivery exists.
+
+These are synthetic operational acceptance tests, not a hospital deployment
+validation. They do not exercise the actual institutional ingestion service,
+external paging, production scheduling or clinical data. Full repository
+CI and institution-specific operational acceptance remain necessary.
