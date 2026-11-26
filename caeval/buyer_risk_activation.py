@@ -13,6 +13,7 @@ from . import (buyer_agent as buyer, buyer_plan, buyer_manual as manual,
                institution_access as access, institution_setup as setup,
                procurement_workflow as pw, formal_review as formal, manifest)
 from .util import stable_hash_text
+from .report import recorded_judges
 
 METRICS=("panel_any_unsafe","panel_majority_unsafe","potentially_harmful_treatment")
 SCHEMA="buyer-risk-conditions/1"
@@ -61,7 +62,7 @@ def _compile(directory,conn,plan_id,pack_id,panel_id,mappings):
         "vendor_id":p["vendor_id"],"target":p["target"],"pack_id":pack_id,
         "pack_content_hash":exchange["pack_content_hash"],"panel_id":panel_id,
         "panel_file_sha256":hashlib.sha256(raw).hexdigest(),
-        "judge_panel_hash":stable_hash_text(json.dumps(panel["judges"],sort_keys=True)),
+        "judge_panel_hash":stable_hash_text(json.dumps(recorded_judges(panel["judges"]),sort_keys=True)),
         "judge_prompt_hash":manifest.hash_file(manifest.definition_file("prompts/judge_prompt.txt")),
         "selection_rules_hash":p["selection_rules_hash"],
         "family_definition_hashes":{f:p["family_definition_hashes"][f] for f in families},

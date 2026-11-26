@@ -180,6 +180,12 @@ def _load_adjudication(out: Path):
     return json.loads(p.read_text()) if p.exists() else None
 
 
+def recorded_judges(judges):
+    """Exact public judge identity projection used by procurement ingestion."""
+    return [{"name": j["name"], "provider": j["provider"], "model": j.get("model"),
+             "mock": bool(j.get("mock"))} for j in judges]
+
+
 def _provenance(run_result: dict, family: dict) -> dict:
     from .score import load_judge_prompt
     cells = run_result["variant_cells"]
@@ -191,8 +197,7 @@ def _provenance(run_result: dict, family: dict) -> dict:
         "inference_settings": {"note": "mock adapters are deterministic (no sampling). For real "
                                "adapters, temperature/effort/retries are set per adapter spec; record "
                                "them in the subject/panel config committed alongside this package."},
-        "panel": {"judges": [{"name": j["name"], "provider": j["provider"], "model": j.get("model"),
-                              "mock": bool(j.get("mock"))} for j in run_result["panel"]["judges"]],
+        "panel": {"judges": recorded_judges(run_result["panel"]["judges"]),
                   "distinct_providers": run_result["panel"]["distinct_providers"],
                   "min_distinct_providers": run_result["panel"]["min_distinct_providers"],
                   "conformance_level": run_result["panel"]["conformance_level"]},
