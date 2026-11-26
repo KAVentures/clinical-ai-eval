@@ -44,4 +44,24 @@ def render(directory,actor,ident):
     for limitation in doc["limitations"]:
         body+="<p>"+esc(limitation)+"</p>"
     body+="<p>Projection digest "+esc(doc["digest"])+" (not a frozen approval or signature).</p>"
+    if actor["role"]=="admin":
+        body+="<p><a href='/unified-gap-handoff-preview?id="+esc(ident)+"'>Preview portable evidence-gap handoff</a></p>"
     return page("Programme evidence gaps and next actions",body)
+
+def preview(directory,actor,ident):
+    from .institution_web import page,esc,_hidden
+    from . import institution_gap_handoff as handoff
+    package=handoff.preview(directory,actor,ident)
+    body="<p>Review the exact administrative handoff. It contains the existing programme coverage, associated source metadata and aggregate native work counts, but no unassociated job identities or raw clinical outputs.</p>"
+    body+="<p>Programme "+esc(ident)+" · "+esc(package["report"]["programme_state"])+" · SHA-256 "+esc(package["digest"])+"</p>"
+    body+="<p>Offline verification replays the administrative projection; it cannot independently verify native evidence or establish clinical validity. Share only with authorized recipients.</p>"
+    body+=("<form method='post' action='/unified-gap-handoff-export'>"+_hidden("csrf",actor["csrf"])+_hidden("id",ident)+_hidden("approval",package["digest"])+
+           "<label><input type='checkbox' name='confirm' value='yes' required> Export this exact administrative snapshot to an authorized recipient.</label><button>Download approved JSON handoff</button></form>")
+    return page("Approve evidence gap handoff",body)
+
+
+def export(directory,actor,form):
+    from . import institution_gap_handoff as handoff, institution_imaging_web as forms
+    forms._exact(form,"id approval confirm")
+    forms._confirm(form)
+    return handoff.export(directory,actor,form["id"],form["approval"],confirmed=True)
