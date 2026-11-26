@@ -219,6 +219,18 @@ def run(root):
     receipt=json.loads(proc.stdout)
     require(receipt["ok"] and receipt["result"]["status"]=="REPLAY_VERIFIED","fresh process replay failed")
     require(receipt["result"]["expected_digest_matched"],"independent digest mismatch")
+    inspected=subprocess.run([sys.executable,"-m","caeval.cli","experimental-project","inspect-result",
+                              "--project",str(project_root),"--plan",str(fp),"--approve-plan",frozen["digest"],
+                              "--result",str(rp),"--expected-digest",result["digest"]],
+                             cwd=root,env=env,capture_output=True,text=True,check=True,timeout=120)
+    overview=json.loads(inspected.stdout)["result"]
+    require(overview["result_replayed"] and overview["all_planned_modules_replayed"] and
+            overview["expected_digest_matched"] and not overview["scientific_scores_included"],
+            "installed result inspection failed")
+    require({r["kind"] for r in overview["modules"] if r["completion_state"]=="replayed"}==set(packages),
+            "installed result inspection module inventory differs")
+    require(all(not r["canonical_requirement_satisfied"] for r in overview["required_suites"]),
+            "result inspection promoted canonical coverage")
     for kind,package in packages.items():
         path=write(root/(kind+"-evidence.json"),package)
         command=[sys.executable,"-m","caeval.cli","verify-experimental-evidence",str(path),
