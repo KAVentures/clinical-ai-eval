@@ -67,6 +67,8 @@ def inbox(directory,actor,ident):
         p,path,reviews=_context(directory,conn,ident)
         result={"monitor_id":ident,"plan_digest":p["digest"],"target":p["target"],
                 "reviewed_count":len(reviews),"relay_state":"unavailable","snapshot":None,
+                "recent_reviews":[{"attempt":k,"actor":r["actor"],"digest":r["digest"]}
+                                  for k,r in list(reviews.items())[-bridge.MAX_PAGE:][::-1]],
                 "human_delivery_verified":False,"deployment_authorized":False}
         try:
             snap=bridge.snapshot(path,ident,p["digest"],{k:r["record"]["payload_digest"] for k,r in reviews.items()})
