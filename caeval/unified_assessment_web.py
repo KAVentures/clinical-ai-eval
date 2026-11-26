@@ -65,6 +65,7 @@ def detail(directory,actor,ident):
     body="<p><a href='/unified-assessment'>Programmes</a></p><p>"+esc(doc["state"])+" · Frozen digest "+esc(p["digest"])+"</p>"
     if actor["role"] in ("admin","operator"):
         body+="<p><a href='/unified-assessment-work?id="+esc(ident)+"'>Native evaluation work and handoffs</a></p>"
+        body+="<p><a href='/unified-assessment-gaps?id="+esc(ident)+"'>Evidence gaps and next actions</a></p>"
     body+="<p><a href='/unified-assessment-lineage?id="+esc(ident)+"'>Version reassessment history</a></p>"
     body+=_plan_table(p)
     body+="<h2>Evidence coverage</h2><p>Source available means its restricted metadata was verified and still matches the locked association. It does not mean the candidate passed.</p>"
