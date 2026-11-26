@@ -1828,6 +1828,9 @@ def main(argv=None):
     from . import unified_assessment
     punified = sub.add_parser("unified-assessment", help="verify portable administrative programme coverage")
     unified_assessment.configure(punified)
+    from . import institution_gap_handoff
+    pgaphandoff = sub.add_parser("unified-gap-handoff", help="replay portable administrative evidence-gap handoff")
+    institution_gap_handoff.configure(pgaphandoff)
 
     from . import institution_rag_trace
     pragtrace = sub.add_parser("verify-rag-rehearsal", help="replay private synthetic RAG trace evidence offline")
