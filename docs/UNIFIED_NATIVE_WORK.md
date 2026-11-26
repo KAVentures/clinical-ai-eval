@@ -54,3 +54,32 @@ The digest identifies the deterministic projection, not a signature, a
 frozen hospital approval, or an independent clinical acceptance result.
 Nothing is executed or associated by the report. The programme's underlying
 canonical evidence conditions and deployment authority are not changed.
+
+
+## Portable administrative evidence-gap handoff
+
+Administrators can preview and explicitly download a JSON handoff from the
+evidence-gap report. The exported snapshot includes existing programme
+coverage and locked source metadata, aggregate counts of potentially ready,
+active and other native work, and the derived gap report. Unassociated native
+job identifiers, job notes, raw clinical outputs and reviewer records are
+not included by the work summarization. Programme and associated source
+identifiers remain sensitive institutional metadata; use approved recipients
+and storage.
+
+The export recaptures the programme in an institutional transaction and
+requires the exact preview digest; a changed snapshot is refused. Successful
+exports are audited. The digest identifies content, not identity or
+authenticity. The recipient can replay the administrative projection offline:
+
+```sh
+clinical-ai-eval unified-gap-handoff verify handoff.json --expected-digest APPROVED_DIGEST
+```
+
+Use an independently communicated approved digest. Verification reconstructs
+the coverage structure and gap projection from captured metadata; it cannot
+reverify private source records, prove that captured counts were correct,
+or establish clinical acceptance. External workspace files are not covered by
+an atomic database snapshot. Count and size bounds apply, and projection drift
+after redaction is refused. This is an administrative handoff, not a clinical
+evidence package or a deployment approval.
