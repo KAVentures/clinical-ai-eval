@@ -1703,8 +1703,14 @@ def cmd_prompts(args):
 
 
 def main(argv=None):
+    import sys
+    from . import research_study_cli
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == [research_study_cli.COMMAND]:
+        return research_study_cli.main(argv[1:])
     ap = argparse.ArgumentParser(prog="clinical-ai-eval", description="EVAL_STANDARD.md reference harness (§10)")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser(research_study_cli.COMMAND, help=research_study_cli.DESCRIPTION)
     pp = sub.add_parser("plan"); pp.add_argument("--project"); pp.set_defaults(func=cmd_plan)
     pi2 = sub.add_parser("inspect"); pi2.add_argument("--project"); pi2.set_defaults(func=cmd_inspect)
     pj = sub.add_parser("project", help="create or inspect a user project")
@@ -2063,4 +2069,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
