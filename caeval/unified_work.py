@@ -85,7 +85,7 @@ def work(directory,actor,ident):
             req=row["requirement"]
             rid=req["id"]
             _,plan=u._requirement(status["programme"],rid)
-            key=(req["kind"],req["plan_id"],req["family"])
+            key=(req["kind"],req["plan_id"],req["family"] if req["kind"]=="rag" else None)
             if key not in cache:
                 result={"records":[],"state":"stale_plan","scan_truncated":False,"unverified_records":None}
                 if status["state"]=="current":
