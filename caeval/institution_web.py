@@ -872,6 +872,20 @@ class InstitutionApp:
                 if path=="/rag-trace-evidence":
                     return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="private-rag-evidence.json"')],content_type="application/json; charset=utf-8")
                 return respond("303 See Other",extra=[("Location","/rag-trace-study?id="+result)])
+            if path=="/unified-gap-handoff-preview" and method=="GET":
+                from . import unified_evidence_gaps_web as gap_view
+                access.require(actor,"admin")
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("invalid handoff preview query")
+                return respond("200 OK",gap_view.preview(self.directory,actor,q["id"]))
+            if path=="/unified-gap-handoff-export" and method=="POST":
+                from . import unified_evidence_gaps_web as gap_view,buyer_plan
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                result=gap_view.export(self.directory,actor,form)
+                return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="unified-evidence-gap-handoff.json"')],content_type="application/json; charset=utf-8")
             if path=="/unified-assessment-gaps" and method=="GET":
                 from . import unified_evidence_gaps_web as gap_view
                 access.require(actor,"admin","operator")
