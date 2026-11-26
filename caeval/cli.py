@@ -1878,6 +1878,10 @@ def main(argv=None):
     from . import monitor_alert_relay
     prelay = sub.add_parser("monitor-alert-relay", help="manage local durable notification acceptance and review")
     monitor_alert_relay.configure(prelay)
+
+    from . import monitor_alert_health
+    phealth = sub.add_parser("monitor-alert-health", help="guard scheduled monitoring cycles and inspect operational heartbeat")
+    monitor_alert_health.configure(phealth)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")
