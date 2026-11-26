@@ -47,7 +47,21 @@ def render(directory,actor):
                 body+="<p>Plan approval hash: "+esc(row["plan_hash"])+"</p>"
             for kind,label in (("plan","Frozen plan"),("exchange","Candidate inputs"),("responses","Response template")):
                 body+=link("/research-download",label,id=ident,kind=kind)+" · "
-            if state=="planned":
+            if state=="planned" and row.get("connectors"):
+                options="".join("<option value='"+esc(k)+"'>"+esc(k)+"</option>" for k in row["connectors"])
+                fields=_hidden("id",ident)+_hidden("approve",row["plan_hash"])+"<label>Approved local connector <select name='connector' required>"+options+"</select></label>"
+                body+=form("queue",fields+checkbox("I approve this exact plan for supervised local candidate collection."),"Queue collection")
+            if "collection" in row:
+                job=row["collection"]
+                body+="<p>Collection: "+esc(job["state"])+" · "+esc(job["n_recorded"])+"/"+esc(job["n_expected"])+" outcomes recorded</p>"
+                if job["state"]=="queued":
+                    body+="<p>Trusted worker approval digest: "+esc(job["binding_hash"])+"</p>"
+                    body+=form("cancel-collection",_hidden("id",ident),"Cancel queued collection")
+                if job["state"]=="raw_collected":
+                    body+=link("/research-download","Exact raw collection receipt",id=ident,kind="collection-receipt")+" · "
+            if state=="raw_collected":
+                body+="<p>Download the response template now populated with exact raw outcomes. Add only required claim annotations; do not edit candidate answers or failure states.</p>"
+            if state in ("planned","raw_collected"):
                 body+=form("collect",_hidden("id",ident)+_hidden("approve",row["plan_hash"])+upload()+
                     checkbox("I approve this exact frozen plan and confirm these are the recorded candidate responses."),"Import outcomes",True)
             if role=="admin" and state=="collected" and row["kind"]!="decision":
@@ -100,6 +114,14 @@ def dispatch(directory,actor,action,form,blob=None):
     elif action=="collect":
         exact(("id","approve","confirm"))
         studio.collect(directory,actor,form["id"],form["approve"],manual._parse(blob),confirmed=confirmed())
+    elif action=="queue":
+        from . import research_collection as collection
+        exact(("id","connector","approve","confirm"))
+        collection.queue(directory,actor,form["id"],form["connector"],form["approve"],confirmed=confirmed())
+    elif action=="cancel-collection":
+        from . import research_collection as collection
+        exact(("id",))
+        collection.cancel(directory,actor,form["id"])
     elif action=="assign":
         exact(("id","reviewers","validity","confirm"))
         studio.assign(directory,actor,form["id"],ids(form["reviewers"]),ids(form["validity"]),confirmed=confirmed())

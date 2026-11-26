@@ -140,7 +140,14 @@ def download(directory,actor,identifier,kind):
             if kind=="exchange":
                 doc=mod.prompts(plan) if mod is citation else mod.exchange(plan)
             elif kind=="responses":
-                doc=_citation_template(plan) if mod is citation else mod.response_template(plan)
+                if row["state"]=="raw_collected":
+                    from . import research_collection as collection
+                    doc=collection.draft(directory,conn,row,plan,mod)
+                else:
+                    doc=_citation_template(plan) if mod is citation else mod.response_template(plan)
+            elif kind=="collection-receipt":
+                from . import research_collection as collection
+                doc=collection.receipt(directory,conn,row)
             elif kind=="plan":
                 doc=plan
             elif kind=="report":
@@ -160,8 +167,11 @@ def collect(directory,actor,identifier,approved_plan,responses,*,confirmed=False
         row=_row(conn,identifier)
         _manager(conn,actor,row)
         root,mod,plan=_plan(directory,row)
-        if row["state"]!="planned" or approved_plan!=row["plan_hash"]:
+        if row["state"] not in ("planned","raw_collected") or approved_plan!=row["plan_hash"]:
             raise access.AccessDenied("exact approved uncollected plan required")
+        if row["state"]=="raw_collected":
+            from . import research_collection as collection
+            collection.verify_import(directory,conn,row,plan,mod,responses)
         if mod is decision:
             mod.assess(plan,responses)
         else:
@@ -179,6 +189,15 @@ def _collected(root,row):
     return responses
 
 
+def _verified_collection(directory,conn,row,plan,mod,responses):
+    from . import research_collection as collection
+    collection._schema(conn)
+    job=conn.execute("SELECT state FROM research_collections WHERE study=?",(row["id"],)).fetchone()
+    if job:
+        collection.verify_import(directory,conn,row,plan,mod,responses)
+    return responses
+
+
 def assign(directory,actor,identifier,reviewers,validity_reviewers,*,confirmed=False):
     if confirmed is not True:
         raise access.AccessDenied("external credentials, conflicts and reference approval required")
@@ -190,7 +209,7 @@ def assign(directory,actor,identifier,reviewers,validity_reviewers,*,confirmed=F
         root,mod,plan=_plan(directory,row)
         if row["state"]!="collected" or mod is decision:
             raise access.AccessDenied("collected human-reviewed assessment required")
-        responses=_collected(root,row)
+        responses=_verified_collection(directory,conn,row,plan,mod,_collected(root,row))
         if mod is robustness:
             v,a,_=mod._roster(validity_reviewers,reviewers,actor["user_id"])
             roster=[(rid,"reference_validity") for rid in v]+[(rid,"isolated_answer") for rid in a]
@@ -217,7 +236,7 @@ def assign(directory,actor,identifier,reviewers,validity_reviewers,*,confirmed=F
 
 def _review(directory,conn,row):
     root,mod,plan=_plan(directory,row)
-    responses=_collected(root,row)
+    responses=_verified_collection(directory,conn,row,plan,mod,_collected(root,row))
     if mod is decision or not row["binding_hash"]:
         raise access.AccessDenied("human review unavailable")
     loaded=mod._load(root/"review")
@@ -309,7 +328,7 @@ def analyze(directory,actor,identifier,*,confirmed=False):
         row=_row(conn,identifier)
         root,mod,plan=_plan(directory,row)
         if mod is decision and row["state"]=="collected":
-            report=mod.assess(plan,_collected(root,row))
+            report=mod.assess(plan,_verified_collection(directory,conn,row,plan,mod,_collected(root,row)))
         elif mod is not decision and row["state"]=="reviewing":
             _review(directory,conn,row)
             if conn.execute("SELECT count(*) FROM research_reviewers WHERE study=? AND canonical_hash IS NULL",
@@ -331,7 +350,7 @@ def _report(directory,conn,row):
     if row["state"]!="analyzed":
         raise access.AccessDenied("analysis not available")
     root,mod,plan=_plan(directory,row)
-    _collected(root,row)
+    _verified_collection(directory,conn,row,plan,mod,_collected(root,row))
     if mod is not decision:
         _review(directory,conn,row)
     report=formal._json(root/"report.json")
@@ -360,6 +379,19 @@ def overview(directory,actor):
             if actor["role"]!="observer":
                 public["plan_hash"]=row["plan_hash"]
                 public["owner"]=row["owner"]
+                from . import research_collection as collection
+                collection._schema(conn)
+                if conn.execute("SELECT 1 FROM research_collections WHERE study=?",(row["id"],)).fetchone():
+                    job=collection._job(conn,row["id"])
+                    public["collection"]={"state":job["state"],"binding_hash":job["binding_hash"],
+                        "n_expected":job["binding"]["n_expected"],"n_recorded":conn.execute(
+                            "SELECT count(*) FROM research_collection_outcomes WHERE study=?",(row["id"],)).fetchone()[0]}
+                if row["state"]=="planned":
+                    from . import buyer_connector as connectors
+                    _,_,plan=_plan(directory,row)
+                    target=plan["spec"]["target"]
+                    public["connectors"]=[x["connector_id"] for x in connectors.connectors(directory)
+                        if (x["target_name"],x["target_version"])==(target["name"],target["version"])]
             if actor["role"]=="admin":
                 public["reviews"]=[dict(r) for r in conn.execute(
                     "SELECT reviewer,role,pending_hash,canonical_hash FROM research_reviewers WHERE study=? ORDER BY reviewer",(row["id"],))]
