@@ -319,6 +319,37 @@ class InstitutionApp:
                 _csrf(actor,form)
                 conversation.dispatch(self.directory,actor,path,form)
                 return respond("303 See Other",extra=[("Location","/conversation")])
+            if path=="/research-programs" and method=="GET":
+                from . import research_program_web as programs
+                q=_query(env)
+                if set(q)!={"plan_id"}:
+                    raise access.AccessDenied("select one saved plan")
+                return respond("200 OK",programs.overview(self.directory,actor,q["plan_id"]))
+            if path=="/research-program" and method=="GET":
+                from . import research_program_web as programs
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("select one frozen programme")
+                return respond("200 OK",programs.detail(self.directory,actor,q["id"]))
+            if path=="/research-program-create" and method=="POST":
+                from . import research_program_web as programs
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                identifier=programs.create(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/research-program?id="+identifier)])
+            if path=="/research-program-dossier" and method=="POST":
+                from . import research_program as programs, experimental_evidence as evidence
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if set(form)!={"id","confirm"}:
+                    raise access.AccessDenied("invalid programme dossier request")
+                payload=programs.dossier(self.directory,actor,form["id"],confirmed=form["confirm"]=="yes")
+                raw=evidence.encode(payload)
+                if len(raw)>MAX_BODY:
+                    raise access.AccessDenied("programme dossier too large")
+                return respond("200 OK",raw,extra=[("Content-Disposition",'attachment; filename="research-program-dossier.json"')],content_type="application/json; charset=utf-8")
             if path=="/research-buyer-coverage" and method=="GET":
                 from . import research_buyer_coverage_web as coverage
                 q=_query(env)
