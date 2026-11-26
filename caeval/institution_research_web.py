@@ -29,6 +29,7 @@ def render(directory,actor):
         return "<a href='"+esc(_link(path,**params))+"'>"+esc(label)+"</a>"
     body="<p><a href='/'>Workspace</a></p><p>Experimental research only. Use approved non-identifiable data. No model calls, clinical certification or deployment approval.</p>"
     if role in ("admin","operator"):
+        body+="<p><a href='/research-comparisons'>Matched clinical research comparisons</a></p>"
         options="".join("<option value='"+esc(k)+"'>"+esc(v)+"</option>" for k,v in studio.LABELS.items())
         body+="<section><h2>1. Freeze a study</h2>"+form("create","<label>Assessment type <select name='kind' required>"+options+"</select></label>"+upload(),"Freeze specification",True)+"</section>"
     for row in studio.overview(directory,actor):
@@ -45,6 +46,8 @@ def render(directory,actor):
         elif role in ("admin","operator"):
             if "plan_hash" in row:
                 body+="<p>Plan approval hash: "+esc(row["plan_hash"])+"</p>"
+            body+="<form method='post' action='/research-buyer-link'>"+_hidden("csrf",actor["csrf"])+_hidden("study",ident)
+            body+="<label>Saved buyer plan ID <input name='plan_id' required minlength='64' maxlength='64'></label>"+checkbox("I confirm this study belongs to the exact buyer scope and version. This association is immutable and not a canonical pass.")+"<button>Associate with buyer plan</button></form>"
             for kind,label in (("plan","Frozen plan"),("exchange","Candidate inputs"),("responses","Response template")):
                 body+=link("/research-download",label,id=ident,kind=kind)+" · "
             if state=="planned" and row.get("connectors"):
@@ -90,13 +93,20 @@ def render(directory,actor):
 
 def review_page(directory,actor,identifier):
     from .institution_web import page,esc,_hidden
+    from .research_review_forms import Form
     doc=studio.download(directory,actor,identifier,"review")
-    body="<p><a href='/research'>Assigned studies</a></p><p>Review independently. Fill only the submission JSON. Do not change item identifiers. The submitted review is immutable.</p>"
-    # All content comes from the role-filtered packet, not the full study.
+    form=Form(doc)
+    binding=_hidden("csrf",actor["csrf"])+_hidden("id",identifier)+_hidden("packet_hash",buyer_plan._digest(doc["request"]))
+    body="<p><a href='/research'>Assigned studies</a></p><p>Assess each item independently. Select an explicit uncertain rating when appropriate. Once locked, your review cannot be changed.</p>"
+    if form.available:
+        body+="<form method='post' action='/research-lock-form'>"+binding+form.render()
+        body+="<label><input type='checkbox' name='confirm' value='yes' required> I completed this review independently.</label><button>Lock completed review</button></form>"
+    else:
+        body+="<p>This packet exceeds the browser form field limit. Use the advanced submission below or download your packet from Assigned studies.</p>"
+    body+="<details><summary>Advanced review packet (JSON)</summary><p>Use this for repeated quotations, more than three evidence spans per rating, or exact multiline offsets. Edit only the submission.</p>"
     body+="<h2>Issued review material</h2><pre style='white-space:pre-wrap;overflow-wrap:anywhere'>"+esc(_json(doc["request"]))+"</pre>"
-    body+="<form method='post' action='/research-lock'>"+_hidden("csrf",actor["csrf"])+_hidden("id",identifier)
-    body+=_hidden("packet_hash",buyer_plan._digest(doc["request"]))
-    body+="<label>Independent submission JSON<textarea name='submission' rows='24' required>"+esc(_json(doc["submission"]))+"</textarea></label><button>Lock submission</button></form>"
+    body+="<form method='post' action='/research-lock'>"+binding
+    body+="<label>Independent submission JSON<textarea name='submission' rows='24' required>"+esc(_json(doc["submission"]))+"</textarea></label><button>Lock JSON submission</button></form></details>"
     return page("Your independent research review",body)
 
 
@@ -128,6 +138,15 @@ def dispatch(directory,actor,action,form,blob=None):
     elif action=="submit":
         exact(("id",))
         studio.lock_review(directory,actor,form["id"],manual._parse(blob))
+    elif action=="lock-form":
+        from .research_review_forms import Form
+        if not {"id","packet_hash"}<=set(form):
+            raise access.AccessDenied("issued packet binding required")
+        doc=studio.download(directory,actor,form["id"],"review")
+        if buyer_plan._digest(doc["request"])!=form["packet_hash"]:
+            raise access.AccessDenied("issued packet changed")
+        doc["submission"]=Form(doc).parse({k:v for k,v in form.items() if k not in ("id","packet_hash")})
+        studio.lock_review(directory,actor,form["id"],doc)
     elif action=="lock":
         exact(("id","packet_hash","submission"))
         doc=studio.download(directory,actor,form["id"],"review")

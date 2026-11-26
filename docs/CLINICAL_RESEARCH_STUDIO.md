@@ -33,8 +33,9 @@ Open **Clinical research studio** from the institutional dashboard.
    but does not prove precollection roster preregistration.
 5. Reviewers see only their own account-issued material. They can complete the
    submission JSON in a browser or download their packet and upload the
-   completed document. The interface currently presents structured JSON
-   rather than a bespoke per-question form. The submission is locked against
+   completed document. The default interface presents clinical questions, response text,
+   rating selectors, rationale fields and exact evidence quotation controls.
+   Advanced JSON remains available for complex or very large packets. The submission is locked against
    the exact request and reviewer identity. It cannot be overwritten.
 6. An administrator externally attests each exact locked submission by digest.
    Only then is it imported into the underlying signed review workflow.
@@ -85,3 +86,24 @@ analysis, richer browser forms and clinical calibration remain necessary.
 ## Supervised local candidate collection
 
 The optional [supervised collection worker](RESEARCH_SUPERVISED_COLLECTION.md) supports the four research modules through approved staged loopback connectors. Browser users can queue and inspect a collection; a separately authorized OS worker executes it. Exact raw outcomes are bound to the scientific import. Clinical claim annotations and independent review remain separate. The canonical executor registry is unchanged.
+
+## Matched cross-product research comparison
+
+See [Matched clinical research comparisons](MATCHED_CLINICAL_RESEARCH_COMPARISONS.md). The browser compares analyzed studies with identical protocols, review rosters and collection modes; it preserves fixed opportunity denominators and missingness. Results remain exploratory and separate from procurement evidence.
+
+## Structured physician review forms
+
+Citation, scribe and robustness reviewers can complete their assigned study
+in an ordinary browser without installing software or editing JSON. Each form
+uses the original role-scoped issued packet, with no access to other reviewers'
+answers. No rating is preselected. Explicit uncertain choices are available.
+For scribe evidence, enter an exact quotation (and its transcript turn for
+source evidence); the server computes Unicode character offsets. Repeated or
+ambiguous quotations are refused rather than guessed. The simple form supports
+three evidence spans per rating. Use the advanced JSON submission or downloaded
+packet for more spans, ambiguous quotations with explicit offsets, multiline
+text that the browser normalizes, or packets exceeding 2,400 form fields. The
+existing module limits and exact clinical validation still apply. No draft
+autosave is provided; a successful submission is immutable. Browser forms do
+not change scoring, review eligibility, attestation, evidence integrity or
+scientific claim authority.

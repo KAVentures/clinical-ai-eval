@@ -319,6 +319,46 @@ class InstitutionApp:
                 _csrf(actor,form)
                 conversation.dispatch(self.directory,actor,path,form)
                 return respond("303 See Other",extra=[("Location","/conversation")])
+            if path=="/research-buyer-coverage" and method=="GET":
+                from . import research_buyer_coverage_web as coverage
+                q=_query(env)
+                if set(q)!={"plan_id"}:
+                    raise access.AccessDenied("select one saved plan")
+                return respond("200 OK",coverage.render(self.directory,actor,q["plan_id"]))
+            if path=="/research-buyer-link" and method=="POST":
+                from . import research_buyer_coverage_web as coverage
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                identifier=coverage.link(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/research-buyer-coverage?plan_id="+identifier)])
+            if path=="/research-comparisons" and method=="GET":
+                from . import research_comparison_web as comparison
+                return respond("200 OK",comparison.render(self.directory,actor))
+            if path=="/research-comparison" and method=="GET":
+                from . import research_comparison_web as comparison
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("select one comparison")
+                return respond("200 OK",comparison.detail(self.directory,actor,q["id"]))
+            if path=="/research-comparison-download" and method=="GET":
+                import json
+                from . import research_comparison as comparison
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("select one comparison")
+                payload=comparison.download(self.directory,actor,q["id"])
+                raw=json.dumps(payload,ensure_ascii=False,indent=2,allow_nan=False).encode("utf-8")
+                if len(raw)>MAX_BODY:
+                    raise access.AccessDenied("comparison export too large")
+                return respond("200 OK",raw,extra=[("Content-Disposition",'attachment; filename="research-comparison.json"')],content_type="application/json; charset=utf-8")
+            if path=="/research-comparison-create" and method=="POST":
+                from . import research_comparison_web as comparison
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                identifier=comparison.create(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/research-comparison?id="+identifier)])
             if path=="/research" and method=="GET":
                 from . import institution_research_web as studio
                 return respond("200 OK",studio.render(self.directory,actor))
@@ -352,8 +392,8 @@ class InstitutionApp:
                     form=_form(env)
                     _csrf(actor,form)
                     studio.dispatch(self.directory,actor,action,form)
-                elif action in ("assign","attest","analyze","lock"):
-                    access.require(actor,"reviewer" if action=="lock" else "admin")
+                elif action in ("assign","attest","analyze","lock","lock-form"):
+                    access.require(actor,"reviewer" if action in ("lock","lock-form") else "admin")
                     form=_form(env)
                     _csrf(actor,form)
                     studio.dispatch(self.directory,actor,action,form)
