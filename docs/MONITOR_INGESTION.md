@@ -729,3 +729,42 @@ does not introduce automatic credential renewal. The deployment manifest
 contains paths, not tokens or dynamic expiry values. An ingestion transaction
 whose receipt audit timestamp reaches the grant expiry rolls back rather than
 persisting a receipt that would fail subsequent inventory verification.
+
+
+### Explicit atomic polling credential replacement
+
+A new check-only grant must first be issued by an authorized institutional
+administrator, using the existing grant procedure. Stage its token in
+credential_dir/next-check-token with mode 0600 and the configured service
+account as owner. The credential directory must be private and owned by
+that account. Stop scheduled worker cycles and coordinate any other
+credential writers before replacing credentials. Run the following as
+the configured non-root service account, not as root:
+
+```sh
+clinical-ai-eval monitor-deployment rotation-preview spec.json
+clinical-ai-eval monitor-deployment rotate-source spec.json --approved-digest ROTATION_DIGEST --confirm-rotation
+clinical-ai-eval monitor-deployment credential-status spec.json
+```
+
+The preview binds the current, staged and relay credentials, the approved
+deployment configuration and the staged grant expiry without displaying
+credential values or their individual hashes. Rotation revalidates the
+staged grant and exact worker binding, serializes cooperating rotation
+commands with a private advisory lock, writes and synchronizes a private
+temporary file, atomically replaces check-token, and synchronizes its
+directory. It never replaces the relay token or silently issues or revokes
+a grant. It intentionally retains next-check-token; remove that duplicate
+through the approved private-file procedure after verification.
+
+If replacement fails before rename, the current credential is retained.
+If synchronization fails after rename or a process is interrupted, the
+reported operation may have an ambiguous outcome: inspect credential status
+and the private files before retrying. A fresh preview is necessary for a
+different replacement. The advisory lock does not coordinate arbitrary file
+editors. Keep the old grant active until an actual source poll succeeds
+with the new credential; a worker cycle that only resumes pending delivery
+does not prove source connectivity. Once the old process has stopped and
+the new credential is verified, revoke the old grant in the institution.
+This is operator-assisted rotation, not automatic renewal, and the existing
+bounded grant inventory still applies.
