@@ -82,3 +82,13 @@ checkpoint verification. Investigate interrupted work rather than resetting
 or reusing its output directory. The existing release and recovery procedures
 apply. Test real endpoint interoperability, institutional access, data handling
 and security before deployment.
+
+## Implementation register linkage
+
+Completed verified patient conversation jobs can be linked as baseline or
+retest evidence to a pilot of the exact registered vendor and product version.
+The link freezes the canonical manifest, job binding, and digest of the full
+verified output receipt, including episode auxiliaries. A changed or
+unavailable source appears in the implementation register and escalation inbox.
+The link does not authorize deployment or schedule automated conversational
+regression runs; the existing scheduled comparison remains single-turn only.

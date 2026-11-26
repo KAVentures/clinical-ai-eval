@@ -497,6 +497,14 @@ interoperability, security and production acceptance remain mandatory.
 - [Longitudinal regression monitoring](LONGITUDINAL_MONITORING.md).
 - [Scoped live agent metadata](LIVE_AGENT_BROKER.md).
 
+## Completion workflows and acceptance
+
+- [Independent patient transcript review](PATIENT_TRANSCRIPT_REVIEW.md).
+- [Independent patient-world validity review](PATIENT_WORLD_VALIDITY.md).
+- [Institutional escalation inbox](INSTITUTIONAL_ESCALATION.md).
+- [Approved external HTTPS candidate gateway](APPROVED_HTTPS_BRIDGE.md).
+- [Institutional release acceptance runbook](INSTITUTIONAL_RELEASE_ACCEPTANCE.md).
+
 ## Experimental clinical research studio
 
 See [Clinical research studio](CLINICAL_RESEARCH_STUDIO.md) for the browser workflows for citation grounding, scribe documentation, native decision certificates and paired robustness. These studies are separate from canonical evaluation jobs and do not elevate clinical claims.

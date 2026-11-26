@@ -4,6 +4,38 @@ from __future__ import annotations
 from . import institution_committee as committee
 
 
+def _inventory(data):
+    from .institution_web import esc
+    if data is None:
+        return "<section><h2>Lifecycle inventory</h2><p>Not recorded in this historical snapshot.</p></section>"
+    body="<section><h2>Evaluation and implementation inventory</h2><p>"+esc(data["interpretation"])+"</p>"
+    for row in data["assessments"]:
+        body+="<h3>"+esc(row["id"])+"</h3><p>"+esc(row["kind"])+" · "+esc(row["status"])+" · Candidate "+esc(row["vendor_id"] or "unavailable")+" · Version "+esc(row["target_version"] or "unavailable")+" · "+esc(row["mode"])+"</p>"
+        for p in row["packages"]:
+            body+="<p>"+esc(p["family_id"])+" · claim "+esc(p["claim"])+" · manifest "+esc(p["manifest_hash"])+"</p>"
+        for gap in row["required_but_not_run"]:
+            body+="<p>Required but not run: "+esc(gap["suite"])+"</p>"
+    for row in data["reviews"]:
+        body+="<h3>"+esc(row["kind"])+"</h3><p>"+esc(row["id"])+" · "+esc(row.get("job") or row.get("pack_content_hash") or "source unavailable")+" · "+esc(row["state"])+"</p>"
+        if "assigned" in row:
+            body+="<p>Attested "+str(row["attested"])+"/"+str(row["assigned"])+" · Submitted "+str(row["submitted"])+"/"+str(row["assigned"])+"</p>"
+    for pilot in data["pilots"]:
+        body+="<h3>Pilot "+esc(pilot["id"])+"</h3><p>"+esc(pilot["vendor_id"])+" · "+esc(pilot["product_version"])+" · "+esc(pilot["state"])+" · Open blocking items: "+str(pilot["blocking_open"])+"</p>"
+        for item in pilot["open_items"]:
+            body+="<p>"+esc(item["kind"])+" · "+esc(item["severity"])+" · Due "+esc(item["due"])+"</p>"
+        for item in pilot["evidence"]:
+            body+="<p>Linked "+esc(item["purpose"])+" "+esc(item["job_id"])+" · "+esc(item["integrity"])+"</p>"
+    for s in data["schedules"]:
+        body+="<h3>Regression schedule "+esc(s["id"])+"</h3><p>Pilot "+esc(s["pilot_id"])+" · "+("enabled" if s["enabled"] else "disabled")+"</p>"
+        for occ in s["occurrences"]:
+            body+="<p>"+esc(occ["id"])+" · "+esc(occ["state"])+" · Missed intervals "+str(occ["skipped_intervals"])+"</p>"
+            for family,metrics in occ.get("metric_states",{}).items():
+                body+="<p>"+esc(family)+": "+esc(", ".join(k+"="+v for k,v in metrics.items()))+"</p>"
+    if not any(data[k] for k in ("assessments","reviews","pilots","schedules")):
+        body+="<p>No lifecycle evidence recorded.</p>"
+    return body+"</section>"
+
+
 def _evidence(payload):
     from .institution_web import esc
     body="<p>Intended use: "+esc(payload["intended_use"])+"</p>"
@@ -54,7 +86,7 @@ def _evidence(payload):
         if result["vendors_without_results"]:
             body+="<p>Missing vendor results: "+esc(", ".join(result["vendors_without_results"]))+"</p>"
     body+="</section><section><h2>Limitations</h2><ul>"+"".join("<li>"+esc(x)+"</li>" for x in payload["limitations"])+"</ul></section>"
-    return body
+    return body+_inventory(payload.get("lifecycle_inventory"))
 
 
 def render(directory,actor):
