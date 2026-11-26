@@ -42,6 +42,28 @@ class CommitteeTests(unittest.TestCase):
             committee.disposition(self.root,self.admin,identifier,"close_review","Old evidence")
         self.assertNotEqual(committee.freeze(self.root,self.operator),first)
 
+    def test_lifecycle_inventory_updates_snapshot_without_private_incident_text(self):
+        from caeval import institution_lifecycle as lifecycle, institution_committee_web as view
+        first=committee.freeze(self.root,self.admin)["snapshot_id"]
+        p=lifecycle.create_pilot(self.root,self.admin,{"vendor_id":"a","product_version":"1.0",
+            "scope":"Private scope","owner":"operator","review_date":"2030-01-01","rollback_plan":"Private rollback"})
+        lifecycle.add_item(self.root,self.admin,p["id"],{"kind":"incident","severity":"critical",
+            "title":"Private incident","action":"Private action","owner":"operator","due":"2030-01-01"},1)
+        payload=committee.overview(self.root,self.observer)
+        inventory=payload["lifecycle_inventory"]
+        self.assertEqual(inventory["pilots"][0]["state"],"paused")
+        self.assertEqual(inventory["pilots"][0]["blocking_open"],1)
+        self.assertFalse(inventory["deployment_authorized"])
+        raw=json.dumps(inventory)
+        for forbidden in ("Private scope","Private rollback","Private incident","Private action","operator"):
+            self.assertNotIn(forbidden,raw)
+        self.assertEqual(inventory,committee.overview(self.root,self.admin)["lifecycle_inventory"])
+        self.assertFalse(committee.snapshot(self.root,self.observer,first)["current"])
+        self.assertIn("critical",view._evidence(payload))
+        second=committee.freeze(self.root,self.operator)["snapshot_id"]
+        self.assertNotEqual(first,second)
+        self.assertTrue(committee.snapshot(self.root,self.observer,second)["current"])
+
     def test_access_and_invalid_disposition(self):
         with self.assertRaises(access.AccessDenied):
             committee.overview(self.root,self.reviewer)

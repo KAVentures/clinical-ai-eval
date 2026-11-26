@@ -38,6 +38,9 @@ Use an approved, version-pinned release artifact and a locally provisioned Pytho
 environment. For offline deployment, obtain the wheel and all pinned dependency
 wheels through approved channels and verify their hashes. Install with
 pip --no-index --find-links /approved/wheelhouse clinical-ai-eval==VERSION.
+For the preferred independently approved wheelhouse workflow, exact target
+checks, side-by-side installation and rollback, see
+[Offline installation and upgrades](OFFLINE_RELEASE.md).
 The institution feature itself uses the standard library and existing engine
 dependencies. No third-party cloud identity or model service is required.
 
@@ -396,7 +399,8 @@ Checkpoints and recovery destinations are never overwritten. Verify the backup
 identifier through an independently trusted channel when moving it between
 approved systems.
 
-Restore checks the checkpoint, stages a fresh workspace, revokes copied sessions,
+Restore checks the checkpoint, stages a fresh workspace, revokes copied sessions and agent grants,
+disables copied recurring monitoring schedules (fresh approval is required),
 and normalizes internally stored procurement package paths for the new location
 without modifying source evidence. External procurement package locations must
 be staged within the workspace before checkpointing. Other external operator
@@ -469,8 +473,8 @@ This is the existing experimental patient evaluator, not a new scoring
 method, and local transport does not prove that the product itself avoids
 external requests. Use synthetic or approved non-identifiable case packs,
 approved local judges or explicitly authorized external judge configurations,
-and institutional egress controls. Browser preparation of conversational
-jobs remains separate; the initial controlled route is the research CLI.
+and institutional egress controls. Browser preparation and supervised worker execution are available through
+[Institutional multi-turn candidate assessments](INSTITUTIONAL_CONVERSATIONS.md).
 The corrected per-episode reset changes the scientific session definition
 hash: older patient packages should be verified with their pinned version,
 not rehashed to claim they used the corrected executor.
@@ -486,3 +490,17 @@ itself implement OIDC/SAML token validation or MFA; the upstream gateway must
 enforce those policies. A managed WSGI app factory and sample Linux/systemd
 deployment configuration are included under deploy/institution. Actual IdP
 interoperability, security and production acceptance remain mandatory.
+
+## Additional institutional workflows
+
+- [Formal independent clinical review](FORMAL_CLINICAL_REVIEW.md) and [browser coordination](FORMAL_REVIEW_BROWSER.md).
+- [Longitudinal regression monitoring](LONGITUDINAL_MONITORING.md).
+- [Scoped live agent metadata](LIVE_AGENT_BROKER.md).
+
+## Completion workflows and acceptance
+
+- [Independent patient transcript review](PATIENT_TRANSCRIPT_REVIEW.md).
+- [Independent patient-world validity review](PATIENT_WORLD_VALIDITY.md).
+- [Institutional escalation inbox](INSTITUTIONAL_ESCALATION.md).
+- [Approved external HTTPS candidate gateway](APPROVED_HTTPS_BRIDGE.md).
+- [Institutional release acceptance runbook](INSTITUTIONAL_RELEASE_ACCEPTANCE.md).

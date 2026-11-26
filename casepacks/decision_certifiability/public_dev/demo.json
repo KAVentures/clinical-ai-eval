@@ -1,0 +1,184 @@
+{
+  "target": {
+    "name": "Fictional demonstration",
+    "version": "1"
+  },
+  "synthetic": true,
+  "rule_bundle": {
+    "bundle_id": "fictional",
+    "version": "1",
+    "sources": [
+      {
+        "id": "current",
+        "version": "2",
+        "status": "active",
+        "text": "Fictional action ALPHA requires fact X=ok and fact Y=clear."
+      },
+      {
+        "id": "old",
+        "version": "1",
+        "status": "superseded",
+        "text": "Obsolete fictional rule."
+      }
+    ],
+    "facts": [
+      {
+        "id": "x",
+        "label": "Fictional fact X",
+        "domain": [
+          "ok",
+          "bad"
+        ],
+        "cost": 2
+      },
+      {
+        "id": "y",
+        "label": "Fictional fact Y",
+        "domain": [
+          "clear",
+          "present"
+        ],
+        "cost": 3
+      }
+    ],
+    "action": {
+      "code": "fictional-alpha",
+      "dose": "fictional-unit"
+    },
+    "support": {
+      "rule_id": "support",
+      "source_id": "current",
+      "quote": "Fictional action ALPHA requires fact X=ok and fact Y=clear."
+    },
+    "checks": [
+      {
+        "id": "check-x",
+        "label": "Check X",
+        "kind": "critical_question",
+        "fact_id": "x",
+        "allowed": [
+          "ok"
+        ],
+        "severity": "high",
+        "effect": "defer",
+        "source_id": "current",
+        "quote": "fact X=ok"
+      },
+      {
+        "id": "check-y",
+        "label": "Check Y",
+        "kind": "contraindication",
+        "fact_id": "y",
+        "allowed": [
+          "clear"
+        ],
+        "severity": "critical",
+        "effect": "block",
+        "source_id": "current",
+        "quote": "fact Y=clear"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "case_id": "complete",
+      "probe": "complete",
+      "captured_at": "2026-01-02T00:00:00+00:00",
+      "observations": {
+        "x": {
+          "state": "known",
+          "value": "ok",
+          "recorded_at": "2026-01-02T00:00:00+00:00"
+        },
+        "y": {
+          "state": "known",
+          "value": "clear",
+          "recorded_at": "2026-01-02T00:00:00+00:00"
+        }
+      },
+      "available_source_ids": [
+        "current"
+      ]
+    },
+    {
+      "case_id": "missing",
+      "probe": "missing",
+      "captured_at": "2026-01-02T00:00:00+00:00",
+      "observations": {
+        "x": {
+          "state": "missing",
+          "value": null,
+          "recorded_at": null
+        },
+        "y": {
+          "state": "known",
+          "value": "clear",
+          "recorded_at": "2026-01-02T00:00:00+00:00"
+        }
+      },
+      "available_source_ids": [
+        "current"
+      ]
+    },
+    {
+      "case_id": "contraindication",
+      "probe": "contraindication",
+      "captured_at": "2026-01-02T00:00:00+00:00",
+      "observations": {
+        "x": {
+          "state": "known",
+          "value": "ok",
+          "recorded_at": "2026-01-02T00:00:00+00:00"
+        },
+        "y": {
+          "state": "known",
+          "value": "present",
+          "recorded_at": "2026-01-02T00:00:00+00:00"
+        }
+      },
+      "available_source_ids": [
+        "current"
+      ]
+    },
+    {
+      "case_id": "stale",
+      "probe": "stale",
+      "captured_at": "2026-01-02T00:00:00+00:00",
+      "observations": {
+        "x": {
+          "state": "known",
+          "value": "ok",
+          "recorded_at": "2026-01-02T00:00:00+00:00"
+        },
+        "y": {
+          "state": "stale",
+          "value": "clear",
+          "recorded_at": "2026-01-01T00:00:00+00:00"
+        }
+      },
+      "available_source_ids": [
+        "current"
+      ]
+    },
+    {
+      "case_id": "obsolete_source",
+      "probe": "obsolete_source",
+      "captured_at": "2026-01-02T00:00:00+00:00",
+      "observations": {
+        "x": {
+          "state": "known",
+          "value": "ok",
+          "recorded_at": "2026-01-02T00:00:00+00:00"
+        },
+        "y": {
+          "state": "known",
+          "value": "clear",
+          "recorded_at": "2026-01-02T00:00:00+00:00"
+        }
+      },
+      "available_source_ids": [
+        "old"
+      ]
+    }
+  ]
+}

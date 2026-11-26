@@ -121,8 +121,13 @@ jobs:
           python -m build --wheel
       - name: Install into a clean environment and run the CLI outside the checkout
         run: |
-          python -m venv /tmp/clean
-          /tmp/clean/bin/pip install dist/*.whl
+          # Resolve on the connected build runner; the installation step uses
+          # only the approved, hash-checked local wheelhouse.
+          python -m pip download --only-binary=:all: --dest /tmp/approved-wheels dist/*.whl
+          python tools/offline_release.py prepare /tmp/approved-wheels --version "$(python -c 'from caeval.version import __version__; print(__version__)')" --source-commit "$(git rev-parse HEAD)"
+          RELEASE_ID="$(python -c 'import json; print(json.load(open("/tmp/approved-wheels/release.json"))["release_id"])')"
+          python tools/offline_release.py install /tmp/approved-wheels --approve-release "$RELEASE_ID" --destination /tmp/clean-release --confirm-trusted-wheels
+          ln -s /tmp/clean-release/venv /tmp/clean
           cd /tmp
           /tmp/clean/bin/clinical-ai-eval inspect
           /tmp/clean/bin/clinical-ai-eval families

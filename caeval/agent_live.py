@@ -161,7 +161,7 @@ class LiveSession(agent_mcp.Session):
                     {"name":name,"description":agent_mcp.TOOLS[name][0],
                      "inputSchema":{"type":"object","properties":{},"additionalProperties":False},
                      "annotations":{"readOnlyHint":True,"destructiveHint":False,
-                                    "idempotentHint":True,"openWorldHint":False}}
+                                    "idempotentHint":False,"openWorldHint":False}}
                     for name in scopes]})
             if (not isinstance(params,dict) or set(params)-{"name","arguments"}
                     or not isinstance(params.get("name"),str) or params["name"] not in grants.TOOLS
