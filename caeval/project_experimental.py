@@ -10,6 +10,7 @@ from . import (buyer_agent as buyer, buyer_plan, experimental_evidence as eviden
                formal_review as formal, project, selection, claim, manifest,
                institution_research as studio)
 from .util import repo_root
+from . import experimental_plan_inspect as inspection
 
 PLAN_SCHEMA = "project-experimental-plan/1"
 RESULT_SCHEMA = "project-experimental-result/1"
@@ -96,9 +97,13 @@ def verify_plan(project_path, frozen, approved_digest):
     if not isinstance(frozen.get("modules"),dict):
         fail("invalid module inventory")
     regenerated = build_plan(project_path,{k:v["plan"]["spec"] for k,v in frozen["modules"].items()})
-    if regenerated != frozen:
+    if not inspection.canonical_equal(regenerated,frozen):
         fail("project scope, scientific definition or module inventory changed")
     return frozen
+
+
+def inspect_plan(project_path, frozen, approved_digest):
+    return inspection.project(verify_plan(project_path,frozen,approved_digest))
 
 
 def module_plan(project_path, frozen, approved_digest, kind):
@@ -149,7 +154,7 @@ def complete_module(project_path, frozen, approved_digest, kind, source, *, conf
         responses = formal._json(root/"responses.json")
     else:
         _,stored,responses,binding,_,issued = loaded
-    if stored != plan:
+    if not inspection.canonical_equal(stored,plan):
         fail("review workspace does not belong to frozen project module")
     report = mod.analyze(root)
     records = {rid:formal._json(root/"submissions"/(rid+".json")) for rid in issued}
@@ -162,7 +167,7 @@ def _assemble(frozen, packages):
     receipts = {}
     for kind, package in sorted(packages.items()):
         expected = frozen["modules"][kind]["plan"]
-        if package.get("kind")!=kind or package.get("plan")!=expected:
+        if package.get("kind")!=kind or not inspection.canonical_equal(package.get("plan"),expected):
             fail("package differs from exact planned module")
         receipt = evidence.verify(package)
         receipts[kind] = {"package_digest":receipt["package_digest"],
@@ -205,7 +210,7 @@ def verify_result(project_path, frozen, approved_digest, result, *, expected_dig
     if result.get("schema")!=RESULT_SCHEMA:
         fail("unsupported experimental project result schema")
     actual = assemble(project_path,frozen,approved_digest,result["packages"])
-    if result!=actual:
+    if not inspection.canonical_equal(result,actual):
         fail("project result differs from independently replayed evidence")
     return {"status":"REPLAY_VERIFIED","digest":result["digest"],
             "project_plan_digest":approved_digest,
