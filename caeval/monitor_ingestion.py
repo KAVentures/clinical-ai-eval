@@ -15,8 +15,9 @@ from wsgiref.simple_server import make_server, WSGIRequestHandler
 from . import institution_access as access, unified_assessment as u
 from . import institution_lifecycle_monitor as monitor, diagnostic_imaging as d
 from . import buyer_manual, buyer_agent, monitor_grant_policy as grant_policy
+from . import monitor_grant_capacity as grant_capacity
 
-MAX_GRANTS=200
+MAX_GRANTS=grant_capacity.MAX_ACTIVE
 MAX_TTL=86400
 MAX_USES=300
 MAX_TOTAL_REQUESTS=5000
@@ -53,8 +54,10 @@ def _binding(row):
 
 def _inventory(conn):
     monitor._inventory(conn)
-    grants=conn.execute("SELECT * FROM lifecycle_ingestion_grants").fetchall()
-    requests=conn.execute("SELECT * FROM lifecycle_ingestion_requests").fetchall()
+    grants=conn.execute("SELECT * FROM lifecycle_ingestion_grants LIMIT ?",(grant_capacity.MAX_HISTORY+1,)).fetchall()
+    requests=conn.execute("SELECT * FROM lifecycle_ingestion_requests LIMIT ?",(MAX_TOTAL_REQUESTS+1,)).fetchall()
+    if len(grants)>grant_capacity.MAX_HISTORY or len(requests)>MAX_TOTAL_REQUESTS:
+        raise access.AccessDenied("ingestion inventory exceeds supported storage limits")
     expected={ISSUE:set(),REVOKE:set(),USE:set()}
     by={r["id"]:r for r in grants}
     for r in grants:
@@ -114,8 +117,7 @@ def issue(directory,actor,spec,*,confirmed=False):
         u._actor(conn,{"user_id":spec["owner"],"role":"operator"},"operator")
         _inventory(conn)
         monitor._get(conn,spec["monitor_id"],monitor._today())
-        if conn.execute("SELECT count(*) FROM lifecycle_ingestion_grants").fetchone()[0]>=MAX_GRANTS:
-            raise access.AccessDenied("grant storage limit")
+        grant_capacity.require_available(conn,int(time.time()))
         token=secrets.token_hex(32)
         gid=secrets.token_hex(16)
         row={"id":gid,"token_hash":_hash(token),"monitor":spec["monitor_id"],"owner":spec["owner"],
@@ -161,17 +163,37 @@ def revoke_restored_grants(conn):
     return len(rows)
 
 
+def _public_grant(conn,r,now):
+    return {"id":r["id"],"monitor_id":r["monitor"],"owner":r["owner"],
+            "scopes":json.loads(r["scopes"]),"expires":r["expires"],
+            "revoked":r["revoked_seq"] is not None,"max_uses":r["max_uses"],
+            "used":conn.execute("SELECT count(*) FROM lifecycle_ingestion_requests WHERE grant_id=?",(r["id"],)).fetchone()[0],
+            "state":"revoked" if r["revoked_seq"] is not None else "expired" if r["expires"]<=now else "time_active"}
+
+
 def grants(directory,actor):
+    """Existing full administrative metadata API; no bearer secrets."""
     with access.db(directory) as conn:
         _schema(conn)
         conn.execute("BEGIN")
         u._actor(conn,actor,"admin")
         _inventory(conn)
-        return [{"id":r["id"],"monitor_id":r["monitor"],"owner":r["owner"],
-                 "scopes":json.loads(r["scopes"]),"expires":r["expires"],
-                 "revoked":r["revoked_seq"] is not None,"max_uses":r["max_uses"],
-                 "used":conn.execute("SELECT count(*) FROM lifecycle_ingestion_requests WHERE grant_id=?",(r["id"],)).fetchone()[0]}
-                for r in conn.execute("SELECT * FROM lifecycle_ingestion_grants ORDER BY audit_seq")]
+        now=int(time.time())
+        return [_public_grant(conn,r,now) for r in conn.execute("SELECT * FROM lifecycle_ingestion_grants ORDER BY audit_seq")]
+
+
+def grant_inventory(directory,actor):
+    """Bounded browser projection in the same verified inventory transaction."""
+    with access.db(directory) as conn:
+        _schema(conn)
+        conn.execute("BEGIN")
+        u._actor(conn,actor,"admin")
+        _inventory(conn)
+        now=int(time.time())
+        status,rows=grant_capacity.visible_rows(conn,now)
+        return {"capacity":status,"grants":[_public_grant(conn,r,now) for r in rows],
+                "historical_rows_omitted":status["total"]-len(rows),
+                "active_owner_reverified":False}
 
 
 def _grant(conn,token):
