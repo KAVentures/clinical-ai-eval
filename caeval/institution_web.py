@@ -872,6 +872,22 @@ class InstitutionApp:
                 if path=="/rag-trace-evidence":
                     return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="private-rag-evidence.json"')],content_type="application/json; charset=utf-8")
                 return respond("303 See Other",extra=[("Location","/rag-trace-study?id="+result)])
+            if path=="/unified-gap-review" and method=="GET":
+                from . import institution_gap_review_web as gap_review
+                access.require(actor,"admin")
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("invalid longitudinal review query")
+                return respond("200 OK",gap_review.home(self.directory,actor,q["id"]))
+            if path in ("/unified-gap-review-preview","/unified-gap-review-export") and method=="POST":
+                from . import institution_gap_review_web as gap_review, institution_gap_review as review_service
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/unified-gap-review-preview":
+                    return respond("200 OK",gap_review.preview(self.directory,actor,form))
+                result=gap_review.export(self.directory,actor,form)
+                return respond("200 OK",review_service.encode(result),extra=[("Content-Disposition",'attachment; filename="unified-gap-review.json"')],content_type="application/json; charset=utf-8")
             if path=="/unified-gap-handoff-preview" and method=="GET":
                 from . import unified_evidence_gaps_web as gap_view
                 access.require(actor,"admin")
