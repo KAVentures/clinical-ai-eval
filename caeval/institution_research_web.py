@@ -46,6 +46,20 @@ def render(directory,actor):
         elif role in ("admin","operator"):
             if "plan_hash" in row:
                 body+="<p>Plan approval hash: "+esc(row["plan_hash"])+"</p>"
+            protocol_status=row.get("review_protocol_status","not_preregistered")
+            body+="<p>Review protocol: "+esc(protocol_status)+"</p>"
+            if role=="admin" and row["kind"]!="decision":
+                if protocol_status=="available":
+                    fields=_hidden("id",ident)+"<label>Independent reviewer IDs (comma-separated)<input name='reviewers' required maxlength='1000'></label>"
+                    if row["kind"]=="robustness":
+                        fields+="<label>Separate reference-validity reviewer IDs<input name='validity' required maxlength='1000'></label>"
+                    else:
+                        fields+=_hidden("validity","")
+                    fields+="<label>Research question<textarea name='question' required maxlength='2000'></textarea></label><label>Planned descriptive analysis<textarea name='intent' required maxlength='2000'></textarea></label>"
+                    body+=form("freeze-review-protocol",fields+checkbox("I confirm external reviewer independence, reference provenance and no known prior candidate exposure."),"Freeze review protocol")
+                if "review_protocol" in row:
+                    body+="<p>Frozen protocol digest: "+esc(row["review_protocol"]["digest"])+"</p>"
+                body+=link("/research-download","Download review provenance",id=ident,kind="review-provenance")+" · "
             body+="<form method='post' action='/research-buyer-link'>"+_hidden("csrf",actor["csrf"])+_hidden("study",ident)
             body+="<label>Saved buyer plan ID <input name='plan_id' required minlength='64' maxlength='64'></label>"+checkbox("I confirm this study belongs to the exact buyer scope and version. This association is immutable and not a canonical pass.")+"<button>Associate with buyer plan</button></form>"
             for kind,label in (("plan","Frozen plan"),("exchange","Candidate inputs"),("responses","Response template")):
@@ -73,6 +87,8 @@ def render(directory,actor):
                     fields+="<label>Separate reference-validity reviewer account IDs (comma-separated, 2–5)<input name='validity' maxlength='1000' required></label>"
                 else:
                     fields+=_hidden("validity","")
+                if "review_protocol" in row:
+                    body+="<p>Use the exact preregistered roster: "+esc(", ".join(x["reviewer"]+" ("+x["role"]+")" for x in row["review_protocol"]["protocol"]["roster"]))+"</p>"
                 body+=form("assign",fields+checkbox("I verified clinical credentials, independence, conflicts and reference provenance externally."),"Assign reviewers")
             if role=="admin" and state=="reviewing":
                 for rev in row.get("reviews",[]):
@@ -85,6 +101,8 @@ def render(directory,actor):
                 body+=form("analyze",_hidden("id",ident)+checkbox("I approve descriptive analysis, not a clinical or procurement decision."),"Analyze")
             if state=="analyzed":
                 body+=link("/research-download","Download verified report",id=ident,kind="report")
+                if role=="admin":
+                    body+=form("replay-package",_hidden("id",ident)+checkbox("I authorize export of the complete sensitive research inputs, candidate responses and independent reviewer submissions to an approved recipient. No original signing keys are included."),"Export independently replayable evidence")
         if "summary" in row:
             body+="<h3>Descriptive results</h3><pre style='white-space:pre-wrap;overflow-wrap:anywhere'>"+esc(_json(row["summary"]))+"</pre>"
         body+="</section>"
@@ -125,6 +143,10 @@ def dispatch(directory,actor,action,form,blob=None):
         from . import research_collection as collection
         exact(("id",))
         collection.cancel(directory,actor,form["id"])
+    elif action=="freeze-review-protocol":
+        from . import research_review_protocol as protocol
+        exact(("id","reviewers","validity","question","intent","confirm"))
+        protocol.freeze(directory,actor,form["id"],ids(form["reviewers"]),ids(form["validity"]),form["question"],form["intent"],confirmed=confirmed())
     elif action=="assign":
         exact(("id","reviewers","validity","confirm"))
         studio.assign(directory,actor,form["id"],ids(form["reviewers"]),ids(form["validity"]),confirmed=confirmed())

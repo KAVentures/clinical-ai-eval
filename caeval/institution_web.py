@@ -379,6 +379,18 @@ class InstitutionApp:
                 if len(raw)>MAX_BODY:
                     raise access.AccessDenied("research export too large")
                 return respond("200 OK",raw,extra=[("Content-Disposition",'attachment; filename="research-export.json"')],content_type="application/json; charset=utf-8")
+            if path=="/research-replay-package" and method=="POST":
+                from . import experimental_evidence as evidence
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if set(form)!={"id","confirm"}:
+                    raise access.AccessDenied("invalid full research export request")
+                package=evidence.from_study(self.directory,actor,form["id"],confirmed=form["confirm"]=="yes")
+                raw=evidence.encode(package)
+                if len(raw)>MAX_BODY:
+                    raise access.AccessDenied("research export too large")
+                return respond("200 OK",raw,extra=[("Content-Disposition",'attachment; filename="experimental-evidence.json"')],content_type="application/json; charset=utf-8")
             if path.startswith("/research-") and method=="POST":
                 from . import institution_research_web as studio
                 action=path[len("/research-"):]
@@ -392,7 +404,7 @@ class InstitutionApp:
                     form=_form(env)
                     _csrf(actor,form)
                     studio.dispatch(self.directory,actor,action,form)
-                elif action in ("assign","attest","analyze","lock"):
+                elif action in ("assign","attest","analyze","lock","freeze-review-protocol"):
                     access.require(actor,"reviewer" if action=="lock" else "admin")
                     form=_form(env)
                     _csrf(actor,form)
