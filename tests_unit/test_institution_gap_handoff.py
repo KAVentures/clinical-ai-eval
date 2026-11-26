@@ -50,4 +50,28 @@ class GapHandoffIntegrationTests(unittest.TestCase):
             self.assertEqual(conn.execute("SELECT count(*) FROM audit WHERE action=? AND outcome='ok'",(service.EVENT,)).fetchone()[0],1)
 
 
+    def test_native_coverage_verifier_rejects_resealed_missing_suite_and_duplicate_plan(self):
+        from caeval import unified_assessment as u, diagnostic_imaging as d
+        pid=self.plan()
+        ident=self.freeze(self.spec(pid))
+        admin=self.actors["admin"]
+        valid=u.export_preview(self.root,admin,ident)
+        self.assertEqual(u.verify_export(valid)["status"],"COVERAGE_STRUCTURE_VERIFIED")
+        for corruption in ("duplicate_plan","missing_gap","false_scope"):
+            coverage=copy.deepcopy(valid["coverage"])
+            p=coverage["programme"]
+            if corruption=="duplicate_plan":
+                p["plans"].append(copy.deepcopy(p["plans"][0]))
+            elif corruption=="missing_gap":
+                self.assertTrue(p["unplanned_canonical_suites"])
+                p["unplanned_canonical_suites"].pop()
+            else:
+                p["plans"][0]["target"]["extra"]="unapproved field"
+                for row in coverage["requirements"]:
+                    row["target"]=p["plans"][0]["target"]
+            coverage["programme"]=d._sealed({k:v for k,v in p.items() if k!="digest"})
+            with self.subTest(corruption=corruption),self.assertRaises(ValueError):
+                u.verify_export(u._package(coverage))
+
+
 if __name__=="__main__": unittest.main()
