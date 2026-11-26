@@ -657,10 +657,11 @@ them using the existing commands. The service account must be non-root.
 Run prerequisite inspection as the intended service account where
 possible, with workers stopped. The check verifies the approved worker
 binding, scope, ports, heartbeat policy, relay scope, credential-file
-format and separation and absence of an active heartbeat marker. It
-does not test live endpoint availability, credential validity, service
-account access under systemd sandboxing, executable identity, or
-institutional ingestion grant scope. It uses existing store transaction
+format and separation and absence of an active heartbeat marker. It also authenticates the actual
+institutional check-only polling grant, verifies its exact monitor and frozen
+plan digest, and requires remaining lifetime of at least one configured
+interval plus cycle deadline. It does not test live endpoint availability,
+service account access under systemd sandboxing, or executable identity. It uses existing store transaction
 helpers, so it is not a strictly read-only filesystem inspection.
 
 ```sh
@@ -706,3 +707,25 @@ the outbox and relay histories before restarting; do not delete records
 to make a sequence check pass. This admission rule is not a complete
 historical integrity audit and cannot detect a jointly restored older
 outbox and relay snapshot.
+
+### Polling credential commissioning and expiry
+
+Deployment `check` and `export` now require a dedicated, active **check-only**
+ingestion grant for the exact monitor and frozen plan. A multi-scope ingestion
+grant remains usable through its existing API but is not suitable for this
+least-privilege deployment preflight. The account must remain enabled.
+The minimum remaining lifetime is the configured polling interval plus cycle
+deadline. IT can inspect remaining lifetime without printing the token:
+
+```sh
+clinical-ai-eval monitor-deployment credential-status spec.json
+```
+
+This validates the credential against the local institutional ledger, not a
+live listener; it does not start or install services. Grants expire within
+24 hours under the existing policy. Arrange authorized rotation before expiry,
+using a private credential file and the approved service procedure. This change
+does not introduce automatic credential renewal. The deployment manifest
+contains paths, not tokens or dynamic expiry values. An ingestion transaction
+whose receipt audit timestamp reaches the grant expiry rolls back rather than
+persisting a receipt that would fail subsequent inventory verification.
