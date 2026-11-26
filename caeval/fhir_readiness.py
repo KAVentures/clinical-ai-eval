@@ -112,9 +112,9 @@ def build(target):
 
 def exchange(plan):
     _verify_plan(plan)
-    return {"schema":"synthetic-fhir-exchange/1","target":plan["target"],"synthetic":True,
+    return {"schema":"synthetic-fhir-exchange/1","target":copy.deepcopy(plan["target"]),"synthetic":True,
             "plan_digest":plan["digest"],"instruction":plan["instruction"],
-            "probes":[{k:r[k] for k in ("slot","patient_reference","bundle")} for r in plan["rows"]]}
+            "probes":[{k:copy.deepcopy(r[k]) for k in ("slot","patient_reference","bundle")} for r in plan["rows"]]}
 
 
 def template(plan):
@@ -135,7 +135,7 @@ def _facts(values):
     for fact in values:
         _strict(fact,("source_id","code_system","code","value","unit_system","unit_code"))
         for k in ("source_id","code_system","code","unit_system","unit_code"):
-            if not isinstance(fact[k],str) or not re.fullmatch(r"[A-Za-z0-9._:/%+@~#()\\[\\]{}*-]{1,200}",fact[k]):
+            if not isinstance(fact[k],str) or not re.fullmatch(r"[A-Za-z0-9._:/%+@~#()\[\]{}*-]{1,200}",fact[k]):
                 _fail("invalid structured observation field")
         n=fact["value"]
         if type(n) not in (int,float) or abs(n)>1e12 or not math.isfinite(n):
