@@ -199,5 +199,25 @@ class IngestionTests(unittest.TestCase):
                 api.check(self.root,self.token)
 
 
+    def test_expired_grant_frees_live_capacity_without_deleting_history(self):
+        self.prepare(scopes=("check",))
+        spec={"monitor_id":self.ident,"owner":self.operator["user_id"],"scopes":["check"],"ttl_seconds":600,"max_uses":1}
+        with patch.object(api.grant_capacity,"MAX_ACTIVE",1):
+            with self.assertRaises(ValueError):
+                api.issue(self.root,self.admin,spec,confirmed=True)
+            with patch.object(api.time,"time",return_value=self.grant["expires"]):
+                replacement=api.issue(self.root,self.admin,spec,confirmed=True)
+                inventory=api.grant_inventory(self.root,self.admin)
+                self.assertEqual(inventory["capacity"]["active"],1)
+                self.assertEqual(inventory["capacity"]["total"],2)
+                self.assertEqual(inventory["capacity"]["expired"],1)
+                self.assertEqual(api.check(self.root,replacement["bearer_token"])["monitor_id"],self.ident)
+                with self.assertRaises(ValueError):
+                    api.check(self.root,self.token)
+            with access.db(self.root) as conn:
+                self.assertEqual(conn.execute("SELECT count(*) FROM lifecycle_ingestion_grants").fetchone()[0],2)
+                api._inventory(conn)
+
+
 if __name__=="__main__":
     unittest.main()
