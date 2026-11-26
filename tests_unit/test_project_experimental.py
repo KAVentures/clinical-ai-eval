@@ -148,5 +148,31 @@ class ProjectExperimentalTests(unittest.TestCase):
                                   "--expected-digest",assembled["digest"])["status"],"REPLAY_VERIFIED")
 
 
+    def test_inspect_cli_exact_plan_and_no_raw_material(self):
+        frozen=self.freeze()
+        plan=self.root/"inspection-plan.json"
+        plan.write_text(json.dumps(frozen))
+        bound=["--project",str(self.root),"--plan",str(plan),"--approve-plan",frozen["digest"]]
+        receipt=self.call("inspect",*bound)
+        self.assertEqual(receipt,lane.inspect_plan(self.root,frozen,frozen["digest"]))
+        self.assertEqual(receipt["modules"][0]["workflow"],"structured_response_scoring")
+        self.assertEqual(receipt["modules"][0]["planned_units"],len(frozen["modules"]["decision"]["plan"]["items"]))
+        self.assertFalse(receipt["native_workspaces_inspected"])
+        self.assertNotIn("EXCLUDED_SECRET_FIXTURE",json.dumps(receipt))
+        self.assertNotIn("reference",json.dumps(receipt))
+        with redirect_stdout(io.StringIO()),self.assertRaises(SystemExit):
+            cli.main(["experimental-project","inspect",*bound[:-1],"0"*64])
+
+    def test_resealed_scientific_report_type_substitution_refused(self):
+        from caeval import experimental_evidence as evidence
+        frozen=self.freeze()
+        package=self.complete(frozen)
+        changed=copy.deepcopy(package)
+        changed["report"]["decision_grade"]=0
+        changed["digest"]=buyer_plan._digest({k:v for k,v in changed.items() if k!="digest"})
+        with self.assertRaises(buyer.BuyerError):
+            evidence.verify(changed)
+
+
 if __name__=="__main__":
     unittest.main()
