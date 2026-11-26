@@ -52,6 +52,7 @@ def _source(source,approved):
         _fail("duplicate response identity")
     items={}
     ids=set()
+    groups=set()
     used=set()
     for cell in cells:
         eid=cell["patient"]["episode_id"]
@@ -61,7 +62,15 @@ def _source(source,approved):
                 or cell["judge_contract"]!="patient_multiturn_v1"
                 or any(cell[k]!=r[k] for k in ("judge_contract","judge_payload","input_text","response_text"))):
             _fail("response and scored episode identity mismatch")
+        # Deterministic routing locks episode IDs; the shared judge router
+        # locks case/world item IDs, which can cover several stress episodes.
+        # Every episode is included, so both canonical identity forms are covered.
+        group=cell.get("item_id")
+        if (not isinstance(group,str) or not group or r.get("unit_id")!=group
+                or eid!=group+"::"+cell["test_id"]):
+            _fail("patient review unit identity mismatch")
         ids.add(eid)
+        groups.add(group)
         used.add(pid)
         payload=cell["judge_payload"]
         judging.assert_blinded(payload)
@@ -94,7 +103,7 @@ def _source(source,approved):
         items[slot]={"slot":slot,"transcript":transcript,"disclosed_facts_by_turn":facts}
     queued=[r["unit_id"] for r in locked["expected_units"]]
     if (len(queued)!=locked["n_expected"] or len(queued)!=len(set(queued))
-            or not set(queued)<=ids or analysis["n_review_selected"]!=len(queued)):
+            or not set(queued)<=(ids|groups) or analysis["n_review_selected"]!=len(queued)):
         _fail("locked mandatory review units not covered")
     if (research._preflight(ws)!=meta or manifest.verify_manifest(ws)["verdict"]!=manifest.VALID):
         _fail("source changed during capture")
