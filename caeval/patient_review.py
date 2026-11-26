@@ -71,8 +71,10 @@ def _source(source,approved):
                 or any(set(t)!={"turn","speaker","text"} or type(t["turn"]) is not int
                        or t["speaker"] not in ("patient","system")
                        or not isinstance(t["text"],str) for t in transcript)
-                or len({t["turn"] for t in transcript})!=len(transcript)
-                or [t["turn"] for t in transcript]!=sorted(t["turn"] for t in transcript)
+                or len(transcript)%2!=1
+                or [(t["turn"],t["speaker"]) for t in transcript]!=
+                   [(0,"patient")]+[(i,speaker) for i in range(1,(len(transcript)+1)//2)
+                                    for speaker in ("system","patient")]
                 or not isinstance(facts,list)
                 or any(set(f)!={"turn","facts_known"} or not isinstance(f["facts_known"],list)
                        or any(not isinstance(k,str) for k in f["facts_known"]) for f in facts)
