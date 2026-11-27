@@ -209,11 +209,15 @@ def test_experimental_families_are_never_decision_grade(cmp_result):
     assert cmp_result["claim_authority"]["decision_grade"] is False
 
 
-def test_nonsignificant_difference_is_not_equivalence():
+def test_legacy_pairwise_description_does_not_claim_inference():
     a, b = _entry("a", 3, 0), _entry("b", 3, 0)
     d = procurement.pairwise_difference(a, b, "under_triage")
-    assert d["distinguishable"] is False
-    assert "absence of evidence" in d["note"]
+    assert d["n_paired"] == 20
+    assert d["observed_paired_difference_a_minus_b"] == 0
+    assert d["all_expected_difference_bounds"] == [0, 0]
+    assert d["p_value"] is None
+    assert d["distinguishable"] is None
+    assert "No inference" in d["note"]
 
 
 def test_unpaired_cells_are_counted_not_imputed():
@@ -221,7 +225,10 @@ def test_unpaired_cells_are_counted_not_imputed():
     b = _entry("b", 0, 0, n=10)
     d = procurement.pairwise_difference(a, b, "under_triage")
     assert d["dropped_unpaired_cells"] == 10
-    assert d["n_paired"] == 10
+    assert d["n_paired"] == 0
+    assert d["p_value"] is None
+    assert d["distinguishable"] is None
+    assert "observed_paired_difference_a_minus_b" not in d
 
 
 def test_markdown_states_what_it_does_not_tell_you(cmp_result):
