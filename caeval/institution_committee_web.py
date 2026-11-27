@@ -31,7 +31,27 @@ def _inventory(data):
             body+="<p>"+esc(occ["id"])+" · "+esc(occ["state"])+" · Missed intervals "+str(occ["skipped_intervals"])+"</p>"
             for family,metrics in occ.get("metric_states",{}).items():
                 body+="<p>"+esc(family)+": "+esc(", ".join(k+"="+v for k,v in metrics.items()))+"</p>"
-    if not any(data[k] for k in ("assessments","reviews","pilots","schedules")):
+    for programme in data.get("experimental_research_programmes",[]):
+        body+="<h3>Experimental research programme "+esc(programme["id"])+"</h3><p>"+esc(programme["state"])+" · Candidate "+esc(programme.get("vendor_id","unavailable"))+" · Version "+esc(programme.get("target_version","unavailable"))+"</p>"
+        body+="<p>Experimental inventory only. No canonical requirement is satisfied.</p>"
+        if "program_digest" in programme:
+            body+="<p>Frozen programme "+esc(programme["program_digest"])+"</p>"
+            body+="<p>Unplanned related modules: "+esc(", ".join(programme["unplanned_related_modules"]) or "None")+"</p>"
+            for module in programme["modules"]:
+                body+="<p>"+esc(module["kind"])+" · "+esc(module["state"])+" · report "+esc(module["report_digest"] or "unavailable")+"</p>"
+            for row in programme["coverage"]:
+                body+="<p>"+esc(row["suite"])+" · "+("Canonical runnable" if row["canonical_runnable"] else "Required but not run")+" · Experimental reports "+esc(", ".join(row["integrity_checked_reports"]) or "None")+"</p>"
+    for risk in data.get("buyer_risk_protocols",[]):
+        body+="<h3>Buyer risk protocol "+esc(risk["id"])+"</h3><p>"+esc(risk["state"])+" · Candidate "+esc(risk.get("vendor_id","unavailable"))+" · Version "+esc(risk.get("target_version","unavailable"))+"</p>"
+        if "hazard_count" in risk:
+            body+="<p>Hazards: "+esc(risk["hazard_count"])+" · Critical: "+esc(risk["critical_hazards"])+" · Measurement not verified</p><p>Uncovered suites: "+esc(", ".join(risk["uncovered_suites"]) or "None")+" · Blocked suites: "+esc(", ".join(risk["blocked_suites"]) or "None")+"</p>"
+    for row in data.get("synthetic_fhir_assessments",[]):
+        body+="<h3>Synthetic FHIR rehearsal "+esc(row["id"])+"</h3><p>"+esc(row["state"])+" · "+esc(row.get("vendor_id","unavailable"))+" · Version "+esc(row.get("target_version","unavailable"))+"</p>"
+        if "summary" in row:
+            counts=row["summary"]
+            body+="<p>Exact extraction: "+esc(counts["exact_match"])+" / "+esc(counts["planned"])+" · Mismatch: "+esc(counts["mismatch"])+" · Unavailable: "+esc(counts["unavailable"])+"</p>"
+        body+="<p>Fixed synthetic extraction only; not FHIR conformance or clinical validity.</p>"
+    if not any(data.get(k,[]) for k in ("assessments","reviews","pilots","schedules","experimental_research_programmes","buyer_risk_protocols","synthetic_fhir_assessments")):
         body+="<p>No lifecycle evidence recorded.</p>"
     return body+"</section>"
 
@@ -43,9 +63,9 @@ def _evidence(payload):
     for v in payload["vendors"]:
         body+="<section><h2>"+esc(v["name"])+"</h2><p>Candidate ID: "+esc(v["vendor_id"])+"</p>"
         body+="<p>Missing evidence: "+esc(", ".join(v["missing_evidence_kinds"]) or "None recorded")+"</p>"
-        body+="<table><tr><th>Document</th><th>Kind</th><th>Integrity</th><th>Review</th></tr>"
+        body+="<table><tr><th>Document</th><th>Kind</th><th>Integrity</th><th>Review</th><th>Source finding</th><th>Declared freshness</th></tr>"
         for d in v["documents"]:
-            body+="<tr>"+"".join("<td>"+esc(d[k])+"</td>" for k in ("title","kind","integrity","review_status"))+"</tr>"
+            body+="<tr>"+"".join("<td>"+esc(d[k])+"</td>" for k in ("title","kind","integrity","review_status"))+"<td>"+esc(d.get("source_review_status","not recorded"))+"</td><td>"+esc(d.get("document_freshness","not recorded"))+"</td></tr>"
         body+="</table><h3>Self-reported vendor disclosures (unverified)</h3>"
         for d in v["disclosures_self_reported_unverified"]:
             body+="<p>"+esc(d.get("product_version_self_reported"))+" · "+esc(d.get("integrity"))+" · "+esc(d.get("schema_status"))+"</p>"
@@ -107,6 +127,20 @@ def render_snapshot(directory,actor,identifier):
     body="<p><a href='/committee'>Current evidence</a></p><p>Snapshot "+esc(identifier)+"</p>"
     body+="<p>"+("Matches current evidence." if saved["current"] else "Historical snapshot — current evidence has changed.")+"</p>"
     body+="<p><a href='/committee-export?id="+esc(identifier)+"'>Download frozen evidence JSON</a></p>"
+    from . import committee_portable as portable
+    inventory=portable.choices(saved)
+    body+="<section><h2>Portable committee dossier</h2><p>Independent offline verification of the frozen record. No raw clinical material is included by default. Canonical packages remain separately verified references.</p>"
+    body+="<form method='post' action='/committee-portable-export'>"+_hidden("csrf",actor["csrf"])+_hidden("id",identifier)
+    if actor["role"]=="admin":
+        body+="<details><summary>Optional sensitive evidence attachments (administrator only)</summary><p>Only select material specifically approved for the recipient. Attached experimental evidence may include clinical inputs, reviewer identities and ratings. Select at most 16 attachments within the 8 MiB limit.</p>"
+        for key,ref in sorted(inventory["documents"].items()):
+            if ref["eligible"]:
+                body+="<label><input type='checkbox' name='doc_"+esc(key)+"' value='yes'> Vendor document "+esc(ref["vendor_id"])+" · "+esc(ref["kind"])+" · "+esc(key)+"</label>"
+        for key,ref in sorted(inventory["experimental_reports"].items()):
+            if ref["eligible"]:
+                body+="<label><input type='checkbox' name='report_"+esc(key)+"' value='yes'> Full research replay package "+esc(ref["vendor_id"])+" · "+esc(ref["kind"])+" · "+esc(key)+"</label>"
+        body+="</details>"
+    body+="<label><input type='checkbox' name='confirm' value='yes' required> I approve sharing this confidential frozen committee record and any explicitly selected evidence.</label><button>Download portable dossier</button></form><p>Communicate the dossier digest through an independently trusted channel; do not interpret verification as clinical validation.</p></section>"
     for row in saved["dispositions"]:
         body+="<section><p>"+esc(row["created_at"])+" · "+esc(row["disposition"])+"</p><p>"+esc(row["rationale"])+"</p></section>"
     if saved["current"] and actor["role"]=="admin":

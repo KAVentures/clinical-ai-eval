@@ -166,6 +166,8 @@ def collect(directory,actor,vendor_ids):
         _account(db,actor)
         assessments.extend(_conversations(directory,db,set(vendor_ids)))
         reviews=_formal(directory,db)+_patient_reviews(directory,db)
+        from . import research_program
+        programmes=research_program.committee_inventory(directory,db,actor,set(vendor_ids))
     pilots,schedules=_operations(directory,actor)
     with access.db(directory) as db:
         _account(db,actor)
@@ -175,5 +177,6 @@ def collect(directory,actor,vendor_ids):
             "reviews":sorted(reviews,key=lambda r:r["id"]),
             "pilots":sorted(pilots,key=lambda r:r["id"]),
             "schedules":sorted(schedules,key=lambda r:r["id"]),
+            "experimental_research_programmes":programmes,
             "decision_grade":False,"deployment_authorized":False,
             "interpretation":"Inventory only. Attested coverage is not a safety verdict. Unavailable, incomplete and experimental evidence cannot establish clinical readiness."}

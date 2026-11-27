@@ -64,7 +64,7 @@ def _governance(spec):
     return result
 
 
-def _material(directory, submission_id, panel_id, governance):
+def _material(directory, submission_id, panel_id, governance, *, conditions_hash=None, conn=None):
     root = Path(directory).resolve()
     state = buyer.load(root)
     sub = manual._submission(root, submission_id)
@@ -89,6 +89,12 @@ def _material(directory, submission_id, panel_id, governance):
     config["panel"] = {"config": "panel.toml"}
     # Explicitly no frozen procurement conditions or self-declared reviewers.
     config["procurement"] = {"conditions_hash": ""}
+    if conditions_hash is not None:
+        from . import buyer_risk_activation as activation
+        actual=activation.check(root,exchange["plan_id"],exchange["pack_content_hash"],panel_id,raw_panel,conn=conn)
+        if actual!=conditions_hash:
+            raise buyer.BuyerError("requested procurement conditions do not match activated study")
+        config["procurement"]["conditions_hash"]=actual
     config["clinical_review"] = {"reviewers": [], "resolution_mode": "consensus", "tie_reviewer": ""}
     source = manual._directory(root, "approved-packs") / exchange["pack_id"]
     files = {"panel.toml": raw_panel,
@@ -116,6 +122,8 @@ def _material(directory, submission_id, panel_id, governance):
         "file_sha256": {name: _sha(raw) for name, raw in files.items()},
         "scientific_definitions": definitions,
     }
+    if conditions_hash is not None:
+        record["conditions_hash"]=conditions_hash
     record["assessment_id"] = buyer_plan._digest(record)
     return record, files
 
@@ -124,8 +132,8 @@ def _base(directory):
     return manual._directory(directory, "prepared-assessments")
 
 
-def prepare(directory, submission_id, panel_id, governance):
-    record, files = _material(directory, submission_id, panel_id, governance)
+def prepare(directory, submission_id, panel_id, governance, *, conditions_hash=None):
+    record, files = _material(directory, submission_id, panel_id, governance, conditions_hash=conditions_hash)
     base = _base(directory)
     base.mkdir(mode=0o700, exist_ok=True)
     dest = base / record["assessment_id"]
@@ -160,7 +168,7 @@ def prepare(directory, submission_id, panel_id, governance):
     return check(directory, record["assessment_id"])
 
 
-def check(directory, assessment_id):
+def check(directory, assessment_id, *, conn=None):
     """Revalidate the original inputs AND the copied research project."""
     identifier = manual._identifier(assessment_id, digest=True)
     dest = _base(directory) / identifier
@@ -170,7 +178,7 @@ def check(directory, assessment_id):
     if (not isinstance(record, dict) or record.get("assessment_id") != identifier
             or buyer_plan._digest({k: v for k, v in record.items() if k != "assessment_id"}) != identifier):
         raise buyer.BuyerError("assessment binding integrity mismatch")
-    expected, files = _material(directory, record["submission_id"], record["panel_id"], record["governance"])
+    expected, files = _material(directory, record["submission_id"], record["panel_id"], record["governance"], conditions_hash=record.get("conditions_hash"), conn=conn)
     if record != expected:
         raise buyer.BuyerError("source plan, responses, pack, panel or definitions changed; prepare again")
     for name, raw in files.items():
@@ -188,6 +196,9 @@ def check(directory, assessment_id):
 def prepare_file(directory, source_file):
     with Path(source_file).expanduser().open("rb") as handle:
         spec = manual._parse(handle.read(manual.MAX_REQUEST_BYTES + 1))
-    if not isinstance(spec, dict) or set(spec) != {"submission_id", "panel_id", "governance"}:
-        raise buyer.BuyerError("provide submission_id, panel_id and governance")
-    return prepare(directory, spec["submission_id"], spec["panel_id"], spec["governance"])
+    required={"submission_id", "panel_id", "governance"}
+    if not isinstance(spec, dict) or not required<=set(spec) or set(spec)-required-{"conditions_hash"}:
+        raise buyer.BuyerError("provide submission_id, panel_id, governance and optional conditions_hash")
+    if "conditions_hash" in spec and not isinstance(spec["conditions_hash"],str):
+        raise buyer.BuyerError("explicit activated conditions hash required")
+    return prepare(directory, spec["submission_id"], spec["panel_id"], spec["governance"], conditions_hash=spec.get("conditions_hash"))

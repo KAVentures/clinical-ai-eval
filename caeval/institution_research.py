@@ -127,6 +127,9 @@ def _citation_template(plan):
 def download(directory,actor,identifier,kind):
     with access.db(directory) as conn:
         _schema(conn)
+        # Candidate exposure and preregistration/programme freeze use the same
+        # SQLite writer lock, so the audit ordering is an atomic local boundary.
+        conn.execute("BEGIN IMMEDIATE")
         row=_row(conn,identifier)
         if kind=="review":
             assignment=_assigned(conn,actor,row)
@@ -148,6 +151,10 @@ def download(directory,actor,identifier,kind):
             elif kind=="collection-receipt":
                 from . import research_collection as collection
                 doc=collection.receipt(directory,conn,row)
+            elif kind=="review-provenance":
+                _actor(conn,actor,"admin")
+                from . import research_review_protocol as protocol
+                doc=protocol.receipt(directory,conn,row)
             elif kind=="plan":
                 doc=plan
             elif kind=="report":
@@ -169,6 +176,8 @@ def collect(directory,actor,identifier,approved_plan,responses,*,confirmed=False
         root,mod,plan=_plan(directory,row)
         if row["state"] not in ("planned","raw_collected") or approved_plan!=row["plan_hash"]:
             raise access.AccessDenied("exact approved uncollected plan required")
+        from . import research_review_protocol as protocol
+        protocol.read(conn,row)
         if row["state"]=="raw_collected":
             from . import research_collection as collection
             collection.verify_import(directory,conn,row,plan,mod,responses)
@@ -222,6 +231,10 @@ def assign(directory,actor,identifier,reviewers,validity_reviewers,*,confirmed=F
             user=conn.execute("SELECT role,enabled FROM users WHERE id=?",(rid,)).fetchone()
             if not user or user["role"]!="reviewer" or not user["enabled"] or rid==row["owner"]:
                 raise access.AccessDenied("independent enabled reviewer account required")
+        from . import research_review_protocol as protocol
+        protocol.verify_assignment(conn,row,sorted(
+            [{"reviewer":rid,"role":role} for rid,role in roster],
+            key=lambda item:(item["role"],item["reviewer"])))
         if mod is robustness:
             binding=mod.prepare(plan,responses,root/"review",v,a,actor["user_id"],confirmed=True)
         else:
@@ -246,6 +259,8 @@ def _review(directory,conn,row):
         raise access.AccessDenied("canonical review differs from study")
     roster={r["reviewer"]:dict(r) for r in conn.execute(
         "SELECT * FROM research_reviewers WHERE study=?",(row["id"],))}
+    from . import research_review_protocol as protocol
+    protocol.verify_assignment(conn,row)
     if set(roster)!=set(issued):
         raise access.AccessDenied("review roster changed")
     expected={rid+".json" for rid,r in roster.items() if r["canonical_hash"]}
@@ -379,6 +394,12 @@ def overview(directory,actor):
             if actor["role"]!="observer":
                 public["plan_hash"]=row["plan_hash"]
                 public["owner"]=row["owner"]
+                from . import research_review_protocol as protocol
+                public["review_protocol_status"]=protocol.status(conn,row)
+                if actor["role"]=="admin":
+                    record=protocol.read(conn,row)
+                    if record:
+                        public["review_protocol"]=record
                 from . import research_collection as collection
                 collection._schema(conn)
                 if conn.execute("SELECT 1 FROM research_collections WHERE study=?",(row["id"],)).fetchone():

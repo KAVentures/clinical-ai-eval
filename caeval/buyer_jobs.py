@@ -176,6 +176,12 @@ def _verify(directory, row):
         derived = claim.compute(cfg.mode,run_meta["panel"]["conformance_level"],
                                 maturity.family_maturity(family_def),
                                 claim.pack_authority(desc),"real")
+        if binding.get("conditions_hash") and (analysis.get("conditions_hash")!=binding["conditions_hash"] or run_meta.get("conditions_hash")!=binding["conditions_hash"] or cfg.data.get("procurement",{}).get("conditions_hash")!=binding["conditions_hash"]):
+            raise buyer.BuyerError("run did not preserve approved procurement conditions")
+        if binding.get("conditions_hash"):
+            expected_config=pipeline.execution_panel_digest(panel)
+            if analysis.get("judge_config_digest")!=expected_config or run_meta.get("judge_config_digest")!=expected_config:
+                raise buyer.BuyerError("run evaluator settings differ from staged panel")
         if (analysis["family_id"] != family or run_meta["family_id"] != family
                 or analysis.get("plan_binding") != bound
                 or analysis.get("case_pack",{}).get("content_hash") != desc["content_hash"]
@@ -244,7 +250,7 @@ def execute(directory, job_id, *, allow_model_calls=False):
     try:
         record = assessment.check(directory, row["assessment_id"])
         expected, files = assessment._material(directory, record["submission_id"],
-                                                record["panel_id"], record["governance"])
+                                                record["panel_id"], record["governance"], conditions_hash=record.get("conditions_hash"))
         if expected != record or record["mode"] != row["mode"]:
             raise buyer.BuyerError("assessment changed before execution")
         job = _job_path(directory, job_id)

@@ -101,6 +101,8 @@ def queue(directory,actor,identifier,connector_id,plan_hash,*,confirmed=False):
             raise access.AccessDenied("fresh approved study required")
         if conn.execute("SELECT 1 FROM research_collections WHERE study=?",(identifier,)).fetchone():
             raise access.AccessDenied("one collection per study")
+        from . import research_review_protocol as protocol
+        protocol.read(conn,row)
         _,_,_,_,_,binding=_material(directory,row,connector_id)
         digest=buyer_plan._digest(binding)
         conn.execute("INSERT INTO research_collections(study,binding,binding_hash,state) VALUES(?,?,?,?)",

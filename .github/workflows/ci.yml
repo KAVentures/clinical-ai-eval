@@ -136,3 +136,8 @@ jobs:
           /tmp/clean/bin/python -c "from caeval.patient.judging import load_prompt; assert 'under_triage' in load_prompt(); print('patient judge prompt OK')"
       - name: Documented self-service path from the installed wheel (no network, no keys)
         run: /tmp/clean/bin/python tools/self_service_rehearsal.py --cli /tmp/clean/bin/clinical-ai-eval
+
+      - name: Four-module experimental research release acceptance from installed wheel
+        run: |
+          unset CAEVAL_HOME PYTHONPATH
+          /tmp/clean/bin/python tools/research_release_rehearsal.py

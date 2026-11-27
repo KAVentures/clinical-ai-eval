@@ -109,6 +109,18 @@ def cued_judges(panel: dict) -> list[dict]:
     return [j for j in panel["judges"] if j.get("mode") == "rubric_aware"]
 
 
+def execution_panel_digest(panel: dict) -> str:
+    """Bind the complete parsed evaluator configuration, not just model names.
+
+    Includes the configured quorum, blinded/cued mode, provider settings and
+    inference options. Runtime-resolved secrets and provider state are not
+    included or attested. Only the digest is exported.
+    """
+    import json
+    from .util import stable_hash_text
+    return stable_hash_text(json.dumps(panel,sort_keys=True,allow_nan=False))
+
+
 def assess_panel(panel: dict) -> dict:
     judges = panel["judges"]
     # Programmatic callers must obey the same strict mock/real typing as TOML

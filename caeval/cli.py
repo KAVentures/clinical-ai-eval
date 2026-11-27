@@ -124,6 +124,12 @@ def _score_and_report(ws: Workspace, panel, keys, subject_spec, family, project=
         result["target_provenance"] = target_desc
         result["claim_authority"] = authority.as_dict()
         result["plan_binding"] = binding or {}
+        if _conditions_hash(project):
+            result["conditions_hash"] = _conditions_hash(project)
+            run_meta["conditions_hash"] = result["conditions_hash"]
+            result["judge_config_digest"] = pipeline.execution_panel_digest(panel)
+            run_meta["judge_config_digest"] = result["judge_config_digest"]
+            ws.write_run_meta(run_meta)
     (ws.path / "analysis.json").write_text(json.dumps({k: v for k, v in result.items() if k != "_response_rows"}))
     pkg = report.build_evidence_package(result, family, str(ws.path))
     pkg["claim_label"] = (result.get("claim_authority") or {}).get("label", pkg["conformance_level"])
@@ -1293,6 +1299,19 @@ def cmd_institution(args):
                     result = backup.create(args.path,args.destination,services_stopped=args.confirm_services_stopped)
                 else:
                     result = backup.restore(args.path,args.destination,services_stopped=args.confirm_services_stopped)
+        elif args.action in ("pdf-stage","pdf-replay"):
+            from . import pdf_source_review as pdf
+            if not args.evidence_id:
+                raise access.AccessDenied("--evidence-id required")
+            result=pdf.stage(args.path,args.evidence_id,services_stopped=args.confirm_services_stopped,confirmed=args.confirm_pdf_extraction,replay=args.action=="pdf-replay")
+        elif args.action in ("retention-preview","retention-apply"):
+            from . import institution_retention as retention
+            if args.action=="retention-preview":
+                result=retention.preview(args.path,services_stopped=args.confirm_services_stopped,as_of=args.as_of)
+            else:
+                if args.as_of is None or not args.approved_digest:
+                    raise access.AccessDenied("--as-of and --approved-digest are required")
+                result=retention.apply(args.path,args.as_of,args.approved_digest,services_stopped=args.confirm_services_stopped,confirmed=args.confirm_deletion)
         elif args.action == "account-create":
             if not args.user_id or not args.role:
                 raise access.AccessDenied("--user-id and --role are required")
@@ -1721,6 +1740,38 @@ def main(argv=None):
     pcmp.add_argument("--baseline", required=True); pcmp.add_argument("--candidate", required=True)
     pcmp.add_argument("--out"); pcmp.add_argument("--allow-environment-change", action="store_true")
     pcmp.set_defaults(func=cmd_compare)
+    px = sub.add_parser("verify-experimental-evidence", help="replay experimental research evidence offline")
+    px.add_argument("package")
+    px.add_argument("--expected-digest", help="independently communicated package digest")
+    def run_experimental_evidence(args):
+        from . import experimental_evidence
+        return experimental_evidence.cli(args)
+    px.set_defaults(func=run_experimental_evidence)
+    from . import project_experimental_cli
+    project_experimental_cli.configure(sub.add_parser("experimental-project", help="project-bound experimental research execution (offline)"))
+    pfhir = sub.add_parser("fhir-readiness", help="synthetic FHIR R4 extraction assessment and offline replay")
+    fhir_sub=pfhir.add_subparsers(dest="action",required=True)
+    q=fhir_sub.add_parser("prepare")
+    q.add_argument("--target-name",required=True)
+    q.add_argument("--target-version",required=True)
+    q=fhir_sub.add_parser("assess")
+    q.add_argument("--plan",required=True)
+    q.add_argument("--responses",required=True)
+    q=fhir_sub.add_parser("verify")
+    q.add_argument("evidence")
+    q.add_argument("--expected-digest")
+    def run_fhir(args):
+        from . import fhir_readiness
+        return fhir_readiness.cli(args)
+    pfhir.set_defaults(func=run_fhir)
+    pcd = sub.add_parser("verify-committee-dossier", help="verify frozen portable committee evidence offline")
+    pcd.add_argument("dossier")
+    pcd.add_argument("--expected-digest", help="independently communicated dossier digest")
+    pcd.add_argument("--canonical-package", action="append", default=[], help="explicit local canonical package directory (repeatable)")
+    def run_committee_dossier(args):
+        from . import committee_portable
+        return committee_portable.cli(args)
+    pcd.set_defaults(func=run_committee_dossier)
     pvp = sub.add_parser("verify-package", help="independently verify an evidence package")
     pvp.add_argument("package"); pvp.add_argument("--verbose", action="store_true")
     pvp.set_defaults(func=cmd_verify_package)
@@ -1800,7 +1851,7 @@ def main(argv=None):
     pag.set_defaults(func=cmd_agent)
 
     pin = sub.add_parser("institution", help="trusted administrator: isolated institutional browser and account provisioning")
-    pin.add_argument("action", choices=["serve","account-create","account-disable","review-assign","backup-create","backup-check","backup-restore"])
+    pin.add_argument("action", choices=["serve","account-create","account-disable","review-assign","backup-create","backup-check","backup-restore","retention-preview","retention-apply","pdf-stage","pdf-replay"])
     pin.add_argument("path", help="one organisation-owned buyer workspace")
     pin.add_argument("--user-id")
     pin.add_argument("--role", choices=["admin","operator","observer","reviewer","vendor"])
@@ -1810,6 +1861,11 @@ def main(argv=None):
     pin.add_argument("--port", type=int, default=8767)
     pin.add_argument("--destination", help="new approved local backup or restored workspace directory")
     pin.add_argument("--confirm-services-stopped", action="store_true", help="confirm gateway and all evaluation workers are stopped before backup or restore")
+    pin.add_argument("--as-of",type=int,help="approved retention preview Unix timestamp")
+    pin.add_argument("--approved-digest",help="exact retention preview digest")
+    pin.add_argument("--confirm-deletion",action="store_true",help="explicitly approve previewed maintenance deletion")
+    pin.add_argument("--evidence-id",help="registered original PDF evidence identifier")
+    pin.add_argument("--confirm-pdf-extraction",action="store_true",help="confirm isolated, approved local PDF extraction")
     pin.set_defaults(func=cmd_institution)
 
     pra = sub.add_parser(

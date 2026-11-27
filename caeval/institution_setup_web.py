@@ -16,6 +16,7 @@ def render(directory,actor):
     def upload():
         return "<label>Document <input type='file' name='document' required></label>"
     body="<p><a href='/'>Workspace</a></p><p>Operator preparation only. Do not upload patient identifiers or secrets. No model calls, clinical approvals or purchasing decisions occur here.</p>"
+    body+="<p><a href='/buyer-risk-active'>Active risk-bound assessment (if configured)</a></p>"
     body+="<section><h2>1. Register candidates</h2>"+form("vendor",text("vendor_id","Candidate ID",64)+text("name","Candidate name"),"Register candidate")+"</section>"
     vendor_options=[(v["vendor_id"],v["name"]) for v in data["vendors"]]
     for v in data["vendors"]:
@@ -24,6 +25,8 @@ def render(directory,actor):
         body+="<p><a href='/setup-download?kind=questionnaire&amp;id="+esc(vid)+"'>Download vendor questionnaire</a></p>"
         body+=form("questionnaire",upload(),"Import completed questionnaire",True,(("vendor_id",vid),))
         body+=form("document",select("kind","Evidence category",[(k,k) for k in buyer.EVIDENCE_KINDS])+text("title","Document title")+upload(),"Store evidence document",True,(("vendor_id",vid),))
+        for document in v["documents"]:
+            body+="<p>"+esc(document["title"])+" · "+esc(document["integrity"])+" · <a href='/vendor-document-review?id="+esc(document["evidence_id"])+"'>Review original source and freshness</a></p>"
         body+="</section>"
     if vendor_options:
         body+="<section><h2>2. Scientific evaluation plan</h2>"
@@ -36,6 +39,11 @@ def render(directory,actor):
             body+="<p>Invalid plan.</p></section>"
             continue
         body+="<p>"+esc(plan["target"]["name"])+" "+esc(plan["target"]["version"])+" · "+("Current definitions" if plan["current"] else "Stale definitions")+"</p>"
+        if plan["current"]:
+            body+="<p><a href='/research-buyer-coverage?plan_id="+esc(plan["id"])+"'>View related experimental research coverage</a></p>"
+        body+="<p><a href='/buyer-risk?plan_id="+esc(plan["id"])+"'>Buyer clinical risk protocol</a></p>"
+        if plan["current"]:
+            body+="<p><a href='/fhir?plan_id="+esc(plan["id"])+"'>Synthetic FHIR interoperability rehearsal</a></p>"
         for r in plan["selection"]["required_suites"]:
             body+="<p>"+esc(r["suite"])+" — "+("Runnable" if r["implemented"] else "Required, not runnable")+"</p>"
         if plan["current"] and data["packs"]:

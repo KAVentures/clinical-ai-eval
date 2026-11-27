@@ -171,7 +171,7 @@ def _dashboard(directory, actor):
             body += "<tr>" + "".join("<td>"+esc(row[k])+"</td>" for k in ("job","status","mode","n_packages")) + "</tr>"
         body += "</table>"
         if role == "admin":
-            body += "<p><a href='/audit'>Access audit</a></p>"
+            body += "<p><a href='/audit'>Access audit</a> · <a href='/retention'>Retention policies and legal holds</a></p>"
     return page("Institutional assessment workspace", body)
 
 
@@ -266,6 +266,17 @@ class InstitutionApp:
                 else:
                     self.identity.logout(self.directory,env,token)
                 return respond("303 See Other",extra=[("Location","/login"),("Set-Cookie",COOKIE+"=; Max-Age=0; Secure; HttpOnly; SameSite=Strict; Path=/")])
+            if path=="/retention" and method=="GET":
+                from . import institution_retention_web as retention_web
+                access.require(actor,"admin")
+                return respond("200 OK",retention_web.render(self.directory,actor))
+            if path=="/retention-policy" and method=="POST":
+                from . import institution_retention_web as retention_web
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                retention_web.dispatch(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/retention")])
             if path=="/audit" and method=="GET":
                 rows=access.audit(self.directory,actor)
                 body="<p><a href='/'>Workspace</a></p><table><tr><th>Sequence</th><th>Actor</th><th>Action</th><th>Object</th><th>Outcome</th></tr>"
@@ -340,6 +351,77 @@ class InstitutionApp:
                 _csrf(actor,form)
                 conversation.dispatch(self.directory,actor,path,form)
                 return respond("303 See Other",extra=[("Location","/conversation")])
+            if path=="/research-programs" and method=="GET":
+                from . import research_program_web as programs
+                q=_query(env)
+                if set(q)!={"plan_id"}:
+                    raise access.AccessDenied("select one saved plan")
+                return respond("200 OK",programs.overview(self.directory,actor,q["plan_id"]))
+            if path=="/research-program" and method=="GET":
+                from . import research_program_web as programs
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("select one frozen programme")
+                return respond("200 OK",programs.detail(self.directory,actor,q["id"]))
+            if path=="/research-program-create" and method=="POST":
+                from . import research_program_web as programs
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                identifier=programs.create(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/research-program?id="+identifier)])
+            if path=="/research-program-dossier" and method=="POST":
+                from . import research_program as programs, experimental_evidence as evidence
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if set(form)!={"id","confirm"}:
+                    raise access.AccessDenied("invalid programme dossier request")
+                payload=programs.dossier(self.directory,actor,form["id"],confirmed=form["confirm"]=="yes")
+                raw=evidence.encode(payload)
+                if len(raw)>MAX_BODY:
+                    raise access.AccessDenied("programme dossier too large")
+                return respond("200 OK",raw,extra=[("Content-Disposition",'attachment; filename="research-program-dossier.json"')],content_type="application/json; charset=utf-8")
+            if path=="/research-buyer-coverage" and method=="GET":
+                from . import research_buyer_coverage_web as coverage
+                q=_query(env)
+                if set(q)!={"plan_id"}:
+                    raise access.AccessDenied("select one saved plan")
+                return respond("200 OK",coverage.render(self.directory,actor,q["plan_id"]))
+            if path=="/research-buyer-link" and method=="POST":
+                from . import research_buyer_coverage_web as coverage
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                identifier=coverage.link(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/research-buyer-coverage?plan_id="+identifier)])
+            if path=="/research-comparisons" and method=="GET":
+                from . import research_comparison_web as comparison
+                return respond("200 OK",comparison.render(self.directory,actor))
+            if path=="/research-comparison" and method=="GET":
+                from . import research_comparison_web as comparison
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("select one comparison")
+                return respond("200 OK",comparison.detail(self.directory,actor,q["id"]))
+            if path=="/research-comparison-download" and method=="GET":
+                import json
+                from . import research_comparison as comparison
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("select one comparison")
+                payload=comparison.download(self.directory,actor,q["id"])
+                raw=json.dumps(payload,ensure_ascii=False,indent=2,allow_nan=False).encode("utf-8")
+                if len(raw)>MAX_BODY:
+                    raise access.AccessDenied("comparison export too large")
+                return respond("200 OK",raw,extra=[("Content-Disposition",'attachment; filename="research-comparison.json"')],content_type="application/json; charset=utf-8")
+            if path=="/research-comparison-create" and method=="POST":
+                from . import research_comparison_web as comparison
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                identifier=comparison.create(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/research-comparison?id="+identifier)])
             if path=="/research" and method=="GET":
                 from . import institution_research_web as studio
                 return respond("200 OK",studio.render(self.directory,actor))
@@ -360,6 +442,18 @@ class InstitutionApp:
                 if len(raw)>MAX_BODY:
                     raise access.AccessDenied("research export too large")
                 return respond("200 OK",raw,extra=[("Content-Disposition",'attachment; filename="research-export.json"')],content_type="application/json; charset=utf-8")
+            if path=="/research-replay-package" and method=="POST":
+                from . import experimental_evidence as evidence
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if set(form)!={"id","confirm"}:
+                    raise access.AccessDenied("invalid full research export request")
+                package=evidence.from_study(self.directory,actor,form["id"],confirmed=form["confirm"]=="yes")
+                raw=evidence.encode(package)
+                if len(raw)>MAX_BODY:
+                    raise access.AccessDenied("research export too large")
+                return respond("200 OK",raw,extra=[("Content-Disposition",'attachment; filename="experimental-evidence.json"')],content_type="application/json; charset=utf-8")
             if path.startswith("/research-") and method=="POST":
                 from . import institution_research_web as studio
                 action=path[len("/research-"):]
@@ -373,14 +467,102 @@ class InstitutionApp:
                     form=_form(env)
                     _csrf(actor,form)
                     studio.dispatch(self.directory,actor,action,form)
-                elif action in ("assign","attest","analyze","lock"):
-                    access.require(actor,"reviewer" if action=="lock" else "admin")
+                elif action in ("assign","attest","analyze","lock","lock-form","freeze-review-protocol"):
+                    access.require(actor,"reviewer" if action in ("lock","lock-form") else "admin")
                     form=_form(env)
                     _csrf(actor,form)
                     studio.dispatch(self.directory,actor,action,form)
                 else:
                     raise access.AccessDenied("unknown research action")
                 return respond("303 See Other",extra=[("Location","/research")])
+            if path=="/vendor-document-review" and method=="GET":
+                from . import vendor_document_review_web as documents
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("select one evidence document")
+                return respond("200 OK",documents.render(self.directory,actor,q["id"]))
+            if path=="/vendor-document-review-record" and method=="POST":
+                from . import vendor_document_review_web as documents
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                documents.dispatch(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/vendor-document-review?id="+form["id"])])
+            if path=="/buyer-risk-activation" and method=="GET":
+                from . import buyer_risk_activation_web as risk
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if set(q)!={"plan_id"}:
+                    raise access.AccessDenied("select one frozen risk plan")
+                return respond("200 OK",risk.render(self.directory,actor,q["plan_id"]))
+            if path=="/buyer-risk-active" and method=="GET":
+                from . import buyer_risk_activation_web as risk
+                access.require(actor,"admin","operator")
+                return respond("200 OK",risk.active(self.directory,actor))
+            if path=="/buyer-risk-ingest" and method=="POST":
+                from . import buyer_risk_activation_web as risk
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                risk.ingest(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/buyer-risk-active")])
+            if path in ("/buyer-risk-activation-preview","/buyer-risk-activation-freeze","/buyer-risk-bound-prepare") and method=="POST":
+                from . import buyer_risk_activation_web as risk
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/buyer-risk-activation-preview":
+                    return respond("200 OK",risk.preview(self.directory,actor,form))
+                if path=="/buyer-risk-activation-freeze":
+                    risk.freeze(self.directory,actor,form)
+                    return respond("303 See Other",extra=[("Location","/buyer-risk-active")])
+                risk.prepared(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/setup")])
+            if path in ("/buyer-risk","/buyer-risk-download") and method=="GET":
+                from . import buyer_risk_protocol as risk, buyer_risk_protocol_web as risk_web
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if set(q)!={"plan_id"}:
+                    raise access.AccessDenied("select one saved buyer plan")
+                if path=="/buyer-risk":
+                    return respond("200 OK",risk_web.render(self.directory,actor,q["plan_id"]))
+                doc=risk.view(self.directory,actor,q["plan_id"])
+                if not doc["id"]:
+                    raise access.AccessDenied("freeze risk protocol first")
+                from . import buyer_plan
+                return respond("200 OK",buyer_plan._canonical(doc),extra=[("Content-Disposition",'attachment; filename="buyer-risk-protocol.json"')],content_type="application/json; charset=utf-8")
+            if path=="/buyer-risk-freeze" and method=="POST":
+                from . import buyer_risk_protocol_web as risk_web
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                risk_web.dispatch(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/buyer-risk?plan_id="+form["plan_id"])])
+            if path in ("/fhir","/fhir-download","/fhir-report","/fhir-evidence") and method=="GET":
+                from . import institution_fhir as service, institution_fhir_web as fhir_web, buyer_plan
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if path=="/fhir" and set(q)=={"plan_id"}:
+                    return respond("200 OK",fhir_web.render(self.directory,actor,q["plan_id"]))
+                if path=="/fhir-report" and set(q)=={"id"}:
+                    return respond("200 OK",fhir_web.report(self.directory,actor,q["id"]))
+                if path=="/fhir-download" and set(q)=={"plan_id","kind"} and q["kind"] in ("exchange","response_template"):
+                    doc=service.prepare(self.directory,actor,q["plan_id"])[q["kind"]]
+                    access.event(self.directory,actor["user_id"],"synthetic-fhir-fixture-exported",q["plan_id"])
+                elif path=="/fhir-evidence" and set(q)=={"id"}:
+                    doc=service.detail(self.directory,actor,q["id"])["package"]
+                    access.event(self.directory,actor["user_id"],"synthetic-fhir-evidence-exported",q["id"])
+                else:
+                    raise access.AccessDenied("invalid synthetic FHIR request")
+                return respond("200 OK",buyer_plan._canonical(doc),extra=[("Content-Disposition",'attachment; filename="synthetic-fhir.json"')],content_type="application/json; charset=utf-8")
+            if path=="/fhir-submit" and method=="POST":
+                from . import institution_fhir_web as fhir_web
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                ident=fhir_web.submit(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/fhir-report?id="+ident)])
             if path=="/setup" and method=="GET":
                 from . import institution_setup_web as setup
                 return respond("200 OK",setup.render(self.directory,actor))
@@ -418,6 +600,27 @@ class InstitutionApp:
             if path=="/committee" and method=="GET":
                 from . import institution_committee_web as committee
                 return respond("200 OK",committee.render(self.directory,actor))
+            if path=="/committee-portable-export" and method=="POST":
+                from . import committee_portable as portable
+                form=_form(env)
+                _csrf(actor,form)
+                if not {"id","confirm"}<=set(form) or form["confirm"]!="yes":
+                    raise access.AccessDenied("explicit export approval required")
+                docs,reports=[],[]
+                for k,value in form.items():
+                    if k in ("id","confirm"):
+                        continue
+                    if value!="yes":
+                        raise access.AccessDenied("invalid selected attachment")
+                    if k.startswith("doc_"):
+                        docs.append(k[4:])
+                    elif k.startswith("report_"):
+                        reports.append(k[7:])
+                    else:
+                        raise access.AccessDenied("invalid dossier form")
+                doc=portable.export(self.directory,actor,form["id"],docs,reports,confirmed=True)
+                raw=portable.encode(doc)
+                return respond("200 OK",raw,extra=[("Content-Disposition",'attachment; filename="committee-portable-dossier.json"')],content_type="application/json; charset=utf-8")
             if path=="/committee-export" and method=="GET":
                 import json
                 from . import institution_committee as committee

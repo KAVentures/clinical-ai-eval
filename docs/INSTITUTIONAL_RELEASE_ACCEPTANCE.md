@@ -39,3 +39,7 @@ incident descriptions and worker approval hashes. It is a point-in-time
 inventory across separate stores, not a transactional deployment authorization.
 After any changed source evidence, freeze a new snapshot; old snapshots remain
 historical. Earlier snapshots without the inventory remain readable.
+
+## Experimental research wheel acceptance
+
+The CI wheel job runs `tools/research_release_rehearsal.py` using the installed clean interpreter and bundled public synthetic specifications. It exercises all four project-bound experimental modules, exact synthetic candidate outcomes, three structured independent-review form roundtrips, scientific report generation, combined offline evidence replay and individual CLI verification (including wrong expected-digest refusal). It must preserve the synthetic designation and zero canonical requirements satisfied. No external calls or clinical performance conclusions are authorized. This supplements, rather than replaces, the full source test suite and hospital-specific production acceptance.

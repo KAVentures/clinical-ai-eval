@@ -497,6 +497,10 @@ interoperability, security and production acceptance remain mandatory.
 - [Longitudinal regression monitoring](LONGITUDINAL_MONITORING.md).
 - [Scoped live agent metadata](LIVE_AGENT_BROKER.md).
 
+## Experimental clinical research studio
+
+See [Clinical research studio](CLINICAL_RESEARCH_STUDIO.md) for the browser workflows for citation grounding, scribe documentation, native decision certificates and paired robustness. These studies are separate from canonical evaluation jobs and do not elevate clinical claims.
+
 ## Completion workflows and acceptance
 
 - [Independent patient transcript review](PATIENT_TRANSCRIPT_REVIEW.md).
@@ -505,6 +509,22 @@ interoperability, security and production acceptance remain mandatory.
 - [Approved external HTTPS candidate gateway](APPROVED_HTTPS_BRIDGE.md).
 - [Institutional release acceptance runbook](INSTITUTIONAL_RELEASE_ACCEPTANCE.md).
 
-## Experimental clinical research studio
+## Portable procurement evidence
 
-See [Clinical research studio](CLINICAL_RESEARCH_STUDIO.md) for the browser workflows for citation grounding, scribe documentation, native decision certificates and paired robustness. These studies are separate from canonical evaluation jobs and do not elevate clinical claims.
+The [portable committee dossier](PORTABLE_COMMITTEE_DOSSIER.md) is a consented offline export of the exact frozen committee record. It supports administrator-selected source attachments, independent experimental evidence replay and separately supplied canonical manifest verification. Metadata and attachments remain confidential; neither byte integrity nor replay establishes clinical validity or authorizes purchase or deployment.
+
+## Vendor document source review
+
+See [source-bound document review](VENDOR_DOCUMENT_REVIEW.md) for browser-based exact-text quotations, append-only findings and declared version/freshness, reflected in frozen committee snapshots. Binary formats are not parsed by this release; source findings do not establish compliance or clinical validity.
+
+## Buyer-owned clinical risk planning
+
+Use the [buyer clinical risk protocol](BUYER_RISK_PROTOCOL.md) to freeze explicit hazard descriptions, proposed endpoints and acceptance criteria, missingness rules and governance against a saved evaluation plan. Coverage gaps remain explicit. This planning record does not activate canonical scoring or authorize execution or deployment.
+
+## Synthetic interoperability rehearsal
+
+The [synthetic FHIR readiness workflow](SYNTHETIC_FHIR_READINESS.md) tests fixed R4 observation extraction in an approved candidate test environment, with browser-based evidence capture and offline replay. It accepts no live EHR endpoint or arbitrary source record. It is not FHIR conformance certification or a clinical assessment.
+
+## Governed retention
+
+Use the [institutional retention policy and offline maintenance workflow](INSTITUTIONAL_RETENTION.md) to record versioned local retention decisions and legal holds. Only expired authentication artifacts and eligible unexported synthetic FHIR rehearsals can be deleted by this workflow. It does not support erasure of actual clinical evidence, backups or third-party copies.

@@ -94,6 +94,12 @@ def add_vendor(directory, vendor_id: str, subject_spec: dict, blinded_label: str
     state = load(directory)
     if state["status"] != "open":
         raise ProcurementError(f"procurement is {state['status']}; cannot add vendors")
+    activation=state["conditions"].get("risk_activation")
+    if activation is not None:
+        from . import buyer_risk_activation as risk
+        roster=risk.candidates(activation)
+        if state["results"] or vendor_id not in roster or subject_spec!=roster[vendor_id]["target"]:
+            raise ProcurementError("risk-bound study admits only the exact frozen candidate roster before results")
     if any(v["vendor_id"] == vendor_id for v in state["vendors"]):
         raise ProcurementError(f"vendor {vendor_id!r} already registered")
     label = blinded_label or f"Product {chr(ord('A') + len(state['vendors']))}"
@@ -134,6 +140,13 @@ def ingest_package(directory, vendor_id: str, workspace) -> dict:
         raise ProcurementError(f"vendor {vendor_id!r} is not registered")
 
     ws = _Path(workspace)
+    risk_bound=state["conditions"].get("risk_activation") is not None
+    checked=None
+    if risk_bound:
+        from . import buyer_research
+        if ws.is_symlink() or not ws.is_dir():
+            raise ProcurementError("risk-bound evidence must be a regular package directory")
+        checked=buyer_research._preflight(ws)
     verdict = manifest_mod.verify_manifest(ws).get("verdict")
     if verdict != "VALID":
         raise ProcurementError(
@@ -141,7 +154,11 @@ def ingest_package(directory, vendor_id: str, workspace) -> dict:
             f"A package whose artifacts do not match its manifest has been modified "
             f"since it was produced and cannot enter a comparison.")
 
-    analysis = _json.loads((ws / "analysis.json").read_text())
+    def artifact(key, filename):
+        if checked is not None:
+            return buyer_research.verified_bytes(ws,checked,key).decode("utf-8")
+        return (ws/filename).read_text()
+    analysis = _json.loads(artifact("analysis","analysis.json"))
     recorded = analysis.get("claim_authority") or {}
     if not recorded:
         raise ProcurementError(f"vendor {vendor_id!r}: package records no claim authority")
@@ -156,11 +173,10 @@ def ingest_package(directory, vendor_id: str, workspace) -> dict:
             f"{rederived.effective_claim!r}. Refusing a package whose claim has been "
             f"edited away from what it earned.")
 
-    cells = [_json.loads(l) for l in (ws / "results.jsonl").read_text().splitlines()
-             if l.strip()]
-    man = _json.loads((ws / manifest_mod.MANIFEST_FILE).read_text())
-    provenance = _json.loads((ws / "provenance.json").read_text())
-    run_meta = _json.loads((ws / "run_meta.json").read_text())
+    cells = [_json.loads(l) for l in artifact("results","results.jsonl").splitlines() if l.strip()]
+    man = checked if checked is not None else _json.loads((ws / manifest_mod.MANIFEST_FILE).read_text())
+    provenance = _json.loads(artifact("provenance","provenance.json"))
+    run_meta = _json.loads(artifact("run_meta","run_meta.json"))
     definitions = man.get("definitions") or {}
     family_id = man.get("family_id")
     if not family_id or analysis.get("family_id") != family_id:
@@ -197,6 +213,19 @@ def ingest_package(directory, vendor_id: str, workspace) -> dict:
         "package_digest": man.get("manifest_hash"),
         "verify_verdict": verdict,
     }
+    if checked is not None:
+        from . import buyer_risk_activation as activation
+        if analysis.get("conditions_hash")!=state["conditions_hash"] or run_meta.get("conditions_hash")!=state["conditions_hash"]:
+            raise ProcurementError("risk-bound package did not preserve exact conditions in both artifacts")
+        if not analysis.get("judge_config_digest") or analysis["judge_config_digest"]!=run_meta.get("judge_config_digest"):
+            raise ProcurementError("risk-bound evaluator configuration digest missing or inconsistent")
+        environment["judge_config_digest"]=analysis["judge_config_digest"]
+        bound=_json.loads(buyer_research.verified_bytes(ws,checked,"plan_binding"))
+        cells=activation.check_package(state,vendor_id,family_id,environment,bound,cells)
+        if buyer_research._preflight(ws)!=checked or manifest_mod.verify_manifest(ws)["verdict"]!=manifest_mod.VALID:
+            raise ProcurementError("package changed during risk verification")
+        if load(directory)!=state:
+            raise ProcurementError("procurement study changed during package verification")
     return _record_result(directory, vendor_id, analysis["family_id"], cells, environment,
                           package=dict(environment,
                                        conformance=analysis.get("conformance_level"),
@@ -226,6 +255,8 @@ def _record_result(directory, vendor_id: str, family_id: str, cells: list,
         raise ProcurementError(f"vendor {vendor_id!r} is not registered")
     if family_id not in state["conditions"]["families"]:
         raise ProcurementError(f"family {family_id!r} is outside the frozen procurement")
+    if state["conditions"].get("risk_activation") is not None and not package:
+        raise ProcurementError("risk-bound study requires verified evidence package ingestion")
     existing = state["results"].get(vendor_id, {}).get(family_id)
     if existing and existing.get("ingestion") == "verified_package":
         # An already observed vendor result must not be silently replaced with
@@ -277,7 +308,11 @@ def compare(directory, family_id: str) -> dict:
                         "cells": res["cells"],
                         "environment": res["environment"],
                         "family_maturity": "experimental"})
-    if not entries:
+    risk_bound=state["conditions"].get("risk_activation")
+    if risk_bound is not None:
+        from . import buyer_risk_activation as activation
+        activation._check_conditions(state,risk_bound)
+    if not entries and risk_bound is None:
         raise ProcurementError(f"no vendor results recorded for family {family_id!r}")
     hazards = [h for h in state["conditions"]["hazards"]
                if h.get("family", family_id) == family_id]
@@ -305,6 +340,29 @@ def compare(directory, family_id: str) -> dict:
     out["vendors_without_results"] = sorted(
         v["blinded_label"] for v in state["vendors"]
         if family_id not in state["results"].get(v["vendor_id"], {}))
+    if state["conditions"].get("risk_activation") is not None and out["vendors_without_results"]:
+        out["comparability"]["status"]=procurement.INCOMPARABLE
+        out["comparability"]["reasons"].append("Frozen candidate roster has missing verified results.")
+        out["comparability"]["note"]="Incomplete candidate roster; measured rates are descriptive only."
+        out["claim_authority"]["reason"]+=" Frozen candidate coverage is incomplete."
+        expected=len(state["conditions"]["risk_activation"]["cell_inventory"][family_id])
+        for hazard in out["per_hazard"]:
+            for row in hazard["products"]:
+                if row["status"] in ("MEETS","DOES_NOT_MEET"):
+                    row["standalone_threshold_status"]=row["status"]
+                    row["status"]="INCONCLUSIVE"
+                    row["meets_threshold"]=None
+                    row["note"]="Standalone threshold estimate only; frozen candidate roster incomplete."
+            for label in out["vendors_without_results"]:
+                hazard["products"].append({"product_id":label,"hazard_id":hazard["hazard_id"],
+                    "metric":hazard["acceptance_criterion"]["metric"],"rate":None,"n":0,
+                    "n_total":expected,"n_missing":expected,"ci":None,"meets_threshold":None,
+                    "status":"NO_EVIDENCE","note":"No verified result for this frozen candidate."})
+            hazard["meets"]=[]
+            hazard["does_not_meet"]=[]
+            hazard["no_evidence"]=sorted(r["product_id"] for r in hazard["products"] if r["status"]=="NO_EVIDENCE")
+            hazard["inconclusive"]=sorted(r["product_id"] for r in hazard["products"] if r["status"]=="INCONCLUSIVE")
+        out["products"]=sorted(v["blinded_label"] for v in state["vendors"])
     return out
 
 

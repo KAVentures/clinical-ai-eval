@@ -77,11 +77,16 @@ def _package(root, vendor, family, item):
 def _comparison(root, ids):
     directory=root/"assessment"
     state_file=directory/pw.STATE_FILE
-    if not state_file.exists():
-        return {"status":"not_configured","families":[],"gaps":["No frozen clinical procurement study."]}
     if directory.is_symlink() or state_file.is_symlink():
         raise access.AccessDenied("invalid procurement state path")
-    original=pw.load(directory)
+    original=pw.load(directory) if state_file.exists() else None
+    from . import buyer_risk_activation as activation
+    with access.db(root) as conn:
+        binding=activation.approval(conn,original)
+    if original is None:
+        return {"status":"not_configured","families":[],"gaps":["No frozen clinical procurement study."]}
+    if binding is not None and not set(activation.candidates(binding))<=ids:
+        raise access.AccessDenied("frozen risk candidate missing from buyer register")
     rebuilt=copy.deepcopy(original)
     rebuilt["vendors"]=[v for v in original["vendors"] if v["vendor_id"] in ids]
     rebuilt["results"]={}
@@ -141,6 +146,8 @@ def _comparison(root, ids):
                 "verified_packages":verified,"comparison":cmp})
     if pw.load(directory)!=original:
         raise access.AccessDenied("frozen study changed during reconstruction")
+    with access.db(root) as conn:
+        activation.approval(conn,original)
     return {"status":"configured","conditions_hash":original["conditions_hash"],
             "families":families,"gaps":gaps}
 
@@ -151,9 +158,13 @@ def overview(directory,actor):
     root=Path(directory).resolve()
     source=buyer.load(root)
     state=buyer.status(root)
+    from . import vendor_document_review
+    source_reviews=vendor_document_review.committee_inventory(root,actor)
     vendors=[]
     for v in state["vendors"]:
         docs=[{k:d[k] for k in ("evidence_id","kind","title","sha256","integrity","review_status")} for d in v["documents"]]
+        for doc in docs:
+            doc.update(source_reviews.get(doc["evidence_id"],{"source_review_status":"unavailable","document_freshness":"unavailable","source_review_digest":None,"source_review_count":0}))
         disclosures=[{k:q.get(k) for k in ("evidence_id","integrity","schema_status","product_version_self_reported","counts")} for q in v["questionnaires"]]
         vendors.append({"vendor_id":v["vendor_id"],"name":v["name"],"documents":docs,
                         "missing_evidence_kinds":v["missing_evidence_kinds"],
@@ -162,6 +173,10 @@ def overview(directory,actor):
     comparison=_comparison(root,ids)
     from . import institution_dossier
     inventory=institution_dossier.collect(root,actor,ids)
+    from . import buyer_risk_protocol
+    inventory["buyer_risk_protocols"]=buyer_risk_protocol.committee_inventory(root,actor)
+    from . import institution_fhir
+    inventory["synthetic_fhir_assessments"]=institution_fhir.inventory(root,actor)
     if buyer.load(root)!=source:
         raise access.AccessDenied("buyer register changed during evidence reconstruction")
     return {"schema":"institution-committee-evidence/1","project_name":state["project_name"],
