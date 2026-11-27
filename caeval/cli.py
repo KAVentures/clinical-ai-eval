@@ -1730,6 +1730,14 @@ def main(argv=None):
     px.set_defaults(func=run_experimental_evidence)
     from . import project_experimental_cli
     project_experimental_cli.configure(sub.add_parser("experimental-project", help="project-bound experimental research execution (offline)"))
+    pcd = sub.add_parser("verify-committee-dossier", help="verify frozen portable committee evidence offline")
+    pcd.add_argument("dossier")
+    pcd.add_argument("--expected-digest", help="independently communicated dossier digest")
+    pcd.add_argument("--canonical-package", action="append", default=[], help="explicit local canonical package directory (repeatable)")
+    def run_committee_dossier(args):
+        from . import committee_portable
+        return committee_portable.cli(args)
+    pcd.set_defaults(func=run_committee_dossier)
     pvp = sub.add_parser("verify-package", help="independently verify an evidence package")
     pvp.add_argument("package"); pvp.add_argument("--verbose", action="store_true")
     pvp.set_defaults(func=cmd_verify_package)

@@ -508,3 +508,7 @@ See [Clinical research studio](CLINICAL_RESEARCH_STUDIO.md) for the browser work
 - [Institutional escalation inbox](INSTITUTIONAL_ESCALATION.md).
 - [Approved external HTTPS candidate gateway](APPROVED_HTTPS_BRIDGE.md).
 - [Institutional release acceptance runbook](INSTITUTIONAL_RELEASE_ACCEPTANCE.md).
+
+## Portable procurement evidence
+
+The [portable committee dossier](PORTABLE_COMMITTEE_DOSSIER.md) is a consented offline export of the exact frozen committee record. It supports administrator-selected source attachments, independent experimental evidence replay and separately supplied canonical manifest verification. Metadata and attachments remain confidential; neither byte integrity nor replay establishes clinical validity or authorizes purchase or deployment.

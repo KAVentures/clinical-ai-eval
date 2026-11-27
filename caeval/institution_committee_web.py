@@ -117,6 +117,20 @@ def render_snapshot(directory,actor,identifier):
     body="<p><a href='/committee'>Current evidence</a></p><p>Snapshot "+esc(identifier)+"</p>"
     body+="<p>"+("Matches current evidence." if saved["current"] else "Historical snapshot — current evidence has changed.")+"</p>"
     body+="<p><a href='/committee-export?id="+esc(identifier)+"'>Download frozen evidence JSON</a></p>"
+    from . import committee_portable as portable
+    inventory=portable.choices(saved)
+    body+="<section><h2>Portable committee dossier</h2><p>Independent offline verification of the frozen record. No raw clinical material is included by default. Canonical packages remain separately verified references.</p>"
+    body+="<form method='post' action='/committee-portable-export'>"+_hidden("csrf",actor["csrf"])+_hidden("id",identifier)
+    if actor["role"]=="admin":
+        body+="<details><summary>Optional sensitive evidence attachments (administrator only)</summary><p>Only select material specifically approved for the recipient. Attached experimental evidence may include clinical inputs, reviewer identities and ratings. Select at most 16 attachments within the 8 MiB limit.</p>"
+        for key,ref in sorted(inventory["documents"].items()):
+            if ref["eligible"]:
+                body+="<label><input type='checkbox' name='doc_"+esc(key)+"' value='yes'> Vendor document "+esc(ref["vendor_id"])+" · "+esc(ref["kind"])+" · "+esc(key)+"</label>"
+        for key,ref in sorted(inventory["experimental_reports"].items()):
+            if ref["eligible"]:
+                body+="<label><input type='checkbox' name='report_"+esc(key)+"' value='yes'> Full research replay package "+esc(ref["vendor_id"])+" · "+esc(ref["kind"])+" · "+esc(key)+"</label>"
+        body+="</details>"
+    body+="<label><input type='checkbox' name='confirm' value='yes' required> I approve sharing this confidential frozen committee record and any explicitly selected evidence.</label><button>Download portable dossier</button></form><p>Communicate the dossier digest through an independently trusted channel; do not interpret verification as clinical validation.</p></section>"
     for row in saved["dispositions"]:
         body+="<section><p>"+esc(row["created_at"])+" · "+esc(row["disposition"])+"</p><p>"+esc(row["rationale"])+"</p></section>"
     if saved["current"] and actor["role"]=="admin":
