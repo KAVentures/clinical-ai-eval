@@ -524,3 +524,7 @@ Use the [buyer clinical risk protocol](BUYER_RISK_PROTOCOL.md) to freeze explici
 ## Synthetic interoperability rehearsal
 
 The [synthetic FHIR readiness workflow](SYNTHETIC_FHIR_READINESS.md) tests fixed R4 observation extraction in an approved candidate test environment, with browser-based evidence capture and offline replay. It accepts no live EHR endpoint or arbitrary source record. It is not FHIR conformance certification or a clinical assessment.
+
+## Governed retention
+
+Use the [institutional retention policy and offline maintenance workflow](INSTITUTIONAL_RETENTION.md) to record versioned local retention decisions and legal holds. Only expired authentication artifacts and eligible unexported synthetic FHIR rehearsals can be deleted by this workflow. It does not support erasure of actual clinical evidence, backups or third-party copies.

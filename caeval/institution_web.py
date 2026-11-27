@@ -171,7 +171,7 @@ def _dashboard(directory, actor):
             body += "<tr>" + "".join("<td>"+esc(row[k])+"</td>" for k in ("job","status","mode","n_packages")) + "</tr>"
         body += "</table>"
         if role == "admin":
-            body += "<p><a href='/audit'>Access audit</a></p>"
+            body += "<p><a href='/audit'>Access audit</a> · <a href='/retention'>Retention policies and legal holds</a></p>"
     return page("Institutional assessment workspace", body)
 
 
@@ -266,6 +266,17 @@ class InstitutionApp:
                 else:
                     self.identity.logout(self.directory,env,token)
                 return respond("303 See Other",extra=[("Location","/login"),("Set-Cookie",COOKIE+"=; Max-Age=0; Secure; HttpOnly; SameSite=Strict; Path=/")])
+            if path=="/retention" and method=="GET":
+                from . import institution_retention_web as retention_web
+                access.require(actor,"admin")
+                return respond("200 OK",retention_web.render(self.directory,actor))
+            if path=="/retention-policy" and method=="POST":
+                from . import institution_retention_web as retention_web
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                retention_web.dispatch(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/retention")])
             if path=="/audit" and method=="GET":
                 rows=access.audit(self.directory,actor)
                 body="<p><a href='/'>Workspace</a></p><table><tr><th>Sequence</th><th>Actor</th><th>Action</th><th>Object</th><th>Outcome</th></tr>"

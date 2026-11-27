@@ -1297,6 +1297,14 @@ def cmd_institution(args):
                     result = backup.create(args.path,args.destination,services_stopped=args.confirm_services_stopped)
                 else:
                     result = backup.restore(args.path,args.destination,services_stopped=args.confirm_services_stopped)
+        elif args.action in ("retention-preview","retention-apply"):
+            from . import institution_retention as retention
+            if args.action=="retention-preview":
+                result=retention.preview(args.path,services_stopped=args.confirm_services_stopped,as_of=args.as_of)
+            else:
+                if args.as_of is None or not args.approved_digest:
+                    raise access.AccessDenied("--as-of and --approved-digest are required")
+                result=retention.apply(args.path,args.as_of,args.approved_digest,services_stopped=args.confirm_services_stopped,confirmed=args.confirm_deletion)
         elif args.action == "account-create":
             if not args.user_id or not args.role:
                 raise access.AccessDenied("--user-id and --role are required")
@@ -1836,7 +1844,7 @@ def main(argv=None):
     pag.set_defaults(func=cmd_agent)
 
     pin = sub.add_parser("institution", help="trusted administrator: isolated institutional browser and account provisioning")
-    pin.add_argument("action", choices=["serve","account-create","account-disable","review-assign","backup-create","backup-check","backup-restore"])
+    pin.add_argument("action", choices=["serve","account-create","account-disable","review-assign","backup-create","backup-check","backup-restore","retention-preview","retention-apply"])
     pin.add_argument("path", help="one organisation-owned buyer workspace")
     pin.add_argument("--user-id")
     pin.add_argument("--role", choices=["admin","operator","observer","reviewer","vendor"])
@@ -1846,6 +1854,9 @@ def main(argv=None):
     pin.add_argument("--port", type=int, default=8767)
     pin.add_argument("--destination", help="new approved local backup or restored workspace directory")
     pin.add_argument("--confirm-services-stopped", action="store_true", help="confirm gateway and all evaluation workers are stopped before backup or restore")
+    pin.add_argument("--as-of",type=int,help="approved retention preview Unix timestamp")
+    pin.add_argument("--approved-digest",help="exact retention preview digest")
+    pin.add_argument("--confirm-deletion",action="store_true",help="explicitly approve previewed maintenance deletion")
     pin.set_defaults(func=cmd_institution)
 
     pra = sub.add_parser(
