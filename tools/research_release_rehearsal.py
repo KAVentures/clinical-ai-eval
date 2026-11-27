@@ -115,8 +115,16 @@ def run(root):
         require(json.loads(result.stdout)["plan_hash"]==plans[kind]["plan_hash"],"native CLI plan hash differs")
         require(json.loads(dest.read_text(encoding="utf-8"))==plans[kind],"native CLI plan differs")
         before=dest.read_bytes()
-        refused=subprocess.run(command,cwd=root,env=env,capture_output=True,text=True,timeout=120)
-        require(refused.returncode!=0 and dest.read_bytes()==before,"native CLI replaced immutable plan or lost failure status")
+        replay=subprocess.run(command,cwd=root,env=env,capture_output=True,text=True,timeout=120)
+        require(replay.returncode==0 and dest.read_bytes()==before,
+                "native CLI did not preserve identical immutable plan on idempotent replay")
+        require(json.loads(replay.stdout)["plan_hash"]==plans[kind]["plan_hash"],"native CLI replay hash differs")
+        conflict=write(root/(kind+"-cli-conflict.json"),{"sentinel":"existing nonmatching record"})
+        conflict_before=conflict.read_bytes()
+        refused=subprocess.run(command[:-2]+["--out",str(conflict)],cwd=root,env=env,
+                               capture_output=True,text=True,timeout=120)
+        require(refused.returncode!=0 and conflict.read_bytes()==conflict_before,
+                "native CLI overwrote a conflicting immutable destination or lost failure status")
         bad=write(root/(kind+"-invalid-spec.json"),{})
         bad_dest=root/(kind+"-invalid-plan.json")
         refused=subprocess.run(command[:-4]+["--spec",str(bad),"--out",str(bad_dest)],
