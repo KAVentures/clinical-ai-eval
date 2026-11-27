@@ -110,8 +110,12 @@ def _setup_upload(env, allowed=("csrf","vendor_id","kind","title","document")):
 
 
 def _query(env):
+    raw = env.get("QUERY_STRING", "")
+    # Python 3.9 strict parsing rejects an empty query; no query is valid.
+    if raw == "":
+        return {}
     try:
-        values = urllib.parse.parse_qs(env.get("QUERY_STRING", ""), max_num_fields=4,
+        values = urllib.parse.parse_qs(raw, max_num_fields=4,
                                       keep_blank_values=True, strict_parsing=True)
         if any(len(v) != 1 for v in values.values()):
             raise ValueError()
