@@ -19,7 +19,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import adapters, buyer_agent as buyer, buyer_manual as manual, buyer_plan
+from . import adapters, buyer_agent as buyer, buyer_manual as manual, buyer_plan, candidate_protocol
 
 MAX_CONNECTOR_BYTES = 65536
 MAX_REPLY_BYTES = 256 * 1024
@@ -92,18 +92,21 @@ def _config(directory, connector_id):
     if len(raw)>MAX_CONNECTOR_BYTES:
         raise buyer.BuyerError("connector configuration exceeds limit")
     config=manual._parse(raw)
-    if not isinstance(config,dict) or set(config)!={"vendor_id","target_name","target_version","url",
-            "prompt_field","answer_path","headers","timeout_seconds"}:
+    common={"vendor_id","target_name","target_version","url","headers","timeout_seconds"}
+    if not isinstance(config,dict) or set(config) not in (common|{"prompt_field","answer_path"},common|{"protocol"}):
         raise buyer.BuyerError("invalid connector configuration fields")
+    if "protocol" in config and config["protocol"]!=candidate_protocol.PROTOCOL:
+        raise buyer.BuyerError("unsupported candidate protocol")
     manual._identifier(config["vendor_id"])
     for k in ("target_name","target_version"):
         if not isinstance(config[k],str) or not config[k].strip() or len(config[k])>300:
             raise buyer.BuyerError("explicit target name and version required")
     _endpoint(config["url"])
-    if not isinstance(config["prompt_field"],str) or not FIELD.fullmatch(config["prompt_field"]):
-        raise buyer.BuyerError("invalid prompt field")
-    if not isinstance(config["answer_path"],str) or len(config["answer_path"])>200 or not PATH.fullmatch(config["answer_path"]):
-        raise buyer.BuyerError("invalid answer path")
+    if "protocol" not in config:
+        if not isinstance(config["prompt_field"],str) or not FIELD.fullmatch(config["prompt_field"]):
+            raise buyer.BuyerError("invalid prompt field")
+        if not isinstance(config["answer_path"],str) or len(config["answer_path"])>200 or not PATH.fullmatch(config["answer_path"]):
+            raise buyer.BuyerError("invalid answer path")
     headers=config["headers"]
     if not isinstance(headers,dict) or set(headers)-{"Authorization","X-API-Key"}:
         raise buyer.BuyerError("only approved credential headers accepted")
@@ -129,7 +132,8 @@ def connectors(directory):
             continue
         result.append({"connector_id":path.stem,"vendor_id":cfg["vendor_id"],
                        "target_name":cfg["target_name"],"target_version":cfg["target_version"],
-                       "scope":"literal_loopback_only"})
+                       "scope":"literal_loopback_only",
+                       "protocol":cfg.get("protocol","custom-json")})
     return result
 
 
@@ -215,14 +219,25 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 def _call(cfg,prompt,headers):
     # No proxy, DNS lookup, redirects, or hidden case metadata.
     opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),_NoRedirect())
+    standard=cfg.get("protocol")==candidate_protocol.PROTOCOL
+    body=(candidate_protocol.request({"name":cfg["target_name"],"version":cfg["target_version"]},prompt)
+          if standard else {cfg["prompt_field"]:prompt})
     req=urllib.request.Request(_endpoint(cfg["url"]),method="POST",
-            data=json.dumps({cfg["prompt_field"]:prompt},ensure_ascii=False).encode("utf-8"),
+            data=json.dumps(body,ensure_ascii=False,allow_nan=False).encode("utf-8"),
             headers={"Content-Type":"application/json",**headers})
     with opener.open(req,timeout=cfg["timeout_seconds"]) as response:
+        if standard and (response.status!=200 or response.headers.get_content_type()!="application/json"):
+            raise adapters.AdapterError("candidate protocol requires HTTP 200 JSON response")
         raw=response.read(MAX_REPLY_BYTES+1)
     if len(raw)>MAX_REPLY_BYTES:
         raise adapters.AdapterError("candidate response too large")
-    value=adapters.resolve_answer_path(json.loads(raw.decode("utf-8")),cfg["answer_path"])
+    if standard:
+        parsed=candidate_protocol.parse_response(body,raw)
+        if parsed["status"]!="complete":
+            raise adapters.AdapterError("candidate explicitly unavailable")
+        value=parsed["answer"]
+    else:
+        value=adapters.resolve_answer_path(json.loads(raw.decode("utf-8")),cfg["answer_path"])
     if not isinstance(value,str) or not value.strip() or len(value.encode("utf-8"))>MAX_ANSWER_BYTES:
         raise adapters.AdapterError("empty or oversized candidate response")
     return value
