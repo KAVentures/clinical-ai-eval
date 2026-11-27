@@ -30,7 +30,7 @@ def _fail(message):
     raise access.AccessDenied(message)
 
 
-def _compile(directory,conn,plan_id,pack_id,panel_id,mappings):
+def _compile(directory,conn,plan_id,pack_id,panel_id,mappings,additional_plans=()):
     risk._schema(conn)
     row=conn.execute("SELECT * FROM buyer_risk_protocols WHERE plan_id=?",(manual._identifier(plan_id,digest=True),)).fetchone()
     if not row:
@@ -71,16 +71,57 @@ def _compile(directory,conn,plan_id,pack_id,panel_id,mappings):
         "unmapped_hazards":sorted(set(hazards)-set(mappings)),
         "required_but_not_run":sorted(s["suite"] for s in p["coverage"] if not s["canonical_runnable"]),
         "denominator":DENOMINATOR,"decision_grade":False,"limitations":LIMITATIONS[:]}
+    if not isinstance(additional_plans,(tuple,list)) or len(additional_plans)>7 or len(set(additional_plans))!=len(additional_plans) or plan_id in additional_plans:
+        _fail("select at most seven distinct additional candidate plans")
+    if additional_plans:
+        from . import research_buyer_coverage as bridge
+        primary=bridge._buyer_plan(directory,plan_id)
+        candidates={p["vendor_id"]:{"plan_id":plan_id,"target":p["target"]}}
+        # A different target version may be compared, but not a different
+        # intended use, clinical audience, intake or generated prompt inventory.
+        for ident in sorted(additional_plans):
+            other=bridge._buyer_plan(directory,ident)
+            if (other["vendor_id"] in candidates or other["buyer_scope"]!=primary["buyer_scope"]
+                    or other["plan"]["target_profile"]!=primary["plan"]["target_profile"]
+                    or other["plan"]["intake"]!=primary["plan"]["intake"]
+                    or other["plan"]["selection"]!=primary["plan"]["selection"]
+                    or other["family_definition_hashes"]!=primary["family_definition_hashes"]
+                    or other["selection_rules_hash"]!=primary["selection_rules_hash"]):
+                _fail("candidate plan differs in scope, intake, selected families or definitions")
+            candidate_exchange=manual._build(directory,ident,pack_id)
+            if (candidate_exchange["pack_content_hash"]!=exchange["pack_content_hash"]
+                    or candidate_exchange["family_ids"]!=exchange["family_ids"]
+                    or candidate_exchange["slots"]!=exchange["slots"]):
+                _fail("candidate prompt or case inventory differs")
+            target={k:other["plan"]["target"][k] for k in ("name","version")}
+            if any(entry["target"]==target for entry in candidates.values()):
+                _fail("distinct candidate target identities required")
+            candidates[other["vendor_id"]]={"plan_id":ident,"target":target}
+        material["candidates"]=candidates
+        material["additional_plans"]=sorted(additional_plans)
+        material["prompt_inventory_digest"]=buyer_plan._digest(exchange["slots"])
     return {**material,"digest":buyer_plan._digest(material)}
 
 
-def preview(directory,actor,plan_id,pack_id,panel_id,mappings):
+def candidates(binding):
+    """Legacy single-candidate receipts retain their original digest/schema."""
+    return binding.get("candidates",{binding["vendor_id"]:{"plan_id":binding["plan_id"],"target":binding["target"]}})
+
+
+def roster_matches(state,binding):
+    expected=candidates(binding)
+    rows=state["vendors"]
+    return (len(rows)==len(expected) and {r["vendor_id"] for r in rows}==set(expected)
+            and all(r["subject_spec"]==expected[r["vendor_id"]]["target"] for r in rows))
+
+
+def preview(directory,actor,plan_id,pack_id,panel_id,mappings,*,additional_plans=()):
     with access.db(directory) as conn:
         setup._actor(conn,actor)
-        return _compile(directory,conn,plan_id,pack_id,panel_id,mappings)
+        return _compile(directory,conn,plan_id,pack_id,panel_id,mappings,additional_plans)
 
 
-def activate(directory,actor,plan_id,pack_id,panel_id,mappings,approved_digest,*,confirmed=False):
+def activate(directory,actor,plan_id,pack_id,panel_id,mappings,approved_digest,*,confirmed=False,additional_plans=()):
     if confirmed is not True:
         _fail("explicit endpoint and denominator approval required")
     with access.db(directory) as conn:
@@ -88,7 +129,7 @@ def activate(directory,actor,plan_id,pack_id,panel_id,mappings,approved_digest,*
         access.require(actor,"admin")
         risk._schema(conn)
         conn.execute("BEGIN IMMEDIATE")
-        binding=_compile(directory,conn,plan_id,pack_id,panel_id,mappings)
+        binding=_compile(directory,conn,plan_id,pack_id,panel_id,mappings,additional_plans)
         if approved_digest!=binding["digest"]:
             _fail("approve the exact compiled conditions digest")
         root=buyer._root(directory)
@@ -106,7 +147,10 @@ def activate(directory,actor,plan_id,pack_id,panel_id,mappings,approved_digest,*
             state["conditions"]["risk_activation"]=binding
             state["conditions_hash"]=pw.conditions_hash(state["conditions"])
             pw.save(tmp,state)
-            state=pw.add_vendor(tmp,binding["vendor_id"],binding["target"],"Product A")
+            for i,(vid,entry) in enumerate(sorted(candidates(binding).items())):
+                state=pw.add_vendor(tmp,vid,entry["target"],"Product "+chr(ord("A")+i))
+            if not roster_matches(state,binding):
+                _fail("candidate roster not fully registered")
             formal._publish_once(dest/pw.STATE_FILE,state)
         access._audit(conn,actor["user_id"],"buyer-risk-conditions-activated",binding["digest"])
         return {"conditions_hash":state["conditions_hash"],"binding":binding,"decision_grade":False}
@@ -123,8 +167,8 @@ def check(directory,plan_id,pack_hash,panel_id,raw_panel):
     if not binding:
         _fail("risk-bound conditions are not activated")
     with access.db(directory) as conn:
-        expected=_compile(directory,conn,plan_id,binding["pack_id"],panel_id,binding["mappings"])
-    if (binding!=expected or binding["plan_id"]!=plan_id or binding["pack_content_hash"]!=pack_hash
+        expected=_compile(directory,conn,binding["plan_id"],binding["pack_id"],panel_id,binding["mappings"],binding.get("additional_plans",[]))
+    if (binding!=expected or plan_id not in {v["plan_id"] for v in candidates(binding).values()} or binding["pack_content_hash"]!=pack_hash
             or binding["panel_file_sha256"]!=hashlib.sha256(raw_panel).hexdigest()):
         _fail("prepared inputs differ from activated conditions")
     _check_conditions(state,binding)
@@ -137,7 +181,7 @@ def _check_conditions(state,b):
             state["conditions"]["families"]!=b["families"] or
             state["conditions"]["hazards"]!=b["hazards"] or
             state["conditions"]["case_pack"]["content_hash"]!=b["pack_content_hash"] or
-            state["conditions"]["panel_config"]!="approved-panel:"+b["panel_id"]):
+            state["conditions"]["panel_config"]!="approved-panel:"+b["panel_id"] or not roster_matches(state,b)):
         _fail("risk activation conditions changed")
 
 
@@ -147,9 +191,11 @@ def check_package(state,vendor_id,family,environment,plan_binding,cells):
     if b is None:
         return cells
     _check_conditions(state,b)
-    if (vendor_id!=b["vendor_id"] or family not in b["families"] or
-            plan_binding.get("target_name")!=b["target"]["name"] or
-            plan_binding.get("target_version")!=b["target"]["version"] or
+    candidate=candidates(b).get(vendor_id)
+    if (candidate is None or family not in b["families"] or
+            environment.get("conditions_hash")!=state["conditions_hash"] or
+            plan_binding.get("target_name")!=candidate["target"]["name"] or
+            plan_binding.get("target_version")!=candidate["target"]["version"] or
             plan_binding.get("family_id")!=family or
             plan_binding.get("case_pack_hash")!=b["pack_content_hash"] or
             environment.get("judge_panel_hash")!=b["judge_panel_hash"] or

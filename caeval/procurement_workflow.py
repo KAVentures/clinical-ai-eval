@@ -95,8 +95,11 @@ def add_vendor(directory, vendor_id: str, subject_spec: dict, blinded_label: str
     if state["status"] != "open":
         raise ProcurementError(f"procurement is {state['status']}; cannot add vendors")
     activation=state["conditions"].get("risk_activation")
-    if activation is not None and (state["vendors"] or vendor_id!=activation["vendor_id"] or subject_spec!=activation["target"]):
-        raise ProcurementError("risk-bound study admits only the exact registered candidate")
+    if activation is not None:
+        from . import buyer_risk_activation as risk
+        roster=risk.candidates(activation)
+        if state["results"] or vendor_id not in roster or subject_spec!=roster[vendor_id]["target"]:
+            raise ProcurementError("risk-bound study admits only the exact frozen candidate roster before results")
     if any(v["vendor_id"] == vendor_id for v in state["vendors"]):
         raise ProcurementError(f"vendor {vendor_id!r} already registered")
     label = blinded_label or f"Product {chr(ord('A') + len(state['vendors']))}"
@@ -137,6 +140,13 @@ def ingest_package(directory, vendor_id: str, workspace) -> dict:
         raise ProcurementError(f"vendor {vendor_id!r} is not registered")
 
     ws = _Path(workspace)
+    risk_bound=state["conditions"].get("risk_activation") is not None
+    checked=None
+    if risk_bound:
+        from . import buyer_research
+        if ws.is_symlink() or not ws.is_dir():
+            raise ProcurementError("risk-bound evidence must be a regular package directory")
+        checked=buyer_research._preflight(ws)
     verdict = manifest_mod.verify_manifest(ws).get("verdict")
     if verdict != "VALID":
         raise ProcurementError(
@@ -144,7 +154,11 @@ def ingest_package(directory, vendor_id: str, workspace) -> dict:
             f"A package whose artifacts do not match its manifest has been modified "
             f"since it was produced and cannot enter a comparison.")
 
-    analysis = _json.loads((ws / "analysis.json").read_text())
+    def artifact(key, filename):
+        if checked is not None:
+            return buyer_research.verified_bytes(ws,checked,key).decode("utf-8")
+        return (ws/filename).read_text()
+    analysis = _json.loads(artifact("analysis","analysis.json"))
     recorded = analysis.get("claim_authority") or {}
     if not recorded:
         raise ProcurementError(f"vendor {vendor_id!r}: package records no claim authority")
@@ -159,11 +173,10 @@ def ingest_package(directory, vendor_id: str, workspace) -> dict:
             f"{rederived.effective_claim!r}. Refusing a package whose claim has been "
             f"edited away from what it earned.")
 
-    cells = [_json.loads(l) for l in (ws / "results.jsonl").read_text().splitlines()
-             if l.strip()]
-    man = _json.loads((ws / manifest_mod.MANIFEST_FILE).read_text())
-    provenance = _json.loads((ws / "provenance.json").read_text())
-    run_meta = _json.loads((ws / "run_meta.json").read_text())
+    cells = [_json.loads(l) for l in artifact("results","results.jsonl").splitlines() if l.strip()]
+    man = checked if checked is not None else _json.loads((ws / manifest_mod.MANIFEST_FILE).read_text())
+    provenance = _json.loads(artifact("provenance","provenance.json"))
+    run_meta = _json.loads(artifact("run_meta","run_meta.json"))
     definitions = man.get("definitions") or {}
     family_id = man.get("family_id")
     if not family_id or analysis.get("family_id") != family_id:
@@ -200,14 +213,16 @@ def ingest_package(directory, vendor_id: str, workspace) -> dict:
         "package_digest": man.get("manifest_hash"),
         "verify_verdict": verdict,
     }
-    if state["conditions"].get("risk_activation") is not None:
+    if checked is not None:
         from . import buyer_risk_activation as activation
-        from . import buyer_research
-        checked=buyer_research._preflight(ws)
-        if checked["manifest_hash"]!=man["manifest_hash"]:
-            raise ProcurementError("package manifest changed before risk verification")
+        if analysis.get("conditions_hash")!=state["conditions_hash"] or run_meta.get("conditions_hash")!=state["conditions_hash"]:
+            raise ProcurementError("risk-bound package did not preserve exact conditions in both artifacts")
         bound=_json.loads(buyer_research.verified_bytes(ws,checked,"plan_binding"))
         cells=activation.check_package(state,vendor_id,family_id,environment,bound,cells)
+        if buyer_research._preflight(ws)!=checked or manifest_mod.verify_manifest(ws)["verdict"]!=manifest_mod.VALID:
+            raise ProcurementError("package changed during risk verification")
+        if load(directory)!=state:
+            raise ProcurementError("procurement study changed during package verification")
     return _record_result(directory, vendor_id, analysis["family_id"], cells, environment,
                           package=dict(environment,
                                        conformance=analysis.get("conformance_level"),
@@ -318,6 +333,10 @@ def compare(directory, family_id: str) -> dict:
     out["vendors_without_results"] = sorted(
         v["blinded_label"] for v in state["vendors"]
         if family_id not in state["results"].get(v["vendor_id"], {}))
+    if state["conditions"].get("risk_activation") is not None and out["vendors_without_results"]:
+        out["comparability"]["status"]=procurement.INCOMPARABLE
+        out["comparability"]["reasons"].append("Frozen candidate roster has missing verified results.")
+        out["comparability"]["note"]="Incomplete candidate roster; measured rates are descriptive only."
     return out
 
 

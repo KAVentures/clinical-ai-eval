@@ -14,8 +14,8 @@ Every runnable family must have a mapped hazard. Unmapped hazards and required
 but not runnable suites remain listed in the activation receipt. Administrators
 approve the exact preview digest before activating. The existing procurement
 state is initialized using the compiled criteria and the exact candidate
-identity. Existing studies are never replaced. This first activation path is
-single-candidate; do not represent it as a head-to-head comparison.
+identity. Existing studies are never replaced. The activation can optionally freeze multiple distinct candidates with identical
+clinical scope and generated prompts. See [shared risk conditions and handoff](RISK_MULTI_CANDIDATE.md).
 
 The conditions hash is included in a prepared canonical project only by
 explicit opt-in. The active study page accepts a complete collected submission
@@ -40,6 +40,6 @@ Run the synthetic acceptance tests:
 
     python -m unittest tests_unit.test_buyer_risk_activation
 
-This is software acceptance, not clinical validation. Multi-candidate
-activation, independently verified evaluator runtime settings, and governed
-package staging remain separate follow-up work.
+This is software acceptance, not clinical validation. Independently verified evaluator runtime settings and additional executor
+support remain separate follow-up work. Governed job handoff and multi-candidate
+activation are described in the linked guide.
