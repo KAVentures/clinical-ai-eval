@@ -127,6 +127,9 @@ def _citation_template(plan):
 def download(directory,actor,identifier,kind):
     with access.db(directory) as conn:
         _schema(conn)
+        # Candidate exposure and preregistration/programme freeze use the same
+        # SQLite writer lock, so the audit ordering is an atomic local boundary.
+        conn.execute("BEGIN IMMEDIATE")
         row=_row(conn,identifier)
         if kind=="review":
             assignment=_assigned(conn,actor,row)
