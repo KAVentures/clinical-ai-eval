@@ -244,7 +244,7 @@ def execute(directory, job_id, *, allow_model_calls=False):
     try:
         record = assessment.check(directory, row["assessment_id"])
         expected, files = assessment._material(directory, record["submission_id"],
-                                                record["panel_id"], record["governance"])
+                                                record["panel_id"], record["governance"], conditions_hash=record.get("conditions_hash"))
         if expected != record or record["mode"] != row["mode"]:
             raise buyer.BuyerError("assessment changed before execution")
         job = _job_path(directory, job_id)

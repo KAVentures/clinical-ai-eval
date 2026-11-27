@@ -94,6 +94,9 @@ def add_vendor(directory, vendor_id: str, subject_spec: dict, blinded_label: str
     state = load(directory)
     if state["status"] != "open":
         raise ProcurementError(f"procurement is {state['status']}; cannot add vendors")
+    activation=state["conditions"].get("risk_activation")
+    if activation is not None and (state["vendors"] or vendor_id!=activation["vendor_id"] or subject_spec!=activation["target"]):
+        raise ProcurementError("risk-bound study admits only the exact registered candidate")
     if any(v["vendor_id"] == vendor_id for v in state["vendors"]):
         raise ProcurementError(f"vendor {vendor_id!r} already registered")
     label = blinded_label or f"Product {chr(ord('A') + len(state['vendors']))}"
@@ -197,6 +200,14 @@ def ingest_package(directory, vendor_id: str, workspace) -> dict:
         "package_digest": man.get("manifest_hash"),
         "verify_verdict": verdict,
     }
+    if state["conditions"].get("risk_activation") is not None:
+        from . import buyer_risk_activation as activation
+        from . import buyer_research
+        checked=buyer_research._preflight(ws)
+        if checked["manifest_hash"]!=man["manifest_hash"]:
+            raise ProcurementError("package manifest changed before risk verification")
+        bound=_json.loads(buyer_research.verified_bytes(ws,checked,"plan_binding"))
+        cells=activation.check_package(state,vendor_id,family_id,environment,bound,cells)
     return _record_result(directory, vendor_id, analysis["family_id"], cells, environment,
                           package=dict(environment,
                                        conformance=analysis.get("conformance_level"),
@@ -226,6 +237,8 @@ def _record_result(directory, vendor_id: str, family_id: str, cells: list,
         raise ProcurementError(f"vendor {vendor_id!r} is not registered")
     if family_id not in state["conditions"]["families"]:
         raise ProcurementError(f"family {family_id!r} is outside the frozen procurement")
+    if state["conditions"].get("risk_activation") is not None and not package:
+        raise ProcurementError("risk-bound study requires verified evidence package ingestion")
     existing = state["results"].get(vendor_id, {}).get(family_id)
     if existing and existing.get("ingestion") == "verified_package":
         # An already observed vendor result must not be silently replaced with

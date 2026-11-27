@@ -32,3 +32,5 @@ Run the synthetic browser and ledger tests with:
 
 Real thresholds, measurement validation, local regulatory obligations and
 clinical governance must be determined by the healthcare organisation.
+
+For explicit activation of compatible canonical single-turn criteria, see [risk-bound canonical assessment](BUYER_RISK_ACTIVATION.md). It requires a separate approved mapping and digest, and retains unsupported hazards as gaps.

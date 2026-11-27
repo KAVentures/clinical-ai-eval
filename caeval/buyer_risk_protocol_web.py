@@ -22,6 +22,8 @@ def render(directory,actor,plan_id):
         for s in p["coverage"]:
             body+="<p>"+esc(s["suite"])+" · "+("Runnable" if s["canonical_runnable"] else "Required but not runnable")+" · "+esc(", ".join(s["hazard_ids"]) or "No hazard defined")+" · Measurement not verified</p>"
         body+="<p><a href='/buyer-risk-download?plan_id="+esc(plan_id)+"'>Download frozen protocol JSON</a></p>"
+        if doc["scope_current"]:
+            body+="<p><a href='/buyer-risk-activation?plan_id="+esc(plan_id)+"'>Compile and activate canonical evaluation conditions</a></p>"
     else:
         body+="<p>"+esc(doc["target"]["name"])+" · "+esc(doc["target"]["version"])+"</p>"
         body+="<p>Define up to one hazard per suite in this browser form. Unselected suites remain explicit gaps. All criteria are buyer-authored planning inputs, not activated scoring thresholds.</p>"
