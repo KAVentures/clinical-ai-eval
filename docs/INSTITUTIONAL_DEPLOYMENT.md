@@ -516,3 +516,7 @@ The [portable committee dossier](PORTABLE_COMMITTEE_DOSSIER.md) is a consented o
 ## Vendor document source review
 
 See [source-bound document review](VENDOR_DOCUMENT_REVIEW.md) for browser-based exact-text quotations, append-only findings and declared version/freshness, reflected in frozen committee snapshots. Binary formats are not parsed by this release; source findings do not establish compliance or clinical validity.
+
+## Buyer-owned clinical risk planning
+
+Use the [buyer clinical risk protocol](BUYER_RISK_PROTOCOL.md) to freeze explicit hazard descriptions, proposed endpoints and acceptance criteria, missingness rules and governance against a saved evaluation plan. Coverage gaps remain explicit. This planning record does not activate canonical scoring or authorize execution or deployment.
