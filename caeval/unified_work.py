@@ -79,37 +79,55 @@ def work(directory,actor,ident):
         u._actor(conn,actor,"admin","operator")
         u._inventory(conn)
         status=u._status(root,conn,actor,ident)
-        cache={}
-        rows=[]
-        for row in status["requirements"]:
-            req=row["requirement"]
-            rid=req["id"]
-            _,plan=u._requirement(status["programme"],rid)
-            key=(req["kind"],req["plan_id"],req["family"] if req["kind"]=="rag" else None)
-            if key not in cache:
-                result={"records":[],"state":"stale_plan","scan_truncated":False,"unverified_records":None}
-                if status["state"]=="current":
-                    if req["kind"] in native.KINDS:
-                        result=native.collect(root,conn,actor,req,plan)
-                    else:
-                        try:
-                            records=(_text_work(root,conn,plan) if req["kind"]=="text" else
-                                     _conversation_work(root,conn,plan))
-                            result={"records":records,"state":"bounded_legacy_scan",
-                                    "scan_truncated":None,"unverified_records":None}
-                        except native.ERRORS:
-                            result={"records":[],"state":"unavailable","scan_truncated":False,"unverified_records":None}
-                cache[key]=result
-            result=cache[key]
-            rows.append({"requirement_id":rid,"kind":req["kind"],"plan_id":req["plan_id"],
-                         "vendor_id":row["vendor_id"],"target":row["target"],"family":req["family"],
-                         "coverage_state":row["state"],"native_work_records":result["records"],
-                         "work_inventory_state":result["state"],"scan_truncated":result["scan_truncated"],
-                         "unverified_records":result["unverified_records"],
-                         "execution_authorized":False})
-        return {"schema":"unified-assessment-work/1","programme_id":ident,
-                "programme_digest":status["programme"]["digest"],"programme_state":status["state"],
-                "requirements":rows,"decision_grade":False,"execution_authorized":False,
-                "limitations":["Read-only coordination. Native workflows own preparation, queueing, cancellation and execution.",
-                               "Bounded scans show exact-plan work or explicitly labelled vendor/version-only imaging and grounding studies; absence is not proof of no work.",
-                               "The same multi-family job can be shown in several requirements. Completed work is not automatically locked."]}
+        return _project(root,conn,actor,status)
+
+
+def gaps(directory,actor,ident):
+    from pathlib import Path
+    from . import unified_evidence_gaps as report
+    root=Path(directory)
+    with access.db(root) as conn:
+        u._schema(conn)
+        conn.execute("BEGIN")
+        u._actor(conn,actor,"admin","operator")
+        u._inventory(conn)
+        status=u._status(root,conn,actor,ident)
+        return report.project(status,_project(root,conn,actor,status))
+
+
+def _project(root,conn,actor,status):
+    ident=status["programme"]["programme_id"]
+    cache={}
+    rows=[]
+    for row in status["requirements"]:
+        req=row["requirement"]
+        rid=req["id"]
+        _,plan=u._requirement(status["programme"],rid)
+        key=(req["kind"],req["plan_id"],req["family"] if req["kind"]=="rag" else None)
+        if key not in cache:
+            result={"records":[],"state":"stale_plan","scan_truncated":False,"unverified_records":None}
+            if status["state"]=="current":
+                if req["kind"] in native.KINDS:
+                    result=native.collect(root,conn,actor,req,plan)
+                else:
+                    try:
+                        records=(_text_work(root,conn,plan) if req["kind"]=="text" else
+                                 _conversation_work(root,conn,plan))
+                        result={"records":records,"state":"bounded_legacy_scan",
+                                "scan_truncated":None,"unverified_records":None}
+                    except native.ERRORS:
+                        result={"records":[],"state":"unavailable","scan_truncated":False,"unverified_records":None}
+            cache[key]=result
+        result=cache[key]
+        rows.append({"requirement_id":rid,"kind":req["kind"],"plan_id":req["plan_id"],
+                     "vendor_id":row["vendor_id"],"target":row["target"],"family":req["family"],
+                     "coverage_state":row["state"],"native_work_records":result["records"],
+                     "work_inventory_state":result["state"],"scan_truncated":result["scan_truncated"],
+                     "unverified_records":result["unverified_records"],
+                     "execution_authorized":False})
+    return {"schema":"unified-assessment-work/1","programme_id":ident,
+            "programme_digest":status["programme"]["digest"],"programme_state":status["state"],
+            "requirements":rows,"decision_grade":False,"execution_authorized":False,
+            "limitations":["Read-only coordination. Native workflows own preparation, queueing, cancellation and execution.",
+                           "Bounded scans show exact-plan work or explicitly labelled vendor/version-only imaging and grounding studies; absence is not proof of no work.",
+                           "The same multi-family job can be shown in several requirements. Completed work is not automatically locked."]}

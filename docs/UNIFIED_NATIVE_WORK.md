@@ -28,3 +28,29 @@ clinical score or deployment authorization is implied.
 The new browser tests cover native FHIR and imaging discovery, role checks,
 and corrupt or missing synthetic records. Run the full unit/integration suite
 on the installed repository before using this workflow in a hospital.
+
+
+## Evidence gaps and next actions
+
+The programme detail page links to the evidence-gap report for administrators
+and operators. It derives the native work projection and locked-evidence
+status from the same institutional database transaction; external workspace
+files are not an atomic snapshot. Every required canonical suite appears,
+including unsupported and unplanned suites. A linked internal-regression
+source is labelled as internal regression only. A synthetic RAG rehearsal
+does not fill a canonical evidence gap, and incomplete imaging rosters
+remain explicitly limited.
+
+The report differentiates stale plans, missing associations, changed or
+unavailable locked sources, incomplete work inventories, potentially ready
+records and work still being prepared or executed. Administrative priorities
+are not clinical urgency. Administrators can follow a potential-ready task
+to native evidence discovery, where the exact candidate is independently
+verified and explicitly approved. Operators can open the native work queue
+but cannot lock evidence. Potential-ready counts are not evidence eligibility
+or a recommendation to select a particular result.
+
+The digest identifies the deterministic projection, not a signature, a
+frozen hospital approval, or an independent clinical acceptance result.
+Nothing is executed or associated by the report. The programme's underlying
+canonical evidence conditions and deployment authority are not changed.
