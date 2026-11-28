@@ -333,6 +333,9 @@ def configure(parser):
     v = sub.add_parser("verify")
     v.add_argument("evidence")
     v.add_argument("--expected-digest")
+    vr = sub.add_parser("verify-reference")
+    vr.add_argument("evidence")
+    vr.add_argument("--expected-digest")
     parser.set_defaults(func=cli)
 
 
@@ -347,6 +350,9 @@ def cli(args):
             out = template(_read(args.plan), args.candidate)
         elif action == "assess":
             out = package(_read(args.plan), [_read(p) for p in args.submissions])
+        elif action == "verify-reference":
+            from . import imaging_reference
+            out = imaging_reference.verify(_read(args.evidence), args.expected_digest)
         else:
             out = verify(_read(args.evidence), args.expected_digest)
         print(json.dumps(out, allow_nan=False, ensure_ascii=True, indent=2))

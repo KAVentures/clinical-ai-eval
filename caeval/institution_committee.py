@@ -183,6 +183,22 @@ def overview(directory,actor):
     inventory["synthetic_image_text_assessments"]=institution_image_text.inventory(root,actor)
     from . import mixed_evaluation
     inventory["mixed_evaluation_programmes"]=mixed_evaluation.committee_inventory(root,actor,ids,inventory["assessments"])
+    from . import institution_imaging
+    inventory["diagnostic_imaging_studies"]=institution_imaging.overview(root,actor,committee=True)
+    from . import institution_imaging_reference
+    inventory["diagnostic_imaging_reference_reviews"]=institution_imaging_reference.overview(root,actor,committee=True)
+    from . import unified_assessment
+    inventory["unified_assessment_programmes"]=unified_assessment.overview(root,actor)
+    from . import institution_rag
+    inventory["synthetic_rag_rehearsals"]=institution_rag.overview(root,actor)
+    from . import institution_rag_grounding
+    inventory["rag_grounding_studies"]=institution_rag_grounding.overview(root,actor)
+    from . import institution_matched_regression
+    inventory["matched_version_regressions"]=institution_matched_regression.overview(root,actor)
+    from . import institution_hospital_referral
+    inventory["hospital_referral_policies"]=institution_hospital_referral.overview(root,actor)
+    from . import unified_successor
+    inventory["unified_assessment_successors"]=unified_successor.inventory(root,actor)
     if buyer.load(root)!=source:
         raise access.AccessDenied("buyer register changed during evidence reconstruction")
     return {"schema":"institution-committee-evidence/1","project_name":state["project_name"],
