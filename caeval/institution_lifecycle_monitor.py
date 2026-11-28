@@ -123,28 +123,36 @@ def _event_locked(directory,conn,actor,ident,kind,doc):
         raise access.AccessDenied("invalid monitor event")
     today=_today()
     _,p,records,status=_get(conn,ident,today)
+    # Reconstruct canonical content before checking prior identity. Exact
+    # retries of historical records remain idempotent even if a later event
+    # blocks new reports or changes the active alert set.
     if kind=="report":
         sealed=m.report(p,doc)
         item=str(doc["window_index"])
-        # No version-mixed aggregate after a reported version change.
-        changes=[m._date(r["incident"]["date"]) for r in records["incident"] if r["incident"]["category"]=="version_change"]
-        if changes and m.window(p,doc["window_index"])[1]>min(changes):
-            raise access.AccessDenied("window overlaps reported version change; use new version monitor")
     elif kind=="incident":
         sealed=m.incident(p,doc)
         item=doc["incident_id"]
-        if len(records[kind])>=m.MAX_INCIDENTS:
-            raise access.AccessDenied("incident limit")
     else:
-        sealed=m.action(p,doc,{a["id"] for a in status["alerts"]})
+        historical={a["id"] for a in status["alerts"]}
+        historical.update(r["action"]["alert_id"] for r in records["action"])
+        sealed=m.action(p,doc,historical)
         item=sealed["digest"]
-        if len(records[kind])>=m.MAX_ACTIONS:
-            raise access.AccessDenied("action limit")
     prior=conn.execute("SELECT digest FROM lifecycle_monitor_events WHERE monitor=? AND kind=? AND item=?",(ident,kind,item)).fetchone()
     if prior:
         if prior["digest"]!=sealed["digest"]:
             raise access.AccessDenied("immutable monitor record")
         return sealed["digest"]
+    if kind=="report":
+        changes=[m._date(r["incident"]["date"]) for r in records["incident"] if r["incident"]["category"]=="version_change"]
+        if changes and m.window(p,doc["window_index"])[1]>min(changes):
+            raise access.AccessDenied("window overlaps reported version change; use new version monitor")
+    elif kind=="incident":
+        if len(records[kind])>=m.MAX_INCIDENTS:
+            raise access.AccessDenied("incident limit")
+    else:
+        m.action(p,doc,{a["id"] for a in status["alerts"]})
+        if len(records[kind])>=m.MAX_ACTIONS:
+            raise access.AccessDenied("action limit")
     records[kind].append(sealed)
     m.assess(p,records["report"],records["incident"],records["action"],today)
     digest=sealed["digest"]
