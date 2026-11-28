@@ -35,6 +35,8 @@ def _schema(conn):
         digest TEXT NOT NULL, actor TEXT NOT NULL, audit_seq INTEGER NOT NULL UNIQUE)""")
     from . import institution_imaging_reference as reference
     reference._schema(conn)
+    from . import institution_imaging_transport as transport
+    transport.schema(conn)
 
 
 def _json(obj):
@@ -60,6 +62,8 @@ def _inventory(conn):
             raise access.AccessDenied("imaging audit inventory mismatch")
     from . import institution_imaging_reference as reference
     reference._inventory(conn)
+    from . import institution_imaging_transport as transport
+    transport.inventory(conn)
 
 
 def _get(conn, ident):
@@ -82,6 +86,8 @@ def _get(conn, ident):
                 or sub["audit_seq"] <= row["audit_seq"]):
             raise access.AccessDenied("imaging submission integrity mismatch")
         docs.append(doc)
+    from . import institution_imaging_transport as transport
+    transport.check(conn,plan,docs)
     seal = conn.execute("SELECT * FROM diagnostic_imaging_seals WHERE study=?", (ident,)).fetchone()
     evidence = None
     if seal:
@@ -177,7 +183,10 @@ def detail(directory, actor, ident):
         _schema(conn)
         conn.execute("BEGIN")
         _inventory(conn)
-        return _status(*_get(conn, ident), committee=actor["role"] != "admin")
+        result = _status(*_get(conn, ident), committee=actor["role"] != "admin")
+        from . import institution_imaging_transport as transport
+        result["collection_receipts"] = transport.status(conn,ident)
+        return result
 
 
 def download(directory, actor, ident, candidate, kind):
@@ -196,7 +205,7 @@ def download(directory, actor, ident, candidate, kind):
         return doc
 
 
-def submit(directory, actor, ident, doc, *, confirmed=False):
+def submit(directory, actor, ident, doc, *, confirmed=False, receipt=None):
     if confirmed is not True:
         raise access.AccessDenied("explicit prediction lock required")
     with access.db(directory) as conn:
@@ -208,16 +217,26 @@ def submit(directory, actor, ident, doc, *, confirmed=False):
         if evidence:
             raise access.AccessDenied("study already sealed")
         imaging._predictions(plan, doc)
+        from . import institution_imaging_transport as transport
+        if receipt is not None:
+            transport.validate(plan,receipt)
+            if imaging._digest(receipt["predictions"]) != imaging._digest(doc):
+                raise access.AccessDenied("receipt differs from submitted predictions")
         candidate = doc["candidate"]["id"]
         digest = imaging._digest(doc)
         for prior in docs:
             if prior["candidate"]["id"] == candidate:
                 if imaging._digest(prior) != digest:
                     raise access.AccessDenied("cannot replace locked candidate predictions")
+                prior_receipt = conn.execute("SELECT digest FROM diagnostic_imaging_collection_receipts WHERE study=? AND candidate=?",(ident,candidate)).fetchone()
+                if (prior_receipt["digest"] if prior_receipt else None) != (receipt["digest"] if receipt is not None else None):
+                    raise access.AccessDenied("cannot replace locked collection provenance")
                 return digest
         seq = _audit(conn, actor, SUBMITTED, ident+":"+candidate+":"+digest)
         conn.execute("INSERT INTO diagnostic_imaging_submissions VALUES(?,?,?,?,?,?)",
                      (ident, candidate, _json(doc), digest, actor["user_id"], seq))
+        if receipt is not None:
+            transport.record(conn,actor,ident,receipt)
         return digest
 
 

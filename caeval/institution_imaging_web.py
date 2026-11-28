@@ -64,11 +64,17 @@ def study(directory, actor, ident):
                 base += "<a href='/diagnostic-imaging-download?id="+esc(ident)+"&amp;candidate="+cid+"&amp;kind="+kind+"'>"+label+"</a> "
         base += "</td></tr>"
     base += "</table>"
+    if row["collection_receipts"]:
+        base += "<p>Local collection receipts (consistency only, not proof of execution): "+esc(", ".join(r["candidate_id"] for r in row["collection_receipts"]))+"</p>"
     if row["state"] == "collecting":
         base += ("<section><h2>Lock candidate predictions</h2><p>Each candidate gets one immutable submission; include every slot, including unavailable or abstained outputs. Interim reference metrics are not released.</p>"
                  "<form method='post' action='/diagnostic-imaging-submit'>"+_hidden("csrf",actor["csrf"])+_hidden("id",ident)+
                  "<label>Prediction JSON<textarea name='predictions' rows='10' required maxlength='1048576'></textarea></label>"
                  "<label><input type='checkbox' name='confirm' value='yes' required> Lock this exact prediction document. No patient data or raw images.</label><button>Lock predictions</button></form></section>")
+        base += ("<section><h2>Import local imaging collection receipt</h2><p>Use a receipt from the approved local exact-asset collection CLI. No image bytes are included. Receipt replay does not prove execution or clinical validity.</p>"
+                 "<form method='post' action='/diagnostic-imaging-transport-import'>"+_hidden("csrf",actor["csrf"])+_hidden("id",ident)+
+                 "<label>Collection receipt JSON<textarea name='receipt' rows='10' required maxlength='1048576'></textarea></label>"
+                 "<label><input type='checkbox' name='confirm' value='yes' required> Lock this exact receipt and its prediction inventory.</label><button>Lock local collection receipt</button></form></section>")
         if actor["role"] == "admin":
             p = service.seal_preview(directory,actor,ident)
             base += ("<section><h2>Seal study</h2><p>"+esc(p["n_submitted"])+" / "+esc(p["n_expected"])+" candidate submissions. Sealing prevents further collection or replacement.</p>"
@@ -91,6 +97,9 @@ def study(directory, actor, ident):
                 base += "</section>"
             base += ("<form method='post' action='/diagnostic-imaging-evidence'>"+_hidden("csrf",actor["csrf"])+_hidden("id",ident)+_hidden("digest",row["evidence_digest"])+
                      "<label><input type='checkbox' name='confirm' value='yes' required> Export restricted evidence containing private labels, case metadata, predictions and the full exploratory report; authorized recipients only.</label><button>Download restricted evidence</button></form>")
+            if row["collection_receipts"]:
+                base += ("<form method='post' action='/diagnostic-imaging-transport-evidence'>"+_hidden("csrf",actor["csrf"])+_hidden("id",ident)+_hidden("digest",row["evidence_digest"])+
+                         "<label><input type='checkbox' name='confirm' value='yes' required> Export restricted transport receipts and asset hashes.</label><button>Download transport evidence</button></form>")
     return page("Imaging study: "+ident,base)
 
 
@@ -104,6 +113,17 @@ def dispatch(directory, actor, path, form):
         _confirm(form)
         service.submit(directory,actor,form["id"],_parse(form["predictions"]),confirmed=True)
         return form["id"]
+    if path == "/diagnostic-imaging-transport-import":
+        _exact(form,"id receipt confirm")
+        _confirm(form)
+        receipt=_parse(form["receipt"])
+        service.submit(directory,actor,form["id"],receipt["predictions"],confirmed=True,receipt=receipt)
+        return form["id"]
+    if path == "/diagnostic-imaging-transport-evidence":
+        from . import institution_imaging_transport as transport
+        _exact(form,"id digest confirm")
+        _confirm(form)
+        return transport.export(directory,actor,form["id"],form["digest"],confirmed=True)
     if path == "/diagnostic-imaging-seal":
         if set(form) not in ({"id","approval","confirm"},{"id","approval","confirm","incomplete"}):
             raise access.AccessDenied("unexpected seal fields")
