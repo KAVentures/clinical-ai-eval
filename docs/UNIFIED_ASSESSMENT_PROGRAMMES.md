@@ -236,3 +236,7 @@ The separate [matched longitudinal research workflow](MATCHED_VERSION_REGRESSION
 ## Hospital-specific review gates
 
 The optional [hospital referral policy](HOSPITAL_REFERRAL_POLICY.md) freezes vendor-specific gate criteria before source association, binds assigned reviewers to a frozen evidence snapshot, and records an immutable administrative disposition. Missing or weak canonical evidence and unresolved gates block referral. It never authorizes clinical deployment.
+
+## Operational lifecycle monitoring
+
+[Institutional lifecycle monitoring](LIFECYCLE_MONITORING.md) records aggregate version-bound operational reports, missingness, local threshold alerts, incidents and documented escalation. It requires an external authorization attestation, not authorization by Clinical AI Eval. No automated clinical intervention or scheduled collection is performed.

@@ -169,5 +169,31 @@ class NativeWorkTests(unittest.TestCase):
         self.assertEqual(r["native_work_records"][0]["state"],"cancelled")
 
 
+    def test_corrupt_prepared_text_record_is_visible_as_partial_work(self):
+        fixtures.UnifiedAssessmentTests.setUp(self)
+        pid=fixtures.UnifiedAssessmentTests.plan(self)
+        spec={"programme_id":"text-inventory","plans":[pid],"requirements":[
+            {"id":"text-a","kind":"text","plan_id":pid,"family":"missing_information"}]}
+        ident=fixtures.UnifiedAssessmentTests.freeze(self,spec)
+        actor=self.actors["operator"]
+        before=work.work(self.root,actor,ident)["requirements"][0]
+        self.assertEqual(before["work_inventory_state"],"bounded_scan")
+        self.assertEqual(before["native_work_records"],[])
+        base=self.root/"prepared-assessments"
+        base.mkdir(exist_ok=True)
+        (base/("a"*64)).mkdir()
+        after=work.work(self.root,actor,ident)["requirements"][0]
+        self.assertEqual(after["work_inventory_state"],"partial")
+        self.assertEqual(after["unverified_records"],1)
+        self.assertFalse(after["scan_truncated"])
+        self.assertEqual(after["native_work_records"],[])
+        page=fixtures.UnifiedAssessmentTests.request(self,"operator","/unified-assessment-work?id="+ident)
+        self.assertEqual(page["status"],"200 OK")
+        self.assertIn(b"Partial inventory",page["body"])
+        report=work.gaps(self.root,actor,ident)
+        self.assertTrue(report["partial_work_inventory"])
+        self.assertFalse(report["decision_grade"])
+
+
 if __name__=="__main__":
     unittest.main()

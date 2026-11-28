@@ -103,6 +103,34 @@ def run(root):
     plans={k:v["plan"] for k,v in frozen["modules"].items()}
     packages={}
 
+    # The installed public CLI must reach the same native plans, preserve
+    # immutable publication and report native validation failures as nonzero.
+    env={k:v for k,v in os.environ.items() if k not in ("PYTHONPATH","CAEVAL_HOME")}
+    for kind,spec in specs.items():
+        source=write(root/(kind+"-cli-spec.json"),spec)
+        dest=root/(kind+"-cli-plan.json")
+        command=[sys.executable,"-m","caeval.cli","research-study",kind,"plan",
+                 "--spec",str(source),"--out",str(dest)]
+        result=subprocess.run(command,cwd=root,env=env,capture_output=True,text=True,check=True,timeout=120)
+        require(json.loads(result.stdout)["plan_hash"]==plans[kind]["plan_hash"],"native CLI plan hash differs")
+        require(json.loads(dest.read_text(encoding="utf-8"))==plans[kind],"native CLI plan differs")
+        before=dest.read_bytes()
+        replay=subprocess.run(command,cwd=root,env=env,capture_output=True,text=True,timeout=120)
+        require(replay.returncode==0 and dest.read_bytes()==before,
+                "native CLI did not preserve identical immutable plan on idempotent replay")
+        require(json.loads(replay.stdout)["plan_hash"]==plans[kind]["plan_hash"],"native CLI replay hash differs")
+        conflict=write(root/(kind+"-cli-conflict.json"),{"sentinel":"existing nonmatching record"})
+        conflict_before=conflict.read_bytes()
+        refused=subprocess.run(command[:-2]+["--out",str(conflict)],cwd=root,env=env,
+                               capture_output=True,text=True,timeout=120)
+        require(refused.returncode!=0 and conflict.read_bytes()==conflict_before,
+                "native CLI overwrote a conflicting immutable destination or lost failure status")
+        bad=write(root/(kind+"-invalid-spec.json"),{})
+        bad_dest=root/(kind+"-invalid-plan.json")
+        refused=subprocess.run(command[:-4]+["--spec",str(bad),"--out",str(bad_dest)],
+                               cwd=root,env=env,capture_output=True,text=True,timeout=120)
+        require(refused.returncode!=0 and not bad_dest.exists(),"native CLI accepted invalid specification")
+
     # Exact structured candidate response: one expected certificate per probe.
     plan=plans["decision"]
     responses=decision.response_template(plan)
@@ -199,6 +227,18 @@ def run(root):
     receipt=json.loads(proc.stdout)
     require(receipt["ok"] and receipt["result"]["status"]=="REPLAY_VERIFIED","fresh process replay failed")
     require(receipt["result"]["expected_digest_matched"],"independent digest mismatch")
+    inspected=subprocess.run([sys.executable,"-m","caeval.cli","experimental-project","inspect-result",
+                              "--project",str(project_root),"--plan",str(fp),"--approve-plan",frozen["digest"],
+                              "--result",str(rp),"--expected-digest",result["digest"]],
+                             cwd=root,env=env,capture_output=True,text=True,check=True,timeout=120)
+    overview=json.loads(inspected.stdout)["result"]
+    require(overview["result_replayed"] and overview["all_planned_modules_replayed"] and
+            overview["expected_digest_matched"] and not overview["scientific_scores_included"],
+            "installed result inspection failed")
+    require({r["kind"] for r in overview["modules"] if r["completion_state"]=="replayed"}==set(packages),
+            "installed result inspection module inventory differs")
+    require(all(not r["canonical_requirement_satisfied"] for r in overview["required_suites"]),
+            "result inspection promoted canonical coverage")
     for kind,package in packages.items():
         path=write(root/(kind+"-evidence.json"),package)
         command=[sys.executable,"-m","caeval.cli","verify-experimental-evidence",str(path),
