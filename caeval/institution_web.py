@@ -152,6 +152,8 @@ def _dashboard(directory, actor):
     if role in ("admin","operator"):
         body += "<p><a href='/diagnostic-imaging'>Diagnostic imaging research</a></p>"
         body += "<p><a href='/rag-trace'>Synthetic RAG context rehearsal</a></p>"
+    if role in ("admin","operator","observer","reviewer"):
+        body += "<p><a href='/hospital-referral'>Hospital-specific referral policy</a></p>"
     if role in ("admin","operator","reviewer"):
         body += "<p><a href='/rag-grounding'>Independent RAG grounding research</a></p>"
     if role in ("admin","reviewer"):
@@ -654,6 +656,34 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=image_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
+            if path in ("/hospital-referral","/hospital-referral-detail","/hospital-referral-assigned") and method=="GET":
+                from . import institution_hospital_referral_web as referral
+                q=_query(env)
+                if path=="/hospital-referral" and not q:
+                    access.require(actor,"admin","operator","observer","reviewer")
+                    return respond("200 OK",referral.home(self.directory,actor))
+                if path=="/hospital-referral-detail" and set(q)=={"id"}:
+                    access.require(actor,"admin")
+                    return respond("200 OK",referral.detail(self.directory,actor,q["id"]))
+                if path=="/hospital-referral-assigned" and set(q)=={"id"}:
+                    access.require(actor,"reviewer")
+                    return respond("200 OK",referral.assigned(self.directory,actor,q["id"]))
+                raise access.AccessDenied("invalid hospital policy request")
+            if path in ("/hospital-referral-preview","/hospital-referral-freeze","/hospital-referral-snapshot-preview","/hospital-referral-start","/hospital-referral-rate","/hospital-referral-decision-preview","/hospital-referral-decide","/hospital-referral-export") and method=="POST":
+                from . import institution_hospital_referral_web as referral,buyer_plan
+                access.require(actor,*(("reviewer",) if path=="/hospital-referral-rate" else ("admin",)))
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/hospital-referral-preview":
+                    return respond("200 OK",referral.preview(self.directory,actor,form))
+                if path=="/hospital-referral-snapshot-preview":
+                    return respond("200 OK",referral.snapshot_preview(self.directory,actor,form))
+                if path=="/hospital-referral-decision-preview":
+                    return respond("200 OK",referral.decision_preview(self.directory,actor,form))
+                result=referral.dispatch(self.directory,actor,path,form)
+                if path=="/hospital-referral-export":
+                    return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="hospital-referral-evidence.json"')],content_type="application/json; charset=utf-8")
+                return respond("303 See Other",extra=[("Location",("/hospital-referral-assigned?id=" if path=="/hospital-referral-rate" else "/hospital-referral-detail?id=")+result)])
             if path in ("/matched-regression","/matched-regression-detail") and method=="GET":
                 from . import institution_matched_regression_web as regression_web
                 q=_query(env)
