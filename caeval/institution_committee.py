@@ -185,6 +185,8 @@ def overview(directory,actor):
     inventory["diagnostic_imaging_studies"]=institution_imaging.overview(root,actor,committee=True)
     from . import institution_imaging_reference
     inventory["diagnostic_imaging_reference_reviews"]=institution_imaging_reference.overview(root,actor,committee=True)
+    from . import unified_assessment
+    inventory["unified_assessment_programmes"]=unified_assessment.overview(root,actor)
     if buyer.load(root)!=source:
         raise access.AccessDenied("buyer register changed during evidence reconstruction")
     return {"schema":"institution-committee-evidence/1","project_name":state["project_name"],

@@ -139,6 +139,8 @@ def _protected(conn):
     # Exported evidence may have circulated outside the workspace. Do not
     # silently erase the local original, even without a committee snapshot.
     refs.update(r[0] for r in conn.execute("SELECT object_id FROM audit WHERE action='synthetic-fhir-evidence-exported' AND outcome='ok'"))
+    from . import unified_assessment
+    refs.update(unified_assessment.protected_fhir(conn))
     return refs
 
 
