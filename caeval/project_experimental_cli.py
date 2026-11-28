@@ -13,7 +13,7 @@ def configure(parser):
     q.add_argument("--specs",required=True,help="JSON mapping module names to scientific specifications")
     q.add_argument("--out",required=True)
     for action in ("module-plan","exchange","response-template","prepare-review",
-                   "complete-module","assemble","verify"):
+                   "complete-module","assemble","verify","inspect","inspect-result"):
         q=sub.add_parser(action)
         q.add_argument("--project",required=True)
         q.add_argument("--plan",required=True)
@@ -32,10 +32,10 @@ def configure(parser):
             q.add_argument("--confirm",action="store_true")
         elif action=="assemble":
             q.add_argument("--package",action="append",required=True,help="module=package.json")
-        elif action=="verify":
+        elif action in ("verify","inspect-result"):
             q.add_argument("--result",required=True)
             q.add_argument("--expected-digest")
-        if action not in ("verify","prepare-review"):
+        if action not in ("verify","prepare-review","inspect","inspect-result"):
             q.add_argument("--out",required=True)
     parser.set_defaults(func=run)
 
@@ -60,7 +60,11 @@ def run(args):
         else:
             frozen=evidence.load(args.plan)
             bound=(args.project,frozen,args.approve_plan)
-            if action=="module-plan":
+            if action=="inspect":
+                result=lane.inspect_plan(*bound)
+            elif action=="inspect-result":
+                result=lane.inspect_result(*bound,evidence.load(args.result),expected_digest=args.expected_digest)
+            elif action=="module-plan":
                 doc=lane.module_plan(*bound,args.kind)
                 result={"plan_hash":doc["plan_hash"]}
             elif action=="exchange":
@@ -83,7 +87,7 @@ def run(args):
                         "unplanned_related_modules":doc["unplanned_related_modules"]}
             else:
                 result=lane.verify_result(*bound,evidence.load(args.result),expected_digest=args.expected_digest)
-        if action not in ("prepare-review","verify"):
+        if action not in ("prepare-review","verify","inspect","inspect-result"):
             # Existing publisher refuses replacement and uses owner-only files.
             # Do not publish if the pretty JSON exceeds the common exchange bound.
             formal._publish_once(Path(args.out),doc)

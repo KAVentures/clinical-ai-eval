@@ -197,6 +197,10 @@ def overview(directory,actor):
     inventory["matched_version_regressions"]=institution_matched_regression.overview(root,actor)
     from . import institution_hospital_referral
     inventory["hospital_referral_policies"]=institution_hospital_referral.overview(root,actor)
+    from . import institution_lifecycle_monitor
+    inventory["lifecycle_monitors"]=institution_lifecycle_monitor.overview(root,actor)
+    from . import monitor_reassessment
+    inventory["monitor_version_handoffs"]=monitor_reassessment.overview(root,actor)
     from . import unified_successor
     inventory["unified_assessment_successors"]=unified_successor.inventory(root,actor)
     if buyer.load(root)!=source:

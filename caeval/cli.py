@@ -1354,6 +1354,13 @@ def cmd_institution(args):
                     result = backup.create(args.path,args.destination,services_stopped=args.confirm_services_stopped)
                 else:
                     result = backup.restore(args.path,args.destination,services_stopped=args.confirm_services_stopped)
+        elif args.action == "lifecycle-preflight":
+            from . import institution_lifecycle_preflight as preflight
+            result=preflight.check(args.path,services_stopped=args.confirm_services_stopped,expect_restored=args.expect_restored)
+            print(json.dumps({"ok":result["ok"],"result":result},indent=2))
+            if not result["ok"]:
+                raise SystemExit(1)
+            return
         elif args.action in ("pdf-stage","pdf-replay"):
             from . import pdf_source_review as pdf
             if not args.evidence_id:
@@ -1760,8 +1767,14 @@ def cmd_prompts(args):
 
 
 def main(argv=None):
+    import sys
+    from . import research_study_cli
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == [research_study_cli.COMMAND]:
+        return research_study_cli.main(argv[1:])
     ap = argparse.ArgumentParser(prog="clinical-ai-eval", description="EVAL_STANDARD.md reference harness (§10)")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser(research_study_cli.COMMAND, help=research_study_cli.DESCRIPTION)
     pp = sub.add_parser("plan"); pp.add_argument("--project"); pp.set_defaults(func=cmd_plan)
     pi2 = sub.add_parser("inspect"); pi2.add_argument("--project"); pi2.set_defaults(func=cmd_inspect)
     pj = sub.add_parser("project", help="create or inspect a user project")
@@ -1885,6 +1898,9 @@ def main(argv=None):
     from . import unified_assessment
     punified = sub.add_parser("unified-assessment", help="verify portable administrative programme coverage")
     unified_assessment.configure(punified)
+    from . import institution_gap_handoff
+    pgaphandoff = sub.add_parser("unified-gap-handoff", help="replay portable administrative evidence-gap handoff")
+    institution_gap_handoff.configure(pgaphandoff)
 
     from . import institution_rag_trace
     pragtrace = sub.add_parser("verify-rag-rehearsal", help="replay private synthetic RAG trace evidence offline")
@@ -1909,6 +1925,44 @@ def main(argv=None):
     from . import hospital_referral
     preferral = sub.add_parser("verify-hospital-referral", help="verify restricted administrative hospital gate evidence")
     hospital_referral.configure(preferral)
+
+    from . import lifecycle_monitor
+    pmonitor = sub.add_parser("verify-lifecycle-monitor", help="replay aggregate monitoring evidence")
+    lifecycle_monitor.configure(pmonitor)
+
+    from . import monitor_ingestion
+    pingest = sub.add_parser("serve-monitor-ingestion", help="serve local scoped aggregate monitoring API")
+    monitor_ingestion.configure(pingest)
+    pmonapi = sub.add_parser("monitor-ingestion-openapi", help="print local monitoring API contract")
+    monitor_ingestion.configure_openapi(pmonapi)
+
+    from . import monitor_alert_outbox
+    poutbox = sub.add_parser("monitor-alert-outbox", help="prepare and acknowledge local alert transition batches")
+    monitor_alert_outbox.configure(poutbox)
+
+    from . import monitor_alert_store
+    pstore = sub.add_parser("monitor-alert-store", help="manage durable single-monitor alert delivery state")
+    monitor_alert_store.configure(pstore)
+
+    from . import monitor_alert_worker
+    pworker = sub.add_parser("monitor-alert-worker", help="execute one approved local alert delivery cycle")
+    monitor_alert_worker.configure(pworker)
+
+    from . import monitor_alert_relay
+    prelay = sub.add_parser("monitor-alert-relay", help="manage local durable notification acceptance and review")
+    monitor_alert_relay.configure(prelay)
+
+    from . import monitor_alert_health
+    phealth = sub.add_parser("monitor-alert-health", help="guard scheduled monitoring cycles and inspect operational heartbeat")
+    monitor_alert_health.configure(phealth)
+
+    from . import monitor_pipeline_health
+    ppipeline = sub.add_parser("monitor-pipeline-health", help="reconcile local worker, outbox and relay state")
+    monitor_pipeline_health.configure(ppipeline)
+
+    from . import monitor_deployment
+    pdeploy = sub.add_parser("monitor-deployment", help="render and export approved local systemd configuration")
+    monitor_deployment.configure(pdeploy)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")
@@ -2004,7 +2058,7 @@ def main(argv=None):
     pag.set_defaults(func=cmd_agent)
 
     pin = sub.add_parser("institution", help="trusted administrator: isolated institutional browser and account provisioning")
-    pin.add_argument("action", choices=["serve","account-create","account-disable","review-assign","backup-create","backup-check","backup-restore","retention-preview","retention-apply","pdf-stage","pdf-replay"])
+    pin.add_argument("action", choices=["serve","account-create","account-disable","review-assign","backup-create","backup-check","backup-restore","lifecycle-preflight","retention-preview","retention-apply","pdf-stage","pdf-replay"])
     pin.add_argument("path", help="one organisation-owned buyer workspace")
     pin.add_argument("--user-id")
     pin.add_argument("--role", choices=["admin","operator","observer","reviewer","vendor"])
@@ -2014,6 +2068,7 @@ def main(argv=None):
     pin.add_argument("--port", type=int, default=8767)
     pin.add_argument("--destination", help="new approved local backup or restored workspace directory")
     pin.add_argument("--confirm-services-stopped", action="store_true", help="confirm gateway and all evaluation workers are stopped before backup or restore")
+    pin.add_argument("--expect-restored",action="store_true",help="require no retained live authorizations in lifecycle preflight")
     pin.add_argument("--as-of",type=int,help="approved retention preview Unix timestamp")
     pin.add_argument("--approved-digest",help="exact retention preview digest")
     pin.add_argument("--confirm-deletion",action="store_true",help="explicitly approve previewed maintenance deletion")
@@ -2081,4 +2136,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

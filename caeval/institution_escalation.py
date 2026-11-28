@@ -90,6 +90,22 @@ def _derive(directory, actor):
                 if "insufficient_coverage" in statuses:
                     out.append(_notice("monitoring_insufficient_coverage",ident,version,owner,"high",
                                        "Regression comparison has insufficient matched coverage","/monitoring"))
+    # Aggregate monitoring records have no assigned pilot owner. Keep
+    # their new notices admin-only; operators use the native monitor view.
+    if actor["role"]=="admin":
+        from . import institution_lifecycle_monitor as aggregate, monitor_ingestion
+        with access.db(directory) as conn:
+            aggregate._schema(conn)
+            conn.execute("BEGIN")
+            aggregate._inventory(conn)
+            for row in conn.execute("SELECT id,actor FROM lifecycle_monitors ORDER BY id"):
+                programme,p,_,status=aggregate._get(conn,row["id"],aggregate._today())
+                feed=monitor_ingestion._feed(directory,programme,p,status)
+                for alert in feed["alerts"]:
+                    priority={"critical":"critical","serious":"high","moderate":"moderate","low":"low"}[alert["severity"]]
+                    out.append(_notice("aggregate_monitor_"+alert["kind"],row["id"]+":"+alert["id"],
+                                       p["digest"],row["actor"],priority,
+                                       "Aggregate monitor requires review: "+alert["kind"],"/lifecycle-monitor"))
     # Operators see only their owned notices. Administrators retain complete
     # visibility, including notices whose owner is no longer active.
     if actor["role"]=="operator":

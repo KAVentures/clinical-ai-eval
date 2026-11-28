@@ -9,6 +9,7 @@ import hmac
 import json
 import re
 import tempfile
+from .experimental_plan_inspect import canonical_equal
 from pathlib import Path
 
 from . import (buyer_agent as buyer, buyer_manual as manual, buyer_plan,
@@ -82,7 +83,7 @@ def _replay_review(mod, plan, responses, binding, records):
         if set(records) != ids:
             fail("submission inventory differs from frozen roster")
         reconstructed = mod.prepare(plan,responses,root,*args,confirmed=True)
-        if reconstructed != binding:
+        if not canonical_equal(reconstructed,binding):
             fail("reconstructed review binding differs")
         for rid in sorted(ids):
             record = records[rid]
@@ -93,7 +94,7 @@ def _replay_review(mod, plan, responses, binding, records):
             document["submission"] = record["submission"]
             mod.submit(root,rid,document,record["operator"],confirmed=True)
             replayed = formal._json(root/"submissions"/(rid+".json"))
-            if replayed != record:
+            if not canonical_equal(replayed,record):
                 fail("replayed submission differs from supplied record")
         return mod.analyze(root)
 
@@ -118,7 +119,7 @@ def verify(package, *, expected_digest=None):
             fail("unsupported experimental evidence schema or claim")
         mod = MODULES[package["kind"]]
         plan = mod.verify_plan(package["plan"])
-        if plan != package["plan"]:
+        if not canonical_equal(plan,package["plan"]):
             fail("plan differs from current definition")
         if mod is decision:
             if package["binding"] is not None or package["submissions"] != {}:
@@ -126,7 +127,7 @@ def verify(package, *, expected_digest=None):
             computed = mod.assess(plan,package["responses"])
         else:
             computed = _replay_review(mod,plan,package["responses"],package["binding"],package["submissions"])
-        if computed != package["report"] or computed.get("decision_grade") is not False:
+        if not canonical_equal(computed,package["report"]) or computed.get("decision_grade") is not False:
             fail("scientific report differs from independently replayed result")
         return {"status":"REPLAY_VERIFIED", "kind":package["kind"], "package_digest":digest,
                 "report_digest":computed["digest"], "plan_hash":plan["plan_hash"],
