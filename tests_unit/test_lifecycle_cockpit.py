@@ -64,6 +64,46 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(out["source_counts"]["source_available"],1)
         self.assertEqual(out["requirements"][0]["claim"],"demonstration")
 
+    def test_handoff_counts_do_not_clear_version_change(self):
+        records=sample()
+        target=records["programmes"]["records"][0]["programme"]["plans"][0]["target"]
+        records["monitors"]["records"]=[{"programme_id":"programme","vendor_id":"a","target":target,
+            "id":"monitor","version_reassessment_required":True,"attention_required":True,
+            "n_missing_windows":0,"schedule_ended":False}]
+        records["handoffs"]["records"]=[{"baseline_id":"programme","vendor_id":"a","monitor_id":"monitor",
+            "n_reported_changes":2,"n_linked":1,"n_current_successors":0,"successor_programmes":["successor"],
+            "version_reassessment_required":True,"decision_grade":False,"deployment_authorized":False}]
+        doc=cockpit.project(records)
+        row=doc["vendors"][0]
+        self.assertEqual(row["handoff_state"],"available")
+        codes={t["code"] for t in row["tasks"]}
+        self.assertIn("link_reported_version_changes",codes)
+        self.assertIn("review_stale_reassessment_successors",codes)
+        self.assertEqual(row["tasks"][0]["code"],"reported_version_change")
+        records["handoffs"]["records"][0].update(n_linked=2,n_current_successors=2)
+        row=cockpit.project(records)["vendors"][0]
+        codes={t["code"] for t in row["tasks"]}
+        self.assertNotIn("link_reported_version_changes",codes)
+        self.assertNotIn("review_stale_reassessment_successors",codes)
+        self.assertIn("reported_version_change",codes)
+        self.assertFalse(row["deployment_authorized"])
+
+    def test_handoff_unavailable_and_mismatched_inventory(self):
+        records=sample()
+        target=records["programmes"]["records"][0]["programme"]["plans"][0]["target"]
+        records["monitors"]["records"]=[{"programme_id":"programme","vendor_id":"a","target":target,
+            "id":"monitor","version_reassessment_required":True,"attention_required":True,
+            "n_missing_windows":0,"schedule_ended":False}]
+        records["handoffs"]={"state":"unavailable","records":[]}
+        doc=cockpit.project(records)
+        self.assertTrue(doc["partial"])
+        self.assertEqual(doc["vendors"][0]["handoff_state"],"unavailable")
+        records["handoffs"]={"state":"available","records":[{"baseline_id":"programme","vendor_id":"a","monitor_id":"different"}]}
+        doc=cockpit.project(records)
+        self.assertTrue(doc["partial"])
+        self.assertEqual(doc["vendors"][0]["handoff_state"],"inconsistent_inventory")
+        self.assertIsNone(doc["vendors"][0]["handoff"])
+
     def test_stable_critical_first_and_version_lineage(self):
         records=sample()
         target=records["programmes"]["records"][0]["programme"]["plans"][0]["target"]

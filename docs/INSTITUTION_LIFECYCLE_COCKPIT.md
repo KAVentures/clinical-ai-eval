@@ -64,3 +64,15 @@ The cockpit is a navigation and administrative triage aid. Reopen and
 reverify native source records before action, and use the existing committee
 snapshot and export workflow for evidence decisions. Neither the cockpit nor
 the reviewer inbox authorizes deployment or establishes clinical safety.
+
+
+## Reported version-change linkage
+
+The cockpit now shows the number of reported version changes, linked
+successor programmes and currently scoped successor links. Administrators
+can open the native handoff workflow for unlinked changes or stale
+successors. A linked successor is not a completed reassessment and does
+not clear the original critical alert. Handoff and monitoring inventories
+are read independently; mismatched monitor IDs or reported-change presence
+are marked inconsistent and withheld rather than presented as complete.
+No incident-level records or external artifact digests enter the cockpit.
