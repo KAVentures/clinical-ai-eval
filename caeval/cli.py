@@ -1866,6 +1866,10 @@ def main(argv=None):
     from . import monitor_alert_outbox
     poutbox = sub.add_parser("monitor-alert-outbox", help="prepare and acknowledge local alert transition batches")
     monitor_alert_outbox.configure(poutbox)
+
+    from . import monitor_alert_store
+    pstore = sub.add_parser("monitor-alert-store", help="manage durable single-monitor alert delivery state")
+    monitor_alert_store.configure(pstore)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")
