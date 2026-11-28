@@ -1825,6 +1825,10 @@ def main(argv=None):
     from . import institution_rag_trace
     pragtrace = sub.add_parser("verify-rag-rehearsal", help="replay private synthetic RAG trace evidence offline")
     institution_rag_trace.configure(pragtrace)
+
+    from . import rag_grounding
+    pgrounding = sub.add_parser("rag-grounding", help="verify controlled RAG grounding evidence")
+    rag_grounding.configure(pgrounding)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")

@@ -14,7 +14,7 @@ LINK="unified-assessment-source-locked"
 MAX_PROGRAMMES=40
 MAX_PLANS=24
 MAX_REQUIREMENTS=80
-KINDS=("text","conversation","research","imaging","fhir","hl7","image_text","rag")
+KINDS=("text","conversation","research","imaging","fhir","hl7","image_text","rag","rag_grounding")
 ERRORS=(ValueError,RuntimeError,OSError,KeyError,TypeError,AttributeError,IndexError,StopIteration)
 LIMITATIONS=[
     "Administrative source coverage only; no combined score, ranking, procurement approval or deployment authorization.",
@@ -178,7 +178,7 @@ def _source(directory,conn,actor,req,plan,source_id):
     pid=plan["plan_id"]
     target=plan["target"]
     vid=plan["vendor_id"]
-    if kind=="imaging":
+    if kind in ("imaging","rag_grounding"):
         d._require(d._token(source_id),"invalid imaging study ID")
     else:
         manual._identifier(source_id)
@@ -212,6 +212,17 @@ def _source(directory,conn,actor,req,plan,source_id):
             raise access.AccessDenied("conversation job verification failed")
         result={"anchor":row["digest"],"evidence_digest":r["manifest_hash"],
                 "mode":b["mode"],"claim":r["claim"],"scope":"exact_buyer_plan"}
+    elif kind=="rag_grounding":
+        from . import institution_rag_grounding as grounding
+        grounding._schema(conn)
+        grounding._inventory(conn)
+        frozen,docs,reviews,evidence=grounding._get(conn,source_id)
+        candidates=[r for r in (evidence or {}).get("results",[]) if r["candidate"]=={"id":vid,"version":target["version"]}]
+        if len(candidates)!=1 or not any(c["counts"]["n_available"] for c in candidates[0]["conditions"]):
+            raise access.AccessDenied("sealed grounding study with exact available candidate version required")
+        result={"anchor":frozen["digest"],"evidence_digest":evidence["digest"],
+                "mode":"experimental_rag_grounding","claim":"not_canonical",
+                "scope":"vendor_id_and_version_only"}
     elif kind=="rag":
         from . import institution_rag as rag
         rag._schema(conn)
