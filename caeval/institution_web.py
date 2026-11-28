@@ -110,8 +110,12 @@ def _setup_upload(env, allowed=("csrf","vendor_id","kind","title","document")):
 
 
 def _query(env):
+    raw = env.get("QUERY_STRING", "")
+    # Python 3.9 strict parsing rejects an empty query; no query is valid.
+    if raw == "":
+        return {}
     try:
-        values = urllib.parse.parse_qs(env.get("QUERY_STRING", ""), max_num_fields=4,
+        values = urllib.parse.parse_qs(raw, max_num_fields=4,
                                       keep_blank_values=True, strict_parsing=True)
         if any(len(v) != 1 for v in values.values()):
             raise ValueError()
@@ -144,6 +148,7 @@ def _dashboard(directory, actor):
         body += "<p><a href='/research'>Clinical research studio</a></p>"
     if role in ("admin","reviewer"):
         body += "<p><a href='/formal'>Formal independent clinical review</a></p>"
+        body += "<p><a href='/validation'>Prospective validation cohorts</a></p>"
         body += "<p><a href='/patient-review'>Patient transcript physician review</a></p>"
         body += "<p><a href='/world-review'>Patient-world validity review</a></p>"
     if role == "reviewer":
@@ -171,6 +176,7 @@ def _dashboard(directory, actor):
             body += "<tr>" + "".join("<td>"+esc(row[k])+"</td>" for k in ("job","status","mode","n_packages")) + "</tr>"
         body += "</table>"
         if role == "admin":
+            body += "<p><a href='/evaluator-requests'>External evaluation requests</a></p>"
             body += "<p><a href='/audit'>Access audit</a> · <a href='/retention'>Retention policies and legal holds</a></p>"
     return page("Institutional assessment workspace", body)
 
@@ -284,6 +290,31 @@ class InstitutionApp:
                     body+="<tr>"+"".join("<td>"+esc(row[k])+"</td>" for k in ("seq","actor","action","object_id","outcome"))+"</tr>"
                 access.event(self.directory,actor["user_id"],"audit-opened")
                 return respond("200 OK",page("Access audit",body+"</table>"))
+            if path=="/validation" and method=="GET":
+                from . import validation_cohort_web as validation
+                return respond("200 OK",validation.render(self.directory,actor))
+            if path=="/validation-export" and method=="POST":
+                from . import validation_cohort,portable_calibration
+                form=_form(env)
+                _csrf(actor,form)
+                if set(form)!={"id","confirm"}:
+                    raise access.AccessDenied("exact calibration export approval required")
+                package=validation_cohort.export_calibration(self.directory,actor,form["id"],confirmed=form["confirm"]=="yes")
+                return respond("200 OK",portable_calibration.encode(package),
+                    extra=[("Content-Disposition",'attachment; filename="calibration.json"')],
+                    content_type="application/json; charset=utf-8")
+            if path=="/validation-review" and method=="GET":
+                from . import validation_cohort_web as validation
+                q=_query(env)
+                if set(q)!={"id"}:raise access.AccessDenied("select exact cohort")
+                return respond("200 OK",validation.review(self.directory,actor,q["id"]))
+            if path in ("/validation-preview","/validation-freeze","/validation-collect","/validation-reserve","/validation-attach","/validation-submit","/validation-attest","/validation-analyze") and method=="POST":
+                from . import validation_cohort_web as validation
+                form=_form(env)
+                _csrf(actor,form)
+                result=validation.dispatch(self.directory,actor,path[len("/validation-"):],form)
+                if result is not None:return respond("200 OK",result)
+                return respond("303 See Other",extra=[("Location","/validation")])
             if path=="/formal" and method=="GET":
                 from . import institution_formal_web as formal
                 return respond("200 OK",formal.render(self.directory,actor))
@@ -343,7 +374,10 @@ class InstitutionApp:
                 return respond("303 See Other",extra=[("Location","/patient-review")])
             if path=="/conversation" and method=="GET":
                 from . import institution_conversation_web as conversation
-                return respond("200 OK",conversation.render(self.directory,actor))
+                q=_query(env)
+                if set(q)-{"plan_id"}:
+                    raise access.AccessDenied("unexpected conversation setup query")
+                return respond("200 OK",conversation.render(self.directory,actor,q.get("plan_id","")))
             if path in ("/conversation-queue","/conversation-cancel") and method=="POST":
                 from . import institution_conversation_web as conversation
                 access.require(actor,"admin","operator")
@@ -563,6 +597,105 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=fhir_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/fhir-report?id="+ident)])
+            if path in ("/hl7","/hl7-download","/hl7-report","/hl7-evidence") and method=="GET":
+                from . import institution_hl7 as service, institution_hl7_web as hl7_web, buyer_plan
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if path=="/hl7" and set(q)=={"plan_id"}:
+                    return respond("200 OK",hl7_web.render(self.directory,actor,q["plan_id"]))
+                if path=="/hl7-report" and set(q)=={"id"}:
+                    return respond("200 OK",hl7_web.report(self.directory,actor,q["id"]))
+                if path=="/hl7-download" and set(q)=={"plan_id","kind"} and q["kind"] in ("exchange","response_template"):
+                    doc=service.prepare(self.directory,actor,q["plan_id"])[q["kind"]]
+                    access.event(self.directory,actor["user_id"],"synthetic-hl7-fixture-exported",q["plan_id"])
+                elif path=="/hl7-evidence" and set(q)=={"id"}:
+                    doc=service.detail(self.directory,actor,q["id"])["package"]
+                    access.event(self.directory,actor["user_id"],"synthetic-hl7-evidence-exported",q["id"])
+                else:
+                    raise access.AccessDenied("invalid synthetic HL7 v2 request")
+                return respond("200 OK",buyer_plan._canonical(doc),extra=[("Content-Disposition",'attachment; filename="synthetic-hl7.json"')],content_type="application/json; charset=utf-8")
+            if path=="/hl7-submit" and method=="POST":
+                from . import institution_hl7_web as hl7_web
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                ident=hl7_web.submit(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/hl7-report?id="+ident)])
+            if path in ("/image-text","/image-text-download","/image-text-report","/image-text-evidence") and method=="GET":
+                from . import institution_image_text as service, institution_image_text_web as image_web, buyer_plan
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if path=="/image-text" and set(q)=={"plan_id"}:
+                    return respond("200 OK",image_web.render(self.directory,actor,q["plan_id"]))
+                if path=="/image-text-report" and set(q)=={"id"}:
+                    return respond("200 OK",image_web.report(self.directory,actor,q["id"]))
+                if path=="/image-text-download" and set(q)=={"plan_id","kind"} and q["kind"] in ("exchange","response_template"):
+                    doc=service.prepare(self.directory,actor,q["plan_id"])[q["kind"]]
+                    access.event(self.directory,actor["user_id"],"synthetic-image-text-fixture-exported",q["plan_id"])
+                elif path=="/image-text-evidence" and set(q)=={"id"}:
+                    doc=service.detail(self.directory,actor,q["id"])["package"]
+                    access.event(self.directory,actor["user_id"],"synthetic-image-text-evidence-exported",q["id"])
+                else:
+                    raise access.AccessDenied("invalid synthetic image-text request")
+                return respond("200 OK",buyer_plan._canonical(doc),extra=[("Content-Disposition",'attachment; filename="synthetic-image-text.json"')],content_type="application/json; charset=utf-8")
+            if path=="/image-text-submit" and method=="POST":
+                from . import institution_image_text_web as image_web
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                ident=image_web.submit(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
+            if path=="/evaluator-requests" and method=="GET":
+                from . import evaluator_service_web
+                access.require(actor,"admin")
+                return respond("200 OK",evaluator_service_web.render(self.directory,actor))
+            if path in ("/evaluator-request-link","/evaluator-request-revoke","/evaluator-request-approve") and method=="POST":
+                from . import evaluator_service_web
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                evaluator_service_web.dispatch(self.directory,actor,path,form)
+                return respond("303 See Other",extra=[("Location","/evaluator-requests")])
+            if path=="/version-reassessment" and method=="GET":
+                from . import version_reassessment_web as version
+                q=_query(env)
+                if set(q)!={"plan_id"}:
+                    raise access.AccessDenied("select exact baseline plan")
+                return respond("200 OK",version.render(self.directory,actor,q["plan_id"]))
+            if path in ("/version-reassessment-preview","/version-reassessment-freeze") and method=="POST":
+                from . import version_reassessment_web as version
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/version-reassessment-preview":
+                    return respond("200 OK",version.preview(self.directory,actor,form))
+                version.freeze(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/version-reassessment?plan_id="+form["baseline_id"])])
+            if path=="/mixed-evaluation" and method=="GET":
+                from . import mixed_evaluation_web as mixed
+                q=_query(env)
+                if set(q)!={"plan_id"}:
+                    raise access.AccessDenied("select exact parent plan")
+                return respond("200 OK",mixed.render(self.directory,actor,q["plan_id"]))
+            if path=="/mixed-evaluation-freeze" and method=="POST":
+                from . import mixed_evaluation_web as mixed
+                form=_form(env)
+                _csrf(actor,form)
+                mixed.freeze(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/mixed-evaluation?plan_id="+form["parent_id"])])
+            if path=="/guided-collection" and method=="GET":
+                from . import guided_onboarding_web as guided
+                q=_query(env)
+                if set(q)!={"plan_id"}:
+                    raise access.AccessDenied("select exact saved plan")
+                return respond("200 OK",guided.render(self.directory,actor,q["plan_id"]))
+            if path in ("/guided-collection-preview","/guided-collection-approve") and method=="POST":
+                from . import guided_onboarding_web as guided
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/guided-collection-preview":
+                    return respond("200 OK",guided.preview(self.directory,actor,form))
+                guided.approve(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/collections")])
             if path=="/setup" and method=="GET":
                 from . import institution_setup_web as setup
                 return respond("200 OK",setup.render(self.directory,actor))
@@ -591,6 +724,14 @@ class InstitutionApp:
             if path=="/collections" and method=="GET":
                 from . import institution_connector_web as collection
                 return respond("200 OK",collection.render(self.directory,actor))
+            if path in ("/collection-assessment-preview","/collection-assessment-prepare") and method=="POST":
+                from . import institution_connector_web as collection
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/collection-assessment-preview":
+                    return respond("200 OK",collection.preview(self.directory,actor,form))
+                collection.prepare(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/setup")])
             if path in ("/collection-queue","/collection-cancel") and method=="POST":
                 from . import institution_connector_web as collection
                 form=_form(env)

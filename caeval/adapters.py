@@ -171,7 +171,7 @@ class _RefuseRedirect(urllib.request.HTTPRedirectHandler):
         raise AdapterError("local candidate redirect refused")
 
 
-def post_local_json(url, payload, headers, *, timeout):
+def post_local_json(url, payload, headers, *, timeout, strict=False):
     """Bounded single-attempt loopback transport. Never echoes response bodies."""
     validate_local_endpoint(url)
     if (type(timeout) is not int or not 1<=timeout<=60 or not isinstance(headers,dict)
@@ -185,9 +185,14 @@ def post_local_json(url, payload, headers, *, timeout):
         opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),_RefuseRedirect())
         req=urllib.request.Request(url,data=raw,headers={"Content-Type":"application/json",**headers},method="POST")
         with opener.open(req,timeout=timeout) as response:
+            if strict and (response.status!=200 or response.headers.get_content_type()!="application/json"):
+                raise AdapterError("standard conversation requires HTTP 200 JSON")
             raw=response.read(LOCAL_MAX_REPLY+1)
         if len(raw)>LOCAL_MAX_REPLY:
             raise AdapterError("local candidate reply exceeds limit")
+        if strict:
+            from . import buyer_manual
+            return buyer_manual._parse(raw)
         return json.loads(raw.decode("utf-8"))
     except AdapterError:
         raise
@@ -220,6 +225,8 @@ class AdapterSpec:
     timeout: int = 120
     modality: str = "single_turn"   # single_turn | conversation
     local_only: bool = False        # opt-in restricted institutional transport
+    protocol: str = ""              # optional versioned full-history contract
+    target_name: str = ""
 
     def __post_init__(self):
         if self.kind not in ("mock", "http_single_turn", "http_conversation", "callable"):
@@ -230,6 +237,13 @@ class AdapterSpec:
             self.modality = "conversation"
         if type(self.local_only) is not bool:
             raise AdapterError("local_only must be a boolean")
+        if self.protocol:
+            from . import conversation_protocol
+            if (self.protocol!=conversation_protocol.PROTOCOL or not self.local_only
+                    or self.kind!="http_conversation" or self.session_field
+                    or self.history_field!="messages" or self.answer_path!="answer"):
+                raise AdapterError("standard conversation requires local full-history transport without session mapping")
+            conversation_protocol.base._target({"name":self.target_name,"version":self.version})
         if self.local_only:
             if self.kind!="http_conversation":
                 raise AdapterError("local-only adapter requires conversational HTTP")
@@ -266,6 +280,7 @@ class AdapterSpec:
             "headers": redact(self.headers),
             "extra": redact(self.extra),
             **({"local_only": True} if self.local_only else {}),
+            **({"protocol": self.protocol,"target_name":self.target_name} if self.protocol else {}),
         }
 
     def identity_hash(self) -> str:
@@ -341,12 +356,31 @@ class HttpConversationAdapter(ConversationAdapter):
         self._session_id = None
         self._total_calls = 0
         self._deadline = time.monotonic()+LOCAL_MAX_SECONDS
+        self._episode_id = None
+        self._reset()
 
     def _reset(self):
         self._session_id = None
+        if self.spec.protocol:
+            import secrets
+            self._episode_id=secrets.token_hex(16)
 
     def _reply(self, history) -> str:
         s = self.spec
+        if s.protocol:
+            from . import conversation_protocol
+            if self._total_calls>=LOCAL_MAX_CALLS or time.monotonic()>=self._deadline:
+                raise AdapterError("local candidate run budget exhausted")
+            payload=conversation_protocol.request({"name":s.target_name,"version":s.version},self._episode_id,history)
+            self._total_calls+=1
+            try:
+                data=post_local_json(s.url,payload,expand_env(s.headers),timeout=s.timeout,strict=True)
+                data=conversation_protocol.validate_response(payload,data)
+            except (ValueError,RuntimeError,TypeError,KeyError):
+                raise AdapterError("standard conversation transport or correlation failed") from None
+            if data["status"]!="complete":
+                raise AdapterError("candidate explicitly unavailable")
+            return data["answer"]
         payload = {s.history_field: [{"role": h["role"], "content": h["text"]} for h in history],
                    **expand_env({k: v for k, v in s.extra.items() if not str(k).startswith("_")})}
         if s.session_field and self._session_id:

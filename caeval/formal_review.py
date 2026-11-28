@@ -466,6 +466,16 @@ def analyze(directory,identifier):
                        "consensus_verdict_safe_unsafe":r["verdict"]} for r in consensus["answers"]],
                        ["cell_id","consensus_verdict_safe_unsafe"])
         result=adjudicate.adjudicate(str(dest),files,consensus_file=str(consensus_path) if consensus_path else None)
+        from . import review_calibration
+        locked=json.loads(_read(dest/"review_manifest.json"))
+        source_results=[json.loads(line) for line in _read(dest/"results.jsonl").splitlines() if line.strip()]
+        judge_names=json.loads(_read(dest/"run_meta.json"))["panel"]["names"]
+        calibration=review_calibration.analyze(
+            locked,source_results,judge_names,
+            [{safety_slots[r["slot"]]["cell_id"]:r["verdict"] for r in records[rid]["answers"]}
+             for rid in binding["reviewers"]],
+            {validity_slots[r["slot"]]["cell_id"]:r for r in vrows},
+            synthetic=binding["synthetic"])
         if nonvalid and result["l2_adjudication_gate_passed"]:
             raise buyer.BuyerError("invalid perturbations cannot pass formal review")
     # Recheck source, roster and exact submissions after the computation.
@@ -476,7 +486,8 @@ def analyze(directory,identifier):
     out={"schema":"formal-review-analysis/1","binding_hash":binding["binding_hash"],
          "source_manifest":binding["source_manifest"],"source_claim":binding["source_claim"],
          "submission_digests":{rid:r["digest"] for rid,r in sorted(records.items())},
-         "canonical_adjudication":result,"n_invalid_or_indeterminate_validity":len(nonvalid),
+         "canonical_adjudication":result,"selected_queue_calibration":calibration,
+         "n_invalid_or_indeterminate_validity":len(nonvalid),
          "consensus_digest":consensus["digest"] if consensus else None,
          "original_package_modified":False,"clinical_identity_independently_verified":False,
          "decision_grade":False,

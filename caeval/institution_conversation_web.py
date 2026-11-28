@@ -2,7 +2,7 @@
 from . import institution_conversation as conversation, institution_access as access, project
 
 
-def render(directory,actor):
+def render(directory,actor,plan_id=""):
     from .institution_web import page,esc,_hidden
     def form(action,fields,button):
         return "<form method='post' action='/conversation-"+action+"'>"+_hidden("csrf",actor["csrf"])+fields+"<button>"+esc(button)+"</button></form>"
@@ -11,7 +11,10 @@ def render(directory,actor):
     body="<p><a href='/'>Workspace</a></p><p>Experimental patient-world testing. Use approved synthetic or non-identifiable cases. This browser queues work; it never makes candidate or judge calls.</p>"
     if actor["role"] in ("admin","operator"):
         choices=conversation.options(directory)
-        fields="<label>Saved patient evaluation plan ID<input name='plan_id' maxlength='64' required></label>"
+        if plan_id:
+            from . import buyer_manual
+            buyer_manual._identifier(plan_id,digest=True)
+        fields="<label>Saved patient evaluation plan ID<input name='plan_id' maxlength='64' value='"+esc(plan_id)+"' required></label>"
         fields+=select("connector_id","Approved local conversation connector",choices["connectors"])
         fields+=select("pack_id","Patient-world case pack",choices["packs"])
         fields+=select("panel_id","Approved judge panel",choices["panels"])

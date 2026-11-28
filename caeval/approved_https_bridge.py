@@ -50,19 +50,36 @@ def _parse(raw):
         raise BridgeError("invalid JSON") from None
 
 
+def _protocol(config):
+    from . import candidate_protocol, conversation_protocol, citation_trace_protocol, interoperability_protocol, image_text_readiness
+    mods={"single_turn":candidate_protocol,"conversation":conversation_protocol,
+          "citation":citation_trace_protocol,"interoperability":interoperability_protocol,
+          "image_text":image_text_readiness}
+    mod=mods.get(config["modality"])
+    if mod is None or config.get("protocol")!=mod.PROTOCOL:
+        raise BridgeError("unsupported native bridge protocol")
+    return mod
+
+
 def validate(config):
     fields={"vendor_id","target_name","target_version","modality","listen_port",
             "upstream_url","upstream_ip","upstream_input_field","upstream_answer_path",
             "fixed_fields","local_token_env","upstream_token_env","upstream_auth",
             "timeout_seconds","max_calls","max_seconds","data_scope"}
-    if not isinstance(config,dict) or set(config)!=fields:
+    native_fields=(fields-{"upstream_input_field","upstream_answer_path","fixed_fields"})|{"protocol"}
+    if not isinstance(config,dict) or set(config) not in (fields,native_fields):
         raise BridgeError("exact approved bridge configuration required")
+    native="protocol" in config
     buyer_manual._identifier(config["vendor_id"])
     for k in ("target_name","target_version"):
         if not isinstance(config[k],str) or not config[k].strip() or len(config[k])>300:
             raise BridgeError("explicit candidate and version required")
-    if config["modality"] not in ("single_turn","conversation") or config["data_scope"]!="approved_synthetic_or_nonidentifiable":
-        raise BridgeError("approved data scope and supported modality required")
+    if config["data_scope"]!="approved_synthetic_or_nonidentifiable":
+        raise BridgeError("approved data scope required")
+    if native:
+        _protocol(config)
+    elif config["modality"] not in ("single_turn","conversation"):
+        raise BridgeError("unsupported legacy modality")
     for k,lo,hi in (("listen_port",1024,65535),("timeout_seconds",1,60),
                     ("max_calls",1,MAX_CALLS),("max_seconds",1,MAX_SECONDS)):
         if type(config[k]) is not int or not lo<=config[k]<=hi:
@@ -91,19 +108,20 @@ def validate(config):
             raise ValueError()
     except (ValueError,TypeError,AttributeError):
         raise BridgeError("fixed public IP and HTTPS hostname/path required") from None
-    if not isinstance(config["upstream_input_field"],str) or not NAME.fullmatch(config["upstream_input_field"]):
-        raise BridgeError("invalid upstream input mapping")
-    answer=config["upstream_answer_path"]
-    if not isinstance(answer,str) or len(answer)>200 or not ANSWER.fullmatch(answer):
-        raise BridgeError("invalid upstream response mapping")
-    fixed=config["fixed_fields"]
-    if (not isinstance(fixed,dict) or len(fixed)>20 or config["upstream_input_field"] in fixed
-            or any(not NAME.fullmatch(k) or any(x in k.lower() for x in ("secret","token","password","key","auth","header","url"))
-                   or type(v) not in (str,int,float,bool) or isinstance(v,str) and (len(v)>1000 or "${" in v)
-                   for k,v in fixed.items())):
-        raise BridgeError("only fixed noncredential scalar upstream fields allowed")
-    if fixed.get("stream") not in (None,False):
-        raise BridgeError("streaming response is unsupported")
+    if not native:
+        if not isinstance(config["upstream_input_field"],str) or not NAME.fullmatch(config["upstream_input_field"]):
+            raise BridgeError("invalid upstream input mapping")
+        answer=config["upstream_answer_path"]
+        if not isinstance(answer,str) or len(answer)>200 or not ANSWER.fullmatch(answer):
+            raise BridgeError("invalid upstream response mapping")
+        fixed=config["fixed_fields"]
+        if (not isinstance(fixed,dict) or len(fixed)>20 or config["upstream_input_field"] in fixed
+                or any(not NAME.fullmatch(k) or any(x in k.lower() for x in ("secret","token","password","key","auth","header","url"))
+                       or type(v) not in (str,int,float,bool) or isinstance(v,str) and (len(v)>1000 or "${" in v)
+                       for k,v in fixed.items())):
+            raise BridgeError("only fixed noncredential scalar upstream fields allowed")
+        if fixed.get("stream") not in (None,False):
+            raise BridgeError("streaming response is unsupported")
     for k in ("local_token_env","upstream_token_env"):
         if not isinstance(config[k],str) or not ENV.fullmatch(config[k]):
             raise BridgeError("credentials must be environment variable names")
@@ -138,11 +156,13 @@ def connector(config):
     digest=binding(config)
     doc={k:config[k] for k in ("vendor_id","target_name","target_version","timeout_seconds")}
     doc.update(url="http://127.0.0.1:"+str(config["listen_port"])+"/evaluate/"+digest,
-               answer_path="answer",headers={"Authorization":"Bearer ${"+config["local_token_env"]+"}"})
-    if config["modality"]=="single_turn":
-        doc["prompt_field"]="prompt"
+               headers={"Authorization":"Bearer ${"+config["local_token_env"]+"}"})
+    if "protocol" in config:
+        doc["protocol"]=config["protocol"]
+    elif config["modality"]=="single_turn":
+        doc.update(prompt_field="prompt",answer_path="answer")
     else:
-        doc.update(history_field="messages",session_field="")
+        doc.update(history_field="messages",session_field="",answer_path="answer")
     return doc
 
 
@@ -158,6 +178,13 @@ def _credentials(config):
 
 def _payload(config,doc):
     """Only visible prompt/history; translate roles for chat APIs."""
+    if "protocol" in config:
+        mod=_protocol(config)
+        mod.validate_request(doc,expected_target={"name":config["target_name"],"version":config["target_version"]})
+        raw=buyer_plan._canonical(doc)
+        if len(raw)>MAX_BODY:
+            raise BridgeError("upstream request exceeds limit")
+        return raw
     key="prompt" if config["modality"]=="single_turn" else "messages"
     if not isinstance(doc,dict) or set(doc)!={key}:
         raise BridgeError("unexpected candidate request fields")
@@ -216,6 +243,8 @@ def _upstream(config,payload,secret):
                 or response.getheader("Content-Type","").split(";")[0].strip().lower()!="application/json"):
             raise BridgeError("upstream rejected or unsupported response")
         raw=response.read(MAX_BODY+1)
+        if "protocol" in config:
+            return _protocol(config).validate_response(_parse(payload),_parse(raw))
         reply=adapters.resolve_answer_path(_parse(raw),config["upstream_answer_path"])
         if not isinstance(reply,str) or not reply.strip() or len(reply.encode("utf-8"))>MAX_TEXT:
             raise BridgeError("invalid upstream answer")
@@ -242,9 +271,19 @@ class Bridge:
             raise BridgeError("bridge access denied")
         if self.used>=self.config["max_calls"] or time.monotonic()>=self.deadline:
             raise BridgeError("approved bridge budget exhausted")
-        payload=_payload(self.config,_parse(raw))
+        doc=_parse(raw)
+        try:
+            payload=_payload(self.config,doc)
+        except (ValueError,TypeError,KeyError,AttributeError,RecursionError):
+            raise BridgeError("invalid candidate contract") from None
         self.used+=1  # failures count; no retries
-        return {"answer":_upstream(self.config,payload,self.remote)}
+        reply=_upstream(self.config,payload,self.remote)
+        if "protocol" in self.config:
+            try:
+                return _protocol(self.config).validate_response(doc,reply)
+            except (ValueError,TypeError,KeyError,AttributeError,RecursionError):
+                raise BridgeError("upstream candidate contract mismatch") from None
+        return {"answer":reply}
 
 
 def server(bridge):

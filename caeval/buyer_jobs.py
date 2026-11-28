@@ -58,15 +58,30 @@ def _public(row):
     return obj
 
 
-def enqueue(directory, assessment_id):
-    record = assessment.check(directory, assessment_id)
+def enqueue(directory, assessment_id, *, service_request=None, cohort_job=None, conn=None):
+    if cohort_job is not None:
+        import re
+        if conn is None or service_request is not None or not isinstance(cohort_job,str) or not re.fullmatch(r"job-cohort-[0-9a-f]{48}",cohort_job):
+            raise buyer.BuyerError("trusted cohort reservation transaction required")
+    if service_request is not None:
+        from . import evaluator_service
+        if conn is None or not isinstance(service_request,str) or not evaluator_service.ID.fullmatch(service_request):
+            raise buyer.BuyerError("trusted institutional request transaction required")
+    record = assessment.check(directory, assessment_id, conn=conn)
     _, panel = assessment._panel(directory, record["panel_id"])
     real = any(not j["mock"] for j in panel["judges"])
     with _db(directory) as db:
         db.execute("BEGIN IMMEDIATE")
+        job = cohort_job or ("job-service-"+service_request if service_request is not None else "job-"+uuid.uuid4().hex)
+        if service_request is not None or cohort_job is not None:
+            prior=db.execute("SELECT * FROM jobs WHERE id=?",(job,)).fetchone()
+            if prior is not None:
+                if (prior["assessment_id"]!=assessment_id or prior["mode"]!=record["mode"]
+                        or bool(prior["real_judges"])!=real or prior["status"]!="queued"):
+                    raise buyer.BuyerError("existing service job differs; investigate before recovery")
+                return _public(prior)
         if db.execute("SELECT count(*) FROM jobs").fetchone()[0] >= MAX_JOBS:
             raise buyer.BuyerError("job limit reached")
-        job = "job-" + uuid.uuid4().hex
         db.execute("INSERT INTO jobs(id,assessment_id,status,mode,real_judges) VALUES (?,?,?,?,?)",
                    (job, assessment_id, "queued", record["mode"], int(real)))
         row = db.execute("SELECT * FROM jobs WHERE id=?", (job,)).fetchone()
@@ -237,9 +252,18 @@ def cancel(directory, job_id):
 
 def execute(directory, job_id, *, allow_model_calls=False):
     """Claim exactly one job atomically; no automatic retries or provider calls."""
+    approved_assessment=None
+    if isinstance(job_id,str) and job_id.startswith("job-service-"):
+        from . import evaluator_service
+        approved_assessment=evaluator_service.require_queue_approval(directory,job_id)
+    if isinstance(job_id,str) and job_id.startswith("job-cohort-"):
+        from . import validation_cohort
+        approved_assessment=validation_cohort.require_queue_approval(directory,job_id)
     with _db(directory) as db:
         db.execute("BEGIN IMMEDIATE")
         row = _public(_get(db, job_id))
+        if approved_assessment is not None and row["assessment_id"]!=approved_assessment:
+            raise buyer.BuyerError("service approval does not match queued assessment")
         if row["status"] != "queued":
             raise buyer.BuyerError("only queued jobs may execute")
         if row["real_judges"] and not allow_model_calls:

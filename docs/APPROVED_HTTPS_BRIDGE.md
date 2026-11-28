@@ -91,3 +91,16 @@ worker, with all its original approval and scientific verification gates.
 A valid bridge response does not establish the actual deployed model
 identity or version. Live provider interoperability, certificate policy,
 network isolation and institutional security acceptance remain necessary.
+
+## Native contracts
+
+For an upstream implementing a native Clinical AI Eval contract, replace the
+three legacy mapping fields (upstream_input_field, upstream_answer_path,
+fixed_fields) with protocol. Use the matching modality: single_turn with
+clinical-ai-eval-candidate/1, conversation with clinical-ai-eval-conversation/1,
+citation with clinical-ai-eval-citation-trace/1, or interoperability with
+clinical-ai-eval-interoperability/1. The bridge validates the exact approved
+product/version, preserves correlation and input, and requires a valid native
+upstream response. It never synthesizes the vendor's identity echo. Legacy
+mapped adapters remain supported. Interoperability is fixed synthetic data only.
+Separate operator approval, pinned HTTPS, and call budgets still apply.

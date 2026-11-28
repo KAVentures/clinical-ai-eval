@@ -28,6 +28,35 @@ class BridgeTests(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
 
+    def test_native_protocols_preserve_correlation_and_reject_mismatch(self):
+        from caeval import candidate_protocol, conversation_protocol
+        target={"name":"Synthetic product","version":"1"}
+        for modality,mod,request in (
+            ("single_turn",candidate_protocol,candidate_protocol.request(target,"Synthetic question")),
+            ("conversation",conversation_protocol,conversation_protocol.request(target,"b"*32,[{"role":"patient","text":"Synthetic question"}])),
+        ):
+            with self.subTest(modality=modality):
+                cfg={k:v for k,v in config().items() if k not in ("upstream_input_field","upstream_answer_path","fixed_fields")}
+                cfg.update(modality=modality,protocol=mod.PROTOCOL)
+                app=bridge.Bridge(cfg,bridge.binding(cfg),confirmed=True)
+                self.assertEqual(bridge.connector(cfg)["protocol"],mod.PROTOCOL)
+                raw=json.dumps(request).encode()
+                auth="Bearer "+"a"*64
+                reply=mod.response(request,target=target,status="unavailable")
+                with patch.object(bridge,"_upstream",return_value=reply) as call:
+                    self.assertEqual(app.request(app.path,auth,raw),reply)
+                    self.assertEqual(json.loads(call.call_args.args[1]),request)
+                    changed={**request,"target":{**target,"version":"2"}}
+                    with self.assertRaises(bridge.BridgeError):
+                        app.request(app.path,auth,json.dumps(changed).encode())
+                    self.assertEqual(call.call_count,1)
+                    call.return_value={**reply,"request_id":"0"*32}
+                    with self.assertRaises(bridge.BridgeError):
+                        app.request(app.path,auth,raw)
+                    self.assertEqual(app.used,2)
+                with self.assertRaises(bridge.BridgeError):
+                    bridge.validate({**cfg,"fixed_fields":{"model":"different"}})
+
     def test_config_binding_and_rejections(self):
         cfg=config()
         self.assertIn(bridge.binding(cfg),bridge.connector(cfg)["url"])
