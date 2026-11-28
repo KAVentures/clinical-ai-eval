@@ -147,6 +147,7 @@ def _dashboard(directory, actor):
     if role in ("admin","operator","observer","reviewer"):
         body += "<p><a href='/research'>Clinical research studio</a></p>"
     if role in ("admin","operator","observer"):
+        body += "<p><a href='/lifecycle-cockpit'>Clinical AI lifecycle cockpit</a></p>"
         body += "<p><a href='/unified-assessment'>Unified clinical AI assessment programmes</a></p>"
         body += "<p><a href='/matched-regression'>Matched longitudinal research</a></p>"
         body += "<p><a href='/lifecycle-monitor'>Clinical AI lifecycle monitoring</a></p>"
@@ -164,6 +165,7 @@ def _dashboard(directory, actor):
         body += "<p><a href='/patient-review'>Patient transcript physician review</a></p>"
         body += "<p><a href='/world-review'>Patient-world validity review</a></p>"
     if role == "reviewer":
+        body += "<p><a href='/my-independent-reviews'>My independent reviews</a></p>"
         body += "<h2>Assigned blinded reviews</h2>"
         for row in access.assignments(directory, actor):
             link = "/review?" + urllib.parse.urlencode({"job":row["job"],"family":row["family"]})
@@ -657,6 +659,28 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=image_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
+            if path=="/my-independent-reviews" and method=="GET":
+                from . import institution_reviewer_inbox as inbox
+                access.require(actor,"reviewer")
+                if _query(env):
+                    raise access.AccessDenied("invalid review inbox filter")
+                return respond("200 OK",inbox.render(self.directory,actor))
+            if path in ("/cockpit-policy-setup","/cockpit-monitor-setup") and method=="GET":
+                from . import institution_lifecycle_guided as guided
+                access.require(actor,"admin")
+                fn=guided.policy_form if path=="/cockpit-policy-setup" else guided.monitor_form
+                return respond("200 OK",fn(self.directory,actor,_query(env)))
+            if path in ("/cockpit-policy-preview","/cockpit-monitor-preview") and method=="POST":
+                from . import institution_lifecycle_guided as guided
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                fn=guided.policy_preview if path=="/cockpit-policy-preview" else guided.monitor_preview
+                return respond("200 OK",fn(self.directory,actor,form))
+            if path=="/lifecycle-cockpit" and method=="GET":
+                from . import institution_lifecycle_cockpit_web as cockpit
+                access.require(actor,"admin","operator","observer")
+                return respond("200 OK",cockpit.render(self.directory,actor,_query(env)))
             if path=="/lifecycle-ingestion-grants" and method=="GET":
                 from . import institution_lifecycle_monitor_web as monitor
                 access.require(actor,"admin")
