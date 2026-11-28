@@ -149,6 +149,7 @@ def _dashboard(directory, actor):
     if role in ("admin","operator","observer"):
         body += "<p><a href='/unified-assessment'>Unified clinical AI assessment programmes</a></p>"
         body += "<p><a href='/matched-regression'>Matched longitudinal research</a></p>"
+        body += "<p><a href='/lifecycle-monitor'>Clinical AI lifecycle monitoring</a></p>"
     if role in ("admin","operator"):
         body += "<p><a href='/diagnostic-imaging'>Diagnostic imaging research</a></p>"
         body += "<p><a href='/rag-trace'>Synthetic RAG context rehearsal</a></p>"
@@ -656,6 +657,27 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=image_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
+            if path in ("/lifecycle-monitor","/lifecycle-monitor-detail") and method=="GET":
+                from . import institution_lifecycle_monitor_web as monitor
+                q=_query(env)
+                if path=="/lifecycle-monitor" and not q:
+                    access.require(actor,"admin","operator","observer")
+                    return respond("200 OK",monitor.home(self.directory,actor))
+                if path=="/lifecycle-monitor-detail" and set(q)=={"id"}:
+                    access.require(actor,"admin","operator")
+                    return respond("200 OK",monitor.detail(self.directory,actor,q["id"]))
+                raise access.AccessDenied("invalid monitoring request")
+            if path in ("/lifecycle-monitor-preview","/lifecycle-monitor-freeze","/lifecycle-monitor-report","/lifecycle-monitor-incident","/lifecycle-monitor-action","/lifecycle-monitor-export") and method=="POST":
+                from . import institution_lifecycle_monitor_web as monitor,buyer_plan
+                access.require(actor,*(("admin","operator") if path in ("/lifecycle-monitor-report","/lifecycle-monitor-incident") else ("admin",)))
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/lifecycle-monitor-preview":
+                    return respond("200 OK",monitor.preview(self.directory,actor,form))
+                result=monitor.dispatch(self.directory,actor,path,form)
+                if path=="/lifecycle-monitor-export":
+                    return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="lifecycle-monitor-evidence.json"')],content_type="application/json; charset=utf-8")
+                return respond("303 See Other",extra=[("Location","/lifecycle-monitor-detail?id="+result)])
             if path in ("/hospital-referral","/hospital-referral-detail","/hospital-referral-assigned") and method=="GET":
                 from . import institution_hospital_referral_web as referral
                 q=_query(env)

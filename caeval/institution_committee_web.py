@@ -75,6 +75,9 @@ def _inventory(data):
     for row in data.get("unified_assessment_successors",[]):
         body+="<h3>Programme version reassessment</h3><p>"+esc(row["baseline_id"])+" → "+esc(row["successor_id"])+" · "+esc(row["digest"])+"</p>"
         body+="<p>No prior evidence transferred. No performance comparison authorized.</p>"
+    for row in data.get("lifecycle_monitors",[]):
+        body+="<h3>Lifecycle monitor "+esc(row["id"])+"</h3><p>"+esc(row["vendor_id"])+" · "+esc(row["target"]["version"])+" · "+esc(row["as_of"])+" · "+esc(row["n_missing_windows"])+" missing windows · "+esc(row["n_alerts"])+" alerts.</p>"
+        body+="<p>Attention required: "+esc(row["attention_required"])+" · version reassessment required: "+esc(row["version_reassessment_required"])+" · no clinical authorization.</p>"
     for row in data.get("hospital_referral_policies",[]):
         body+="<h3>Hospital referral policy "+esc(row["id"])+"</h3><p>"+esc(row["vendor_id"])+" · "+esc(row["target"]["version"])+" · "+esc(row["state"])+" · "+esc(row["n_reviewed"])+" / "+esc(row["n_gates"])+" reviewed.</p>"
         body+="<p>Historical disposition: "+esc(row["disposition"] or "not recorded")+" · current snapshot: "+esc(row["snapshot_current"])+" · no deployment authorization.</p>"
