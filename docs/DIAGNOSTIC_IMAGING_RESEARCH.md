@@ -114,7 +114,7 @@ For each submitted candidate, report overall and predeclared subgroup:
 
 Empty denominators produce null, not zero or a passing result. Every report and
 replay explicitly remains non-decision-grade. The standalone offline module has no API/MCP execution, DICOM/PACS transport,
-independent reference-review interface, population validation or deployment
+population validation or deployment
 authorization. Those remain separate integration and validation milestones.
 
 
@@ -153,8 +153,66 @@ seal inventories are checked against that audit store; replay also checks
 content digests and audit ordering. This is local consistency, not tamper-proof
 storage or independent attestation. Committee snapshots contain study coverage
 only and become stale when that inventory changes. Candidate-facing account
-access, independent physician reference adjudication, PACS/DICOM transport,
+access, PACS/DICOM transport,
 study-specific operator assignment, and browser editing of the source cohort
 are not implemented. All active administrators/operators in the single-
 organisation workspace have the described role-level access; provision roles
 accordingly.
+
+
+## Independent clinician reference review
+
+For prospective two-reader studies, administrators may use **Independent
+imaging reference review** instead of importing already-established labels.
+The clinician workflow is browser-only, while image inspection occurs in the
+hospital's approved external viewing environment.
+
+- Prepare the same specification as above, **without** the `reference_method`
+  key, the `independent_reference` attestation or any case's `reference` key.
+  This lane accepts 1–500 cases and reserves one immutable study identifier.
+- Assign two distinct active reviewer accounts and a different adjudicator
+  account. The administrator approves the exact normalized cohort, candidate
+  roster, thresholds and assignments before reference collection.
+- Primary readers see the task, modality and opaque case slots with asset
+  hashes, not the vendor roster, candidate predictions, other readers' labels,
+  subgroup tags or patient cluster tokens. Read each exact asset externally.
+  Structured forms have no preselected outcome. Lock every case as positive,
+  negative or unresolved.
+- The adjudicator sees only disagreements and their unordered primary labels,
+  after both primary reads are permanently locked. Agreement is retained,
+  including agreement on unresolved. Disagreements require one explicit
+  adjudication label for every disputed case; unresolved remains allowed.
+  If there are no disagreements, no adjudication submission is accepted.
+- The administrator reviews the private reference summary and explicitly
+  finalizes the exact ratings. Finalization atomically creates the candidate
+  imaging study with the derived reference labels and a fresh candidate slot
+  nonce. A reserved study cannot be created using the imported-label route.
+  All candidate operations recheck the independent reference provenance.
+- Candidate collection then proceeds using the institutional workflow above.
+  Keep the reference evidence separate from candidate-facing exchanges.
+  The administrator can explicitly export the full private reference package,
+  including reviewer account identifiers, source ratings and final plan.
+
+The private reference package can be independently replayed offline:
+
+```sh
+clinical-ai-eval diagnostic-imaging verify-reference private-imaging-reference.json --expected-digest DIGEST_FROM_TRUSTED_RECORD
+```
+
+Compare the returned final plan digest to the plan digest in the separate
+candidate evidence package. The reference verifier rederives all labels,
+checks disagreement coverage and reconstructs the exact frozen candidate plan.
+It does not prove authentic reviewer identities, credentials, clinical truth,
+independent behavior, actual image receipt, or external non-exposure. All
+clinical instructions and approved image assets must be available separately
+to the reviewers; the protocol task identifier is not a clinical guideline.
+The reference package and small-cohort summaries are sensitive. Do not send
+them to vendors or unapproved services. Committee inventory contains reference
+workflow status, not case ratings, reviewer identities or reference prevalence.
+
+This is an experimental binary consensus-reference workflow, not an external
+gold-standard determination, multireader multicase inferential analysis,
+radiology workstation, clinical credentialing or regulatory validation. No
+PACS/DICOM access, image bytes, external image identity verification or live
+clinical decisions are supported. Incomplete reviews cannot be silently
+discarded or finalized; a new study design requires a distinct identifier.
