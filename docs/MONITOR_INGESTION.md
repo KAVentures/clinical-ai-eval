@@ -230,3 +230,112 @@ clinical safety. Treat poll errors and unavailable/corrupt stores as
 monitoring failures, not as empty alert feeds. Keep this operational store
 in the approved backup/recovery process; an older restored copy can replay
 already-delivered attempts.
+
+
+## Runnable polling and local notification handoff
+
+The alert worker now provides one full scheduler-driven cycle using the
+transactional store. Configure a check-only ingestion capability for the
+monitor and an independent credential for an approved local notification
+relay. The relay must implement the acknowledgment contract below. Use
+separate private credential files, each containing a 64-character lowercase
+hex bearer token and optional final newline. On POSIX these must be owned
+and protected by the authorized operator (no group/other access); use a
+private directory with trusted non-symlink ancestors. Windows operators
+must set appropriate filesystem ACLs separately. Never pass tokens as CLI
+arguments or log them.
+
+The worker uses literal 127.0.0.1, fixed routes and distinct ports; there
+is no DNS, proxy, redirect, arbitrary URL, remote HTTP or automatic
+credential renewal. The local services are trusted and must be managed by
+the institution; binding the port does not authenticate the local process
+or establish TLS. Preview the store-specific endpoint binding:
+
+```sh
+clinical-ai-eval monitor-alert-worker preview /private/alerts.sqlite3 --source-port 8772 --sink-port 8773 --timeout 10
+clinical-ai-eval monitor-alert-worker bind /private/alerts.sqlite3 --source-port 8772 --sink-port 8773 --timeout 10 --approved-digest APPROVED_BINDING_DIGEST --confirm-local-handoff
+```
+
+The binding is immutable in that store and includes its unique identity
+and exact monitor/plan scope. Resolve any already-pending attempt before
+initial binding. Credential rotation does not require changing the
+binding, but the destination and scope must remain the approved ones.
+Do not reset or copy a store just to bypass a pending attempt.
+
+Run one cycle using an institution-managed single-worker scheduler:
+
+```sh
+clinical-ai-eval monitor-alert-worker cycle /private/alerts.sqlite3 --approved-digest APPROVED_BINDING_DIGEST --source-secret-file /private/check-token --sink-secret-file /private/relay-token
+```
+
+Use a non-overlapping systemd timer, cron job with an approved process
+lock, or equivalent. No persistent timer is installed by this command.
+Configure an external process deadline: the 1–60 second socket timeout
+is not a total wall-clock deadline. A nonzero exit means polling,
+delivery, or acknowledgment failed; investigate it as an operational
+monitoring failure. Do not substitute an empty feed for a failure.
+
+The worker first resumes a pending attempt, if present, before polling.
+Otherwise it GETs /v1/monitor/check with the source credential, validates
+the feed and commits a pending attempt. It sends only the transition
+events and routing metadata to the approved relay. It does not transmit
+the source credential, the entire checkpoint or raw clinical evidence.
+
+### Local relay contract
+
+The relay must accept POST /v1/alerts/deliver with the independent
+Authorization bearer credential, application/json body, and
+Idempotency-Key equal to the attempt digest. The envelope has exactly
+these fields:
+
+```json
+{
+  "schema": "monitor-alert-delivery/1",
+  "attempt_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "monitor_id": "fictional-monitor",
+  "plan_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "as_of": "2026-11-25",
+  "sequence": 1,
+  "events": [
+    {
+      "transition": "newly_reported",
+      "alert": {
+        "id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "kind": "threshold",
+        "severity": "serious"
+      }
+    }
+  ]
+}
+```
+
+The relay should durably accept the exact envelope and idempotency key
+under institution-approved controls before returning HTTP 200 with
+application/json and exactly:
+
+```json
+{
+  "schema": "monitor-alert-delivery-receipt/1",
+  "attempt_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "accepted": true
+}
+```
+
+Repeated exact keys must be idempotent, while conflicting content for a
+key must be rejected. Non-200, malformed, oversized, mismatched or
+negative responses leave the pending attempt intact. After a matching
+acceptance response the worker advances the checkpoint transactionally.
+An event-free batch advances without any relay request. A crash after
+relay acceptance but before local acknowledgment can replay the same
+key. The relay is responsible for its actual notification delivery,
+durability, deduplication and audit evidence. The worker reports
+destination acceptance attestation, not verified delivery to a clinician.
+
+A single non-overlapping worker is required: the store serializes its
+transactions but does not lock the entire network cycle. Do not run
+manual store updates concurrently with worker cycles. Credential
+expiration, a bad local service or a restored older store can lead to
+failed or repeated handoffs. The worker does not verify source identity,
+detect same-day feed ordering, independently attest actual notification
+delivery, or perform clinical escalation actions. Nothing in this
+workflow constitutes clinical safety or deployment authorization.
