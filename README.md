@@ -17,6 +17,8 @@ for startups, internal governance and buyer workflows. For measurement theory,
 see [EVAL_STANDARD.md](EVAL_STANDARD.md); for the planned physician validation
 study, see [clinical-ai-eval-physician-validation](https://github.com/KAVentures/clinical-ai-eval-physician-validation).
 
+**Experimental imaging research:** [Offline diagnostic imaging studies](docs/DIAGNOSTIC_IMAGING_RESEARCH.md) — freeze a binary imaging reference cohort, compare version-bound structured predictions and replay restricted evidence. This is separate from synthetic image-text readiness and is not diagnostic validation.
+
 The primary output is a **screen plus an evidence package, never a
 deployment-readiness verdict** (§0). Every report says so in its first paragraph and
 declares its conformance level.
