@@ -606,3 +606,89 @@ These are synthetic operational acceptance tests, not a hospital deployment
 validation. They do not exercise the actual institutional ingestion service,
 external paging, production scheduling or clinical data. Full repository
 CI and institution-specific operational acceptance remain necessary.
+
+
+## Reviewable Linux service configuration
+
+The optional `monitor-deployment` CLI generates six systemd units and a
+digest-bound configuration manifest for a single monitoring pipeline.
+It does not install, start or enable services. Trusted IT must separately
+approve the runtime account, filesystem permissions, service manager,
+network restrictions, credential provisioning and watchdog escalation
+procedure. Do not deploy duplicate ingestion services on an existing
+workspace/port. For multiple monitor pipelines, coordinate shared
+ingestion infrastructure and unit/port allocation separately.
+
+An example specification (replace all fictional identifiers, digests
+and paths with approved values):
+
+```json
+{
+  "instance": "demo",
+  "account": "caeval",
+  "executable": "/opt/caeval/bin/clinical-ai-eval",
+  "workspace": "/srv/caeval-demo",
+  "state_dir": "/var/lib/caeval-demo",
+  "credential_dir": "/etc/caeval-demo",
+  "monitor_id": "monitor-a",
+  "plan_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "source_port": 8772,
+  "sink_port": 8773,
+  "socket_timeout": 10,
+  "interval": 60,
+  "watchdog_interval": 60,
+  "cycle_deadline": 45,
+  "max_gap": 180,
+  "max_run": 60,
+  "backlog_limit": 20,
+  "backlog_age": 3600
+}
+```
+
+The approval is the existing worker binding digest, not the deployment
+manifest digest. All time values are seconds and are illustrative
+operational parameters, not clinical thresholds. State and credentials
+must be in separate private directories outside the workspace.
+The expected files are state_dir/alerts.sqlite3, state_dir/health.sqlite3,
+credential_dir/check-token, credential_dir/relay-token and
+workspace/institution/notification-relays/MONITOR_ID.sqlite3. Provision
+them using the existing commands. The service account must be non-root.
+Run prerequisite inspection as the intended service account where
+possible, with workers stopped. The check verifies the approved worker
+binding, scope, ports, heartbeat policy, relay scope, credential-file
+format and separation and absence of an active heartbeat marker. It
+does not test live endpoint availability, credential validity, service
+account access under systemd sandboxing, executable identity, or
+institutional ingestion grant scope. It uses existing store transaction
+helpers, so it is not a strictly read-only filesystem inspection.
+
+```sh
+clinical-ai-eval monitor-deployment render spec.json
+clinical-ai-eval monitor-deployment check spec.json
+clinical-ai-eval monitor-deployment export spec.json /srv/review-bundle --approved-digest MANIFEST_DIGEST --confirm-export
+```
+
+Render is deterministic and does not inspect local stores. Check and
+export require initialized matching stores. Export creates a new
+directory exclusively and writes the six units and manifest; it never
+overwrites an existing bundle. An interrupted export may leave a partial
+directory; investigate it and use a new directory after approval.
+Review the resulting units and run `systemd-analyze verify` against the
+six files on the destination host before considering installation.
+The generated units use fixed commands, a non-root account, private
+umask, read-only system filesystem except designated state directories,
+and localhost-only IP restrictions where supported by the service
+manager. Verify those restrictions on the target platform. The timers
+run guarded cycles and an independent watchdog. A watchdog nonzero
+exit must be integrated with the institution's external operational
+escalation mechanism; the units do not send pages. An in-progress
+cycle is an attention condition, not necessarily a service outage.
+A service deadline may leave a persistent running marker requiring
+explicit recovery.
+
+The syntax test uses an inert executable to validate unit syntax,
+not a live systemd deployment. Production commissioning must verify
+the installed CLI, account ownership, grant expiry and rotation,
+scope, ports, live HTTP behavior, runtime sandbox compatibility,
+watchdog response, recovery and hospital-specific acceptance.

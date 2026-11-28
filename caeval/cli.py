@@ -1886,6 +1886,10 @@ def main(argv=None):
     from . import monitor_pipeline_health
     ppipeline = sub.add_parser("monitor-pipeline-health", help="reconcile local worker, outbox and relay state")
     monitor_pipeline_health.configure(ppipeline)
+
+    from . import monitor_deployment
+    pdeploy = sub.add_parser("monitor-deployment", help="render and export approved local systemd configuration")
+    monitor_deployment.configure(pdeploy)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")
