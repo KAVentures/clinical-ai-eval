@@ -28,7 +28,7 @@ def relay_snapshot(path, scope, wanted):
             row=conn.execute('SELECT * FROM batches WHERE id=?',(ident,)).fetchone()
             selected[ident]=relay._row(row,binding)
         return {'count':len(rows),'local_cli_unreviewed':pending,'oldest_local_cli_unreviewed_at':oldest,
-                'max_sequence':maximum,'duplicate_sequences':duplicate,'selected':selected,
+                'max_sequence':maximum,'duplicate_sequences':duplicate,'selected':selected,'sequences':sorted(sequences),
                 'full_payload_inventory_verified':False}
 
 
@@ -78,11 +78,11 @@ def assess(binding, state, heartbeat, received, *, now, backlog_limit, backlog_a
             if ack is not None:
                 doc=received['selected'].get(ack['attempt_digest'])
                 if ack['delivery_attested']:
-                    last_receipt_state='matching_metadata' if doc and doc['sequence']==sequence else 'missing_or_mismatched'
+                    last_receipt_state='matching_metadata' if doc and doc['sequence']==sequence and doc['as_of']==checkpoint_day else 'missing_or_mismatched'
                     if last_receipt_state!='matching_metadata': issue('last_ack_relay_missing_or_mismatched')
                 else:
                     last_receipt_state='not_required'
-                    if doc is not None or received['max_sequence']==sequence: issue('event_free_ack_has_relay_record')
+                    if doc is not None or sequence in received['sequences']: issue('event_free_ack_has_relay_record')
     if received is not None:
         if received['count']>=relay.MAX_BATCHES: issue('relay_capacity_exhausted')
         if received['local_cli_unreviewed']>=backlog_limit: issue('local_cli_backlog_limit')
@@ -93,7 +93,7 @@ def assess(binding, state, heartbeat, received, *, now, backlog_limit, backlog_a
     return {'schema':'monitor-pipeline-health/1','as_of':now,'issues':issues,'attention_required':bool(issues),
             'scope':state['scope'] if state else None,'sequence':sequence,'checkpoint_date':checkpoint_day,
             'pending_state':pending_state,'last_receipt_state':last_receipt_state,
-            'relay':{k:v for k,v in received.items() if k!='selected'} if received else None,
+            'relay':{k:v for k,v in received.items() if k not in ('selected','sequences')} if received else None,
             'live_source_polled':False,'institutional_review_backlog_checked':False,
             'atomic_cross_store_snapshot':False,'human_delivery_verified':False,'clinical_safety_established':False}
 
