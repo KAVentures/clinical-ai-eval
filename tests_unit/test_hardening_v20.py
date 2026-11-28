@@ -35,7 +35,7 @@ class TestArchiveExtractionIsSafe(unittest.TestCase):
             z = self._zip(tmp, "../escaped.txt")
             out = Path(tmp) / "out"
             out.mkdir()
-            with zipfile.ZipFile(z) as f, self.assertRaises(SystemExit):
+            with zipfile.ZipFile(z) as f, self.assertRaises(ValueError):
                 _safe_extract(f, out)
             self.assertFalse((Path(tmp) / "escaped.txt").exists())
 
@@ -44,7 +44,7 @@ class TestArchiveExtractionIsSafe(unittest.TestCase):
             z = self._zip(tmp, "/tmp/abs.txt")
             out = Path(tmp) / "out"
             out.mkdir()
-            with zipfile.ZipFile(z) as f, self.assertRaises(SystemExit):
+            with zipfile.ZipFile(z) as f, self.assertRaises(ValueError):
                 _safe_extract(f, out)
 
     def test_symlink_member_is_refused(self):
@@ -52,8 +52,18 @@ class TestArchiveExtractionIsSafe(unittest.TestCase):
             z = self._zip(tmp, "link", data=b"/etc/passwd", mode=0o120777)
             out = Path(tmp) / "out"
             out.mkdir()
-            with zipfile.ZipFile(z) as f, self.assertRaises(SystemExit):
+            with zipfile.ZipFile(z) as f, self.assertRaises(ValueError):
                 _safe_extract(f, out)
+
+    def test_public_verifier_rejects_unsafe_archive_nonzero(self):
+        from types import SimpleNamespace
+        from caeval.cli import cmd_verify_package
+        with tempfile.TemporaryDirectory() as tmp:
+            z = self._zip(tmp, "../escaped.txt")
+            with self.assertRaises(SystemExit) as exc:
+                cmd_verify_package(SimpleNamespace(package=str(z), expected_digest=None))
+            self.assertEqual(exc.exception.code, 1)
+            self.assertFalse((Path(tmp) / "escaped.txt").exists())
 
     def test_a_benign_archive_still_extracts(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -10,6 +10,7 @@ from . import (buyer_plan, buyer_manual as manual, buyer_agent as buyer,
                institution_conversation as conversation, executors)
 
 EVENT="mixed-evaluation-programme-frozen"
+MAX_PROGRAMMES=100
 ERRORS=(OSError,ValueError,RuntimeError,KeyError,TypeError,AttributeError)
 
 
@@ -105,6 +106,8 @@ def freeze(directory,actor,parent_id,digest,*,confirmed=False):
             if child["plan_id"]!=lane["plan_id"]:
                 raise access.AccessDenied("child plan differs from approved programme")
         if prior is None:
+            if conn.execute("SELECT count(*) FROM mixed_evaluation_programmes").fetchone()[0]>=MAX_PROGRAMMES:
+                raise access.AccessDenied("mixed programme limit")
             access._audit(conn,actor["user_id"],EVENT,_event(doc))
             seq=conn.execute("SELECT last_insert_rowid()").fetchone()[0]
             conn.execute("INSERT INTO mixed_evaluation_programmes VALUES(?,?,?,?)",
@@ -114,17 +117,21 @@ def freeze(directory,actor,parent_id,digest,*,confirmed=False):
 
 def _generic(directory,lanes):
     result={p:[] for p in lanes}
+    if not lanes:
+        return result
     for stored in jobs.list_jobs(directory):
         if stored["status"]!="completed":
             continue
         try:
-            job=jobs.status(directory,stored["id"])
-            if job["status"]!="completed":
-                continue
-            b=manual._read(jobs._job_path(directory,job["id"])/"binding.json")
+            b=manual._read(jobs._job_path(directory,stored["id"])/"binding.json")
             pid=b["plan_id"]
             if pid not in lanes:
                 continue
+            job=jobs.status(directory,stored["id"])
+            if job["status"]!="completed":
+                continue
+            if manual._read(jobs._job_path(directory,job["id"])/"binding.json")!=b:
+                raise buyer.BuyerError("job binding changed during verification")
             if (b["assessment_id"]!=job["assessment_id"] or
                     buyer_plan._digest({k:v for k,v in b.items() if k!="assessment_id"})!=job["assessment_id"]):
                 raise buyer.BuyerError("job binding changed")
@@ -144,6 +151,8 @@ def _generic(directory,lanes):
 
 def _conversations(directory,lanes):
     result={p:[] for p in lanes}
+    if not lanes:
+        return result
     with access.db(directory) as conn:
         conversation._schema(conn)
         rows=[]
@@ -196,3 +205,86 @@ def status(directory,actor,parent_id):
     return {**doc,"lanes":outputs,"all_runnable_lane_suites_have_packages":all(
         e["state"]=="verified_scoped_package" for l in outputs for e in l["evidence"] if e["suite"] in l["runnable"])
         and any(l["runnable"] for l in outputs)}
+
+
+def committee_inventory(directory,actor,known,assessments):
+    """Read verified, aggregate lane coverage without disclosing study material.
+
+    An audited programme missing from the live table remains visible as
+    unavailable. Canonical references must also be present in the committee's
+    independently captured assessment inventory. No research result is promoted
+    to a canonical package.
+    """
+    from . import institution_committee as committee
+    docs={}
+    invalid=set()
+    with access.db(directory) as conn:
+        _schema(conn)
+        committee._actor(conn,actor)
+        ids={r["parent_id"] for r in conn.execute("SELECT parent_id FROM mixed_evaluation_programmes")}
+        for row in conn.execute("SELECT object_id FROM audit WHERE action=? AND outcome='ok'",(EVENT,)):
+            prefix=row["object_id"].split(":",1)[0]
+            manual._identifier(prefix,digest=True)
+            ids.add(prefix)
+        if len(ids)>MAX_PROGRAMMES:
+            raise access.AccessDenied("mixed programme inventory exceeds limit")
+        for pid in sorted(ids):
+            try:
+                prior=_stored(conn,pid)
+                _,current=_material(directory,pid)
+                if prior!=current or current["vendor_id"] not in known:
+                    raise access.AccessDenied("programme no longer current")
+                for lane in current["lanes"]:
+                    bridge._buyer_plan(directory,lane["plan_id"])
+                docs[pid]=current
+            except ERRORS:
+                invalid.add(pid)
+    lanes={l["plan_id"]:l for doc in docs.values() for l in doc["lanes"]}
+    generic=_generic(directory,lanes)
+    conversations=_conversations(directory,lanes)
+    canonical={(job["id"],pkg["family_id"],pkg["manifest_hash"],pkg["claim"],
+                job["vendor_id"],job["target_version"])
+               for job in assessments if job["status"]=="completed" for pkg in job["packages"]}
+    result=[{"id":pid,"state":"unavailable","decision_grade":False} for pid in sorted(invalid)]
+    with access.db(directory) as conn:
+        committee._actor(conn,actor)
+        bridge._schema(conn)
+        for pid,doc in sorted(docs.items()):
+            try:
+                if _stored(conn,pid)!=doc or _material(directory,pid)[1]!=doc:
+                    raise access.AccessDenied("programme changed during capture")
+                outputs=[]
+                for lane in doc["lanes"]:
+                    child=bridge._buyer_plan(directory,lane["plan_id"])
+                    counts={s:0 for s in lane["required_suites"]}
+                    unavailable=0
+                    records=conn.execute("SELECT * FROM buyer_research_links WHERE plan_id=? ORDER BY study",
+                                         (lane["plan_id"],)).fetchall()
+                    for record in records:
+                        try:
+                            row=bridge.studio._row(conn,record["study"])
+                            link=bridge._read_link(directory,conn,child,record,row)
+                            if link["evidence_state"]=="verified_experimental_report":
+                                for suite in link["related_suites"]:
+                                    if suite in counts:
+                                        counts[suite]+=1
+                        except ERRORS:
+                            unavailable+=1
+                    receipts=generic[lane["plan_id"]]+conversations[lane["plan_id"]]
+                    coverage=[]
+                    for suite in lane["required_suites"]:
+                        packages=[r for r in receipts if r["suite"]==suite and
+                            (r["job_id"],suite,r["manifest_hash"],r["claim"],doc["vendor_id"],doc["target"]["version"]) in canonical]
+                        coverage.append({"suite":suite,"state":"verified_scoped_package" if packages else
+                            "not_executed" if suite in lane["runnable"] else "required_but_not_run",
+                            "packages":packages,"related_experimental_reports":counts[suite],"decision_grade":False})
+                    outputs.append({"profile":lane["profile"],"plan_id":lane["plan_id"],
+                                    "audience":lane["audience"],"coverage":coverage,
+                                    "unavailable_research_associations":unavailable})
+                result.append({"id":pid,"state":"current","vendor_id":doc["vendor_id"],
+                    "target_version":doc["target"]["version"],"programme_digest":doc["digest"],
+                    "parent_required_but_not_run":[r["suite"] for r in doc["parent_required_but_not_run"]],
+                    "lanes":outputs,"parent_canonical_requirements_satisfied":False,"decision_grade":False})
+            except ERRORS:
+                result.append({"id":pid,"state":"unavailable","decision_grade":False})
+    return sorted(result,key=lambda r:r["id"])

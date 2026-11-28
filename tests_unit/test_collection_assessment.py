@@ -13,11 +13,13 @@ class CollectionHandoffTests(unittest.TestCase):
     setUp=AssessmentHandoffTests.setUp
 
     def collect(self,fail=False):
+        access.provision(self.root,"admin","admin","Synthetic long password")
         access.provision(self.root,"operator","operator","Synthetic long password")
-        self.actor={"user_id":"operator","role":"operator"}
+        self.actor={"user_id":"admin","role":"admin"}
         folder=self.root/"approved-connectors"
         folder.mkdir()
-        (folder/"fixture.json").write_text(json.dumps({
+        self.config=folder/"fixture.json"
+        self.config.write_text(json.dumps({
             "vendor_id":"vendor","target_name":"Example product","target_version":"1.2",
             "url":"http://127.0.0.1:8769/evaluate","protocol":"clinical-ai-eval-candidate/1",
             "headers":{},"timeout_seconds":5}))
@@ -58,3 +60,24 @@ class CollectionHandoffTests(unittest.TestCase):
         self.panel.write_bytes(self.panel.read_bytes()+b"\\n# changed\\n".replace(b"\\n",b"\n"))
         with self.assertRaises(buyer.BuyerError):
             handoff.prepare(*args,doc["digest"],confirmed=True)
+
+    def test_operator_preview_but_not_prepare_and_connector_drift(self):
+        row=self.collect()
+        args=(self.root,{"user_id":"operator","role":"operator"},row["id"],"mock",self.gov)
+        doc=handoff.preview(*args)
+        with self.assertRaises(access.AccessDenied):
+            handoff.prepare(*args,doc["digest"],confirmed=True)
+        cfg=json.loads(self.config.read_text())
+        self.config.write_text(json.dumps({**cfg,"timeout_seconds":6}))
+        with self.assertRaises(buyer.BuyerError):
+            handoff.preview(*args)
+
+    def test_local_cli_contract_and_no_job_execution(self):
+        from caeval import buyer_jobs as jobs
+        row=self.collect()
+        args=(self.root,None,row["id"],"mock",self.gov)
+        with patch.object(jobs,"execute",side_effect=AssertionError("must not execute")):
+            doc=handoff.preview(*args)
+            self.assertFalse((self.root/"prepared-assessments").exists())
+            self.assertEqual(handoff.prepare(*args,doc["digest"],confirmed=True),doc)
+            self.assertEqual(jobs.list_jobs(self.root),[])

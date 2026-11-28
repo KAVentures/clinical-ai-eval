@@ -242,3 +242,23 @@ across-family multiplicity adjustment, clinical equivalence or recommendation.
 The committee view and Markdown dossier expose these exploratory results.
 
 Before emitting matched contrasts, the workflow re-ingests the actual verified packages into a scratch study and checks that normalized cells, provenance and canonical case cluster identities match the recorded results. Missing or altered source evidence suppresses inference. The legacy pairwise helper is descriptive only; it no longer reports an independent-cell p-value.
+
+## Version-only retesting
+
+From Longitudinal regression monitoring, prepare a new-version reassessment
+from a verified completed baseline. The administrator reviews a digest binding
+the new version, approved connector, exact pack, unchanged prompts, judge panel,
+intended use and governance. Approval saves only a canonical plan and exchange;
+no candidate calls or schedule are authorized. The existing monitoring form
+then freezes cadence and a separate open lifecycle pilot for the new version.
+Risk-bound baselines retain their exact procurement conditions in retests;
+a new version not explicitly approved under those conditions is refused.
+Disabling the schedule or changing its eligible owner/pilot stops subsequent
+candidate calls (a call already in flight cannot be recalled). No new clinical
+validity or deployment claim is inferred from matched-cell changes.
+
+Mixed programmes are included in committee snapshots and portable dossier
+verification. Only aggregate profile coverage and independently listed
+canonical package references are included. An audited missing programme is
+reported as unavailable; experimental study material is not exposed. No
+profile-level result is pooled or promoted into a parent-level clinical claim.

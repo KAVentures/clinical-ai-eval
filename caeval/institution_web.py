@@ -836,6 +836,14 @@ class InstitutionApp:
                     raise access.AccessDenied("select one current notice")
                 escalation.acknowledge(self.directory,actor,form["id"])
                 return respond("303 See Other",extra=[("Location","/escalation")])
+            if path=="/version-retest" and method=="GET":
+                from . import version_retest_web as version
+                return respond("200 OK",version.render(self.directory,actor))
+            if path in ("/version-retest-preview","/version-retest-prepare") and method=="POST":
+                from . import version_retest_web as version
+                form=_form(env)
+                _csrf(actor,form)
+                return respond("200 OK",version.preview(self.directory,actor,form) if path.endswith("-preview") else version.prepare(self.directory,actor,form))
             if path=="/monitoring" and method=="GET":
                 from . import institution_monitoring_web as monitoring
                 return respond("200 OK",monitoring.render(self.directory,actor))

@@ -181,6 +181,8 @@ def overview(directory,actor):
     inventory["synthetic_hl7_assessments"]=institution_hl7.inventory(root,actor)
     from . import institution_image_text
     inventory["synthetic_image_text_assessments"]=institution_image_text.inventory(root,actor)
+    from . import mixed_evaluation
+    inventory["mixed_evaluation_programmes"]=mixed_evaluation.committee_inventory(root,actor,ids,inventory["assessments"])
     from . import institution_imaging
     inventory["diagnostic_imaging_studies"]=institution_imaging.overview(root,actor,committee=True)
     if buyer.load(root)!=source:

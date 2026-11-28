@@ -66,8 +66,11 @@ def preview(directory,actor,form):
     body+="<p>Assessment "+esc(doc["assessment_id"])+"</p><p>Approval digest "+esc(doc["digest"])+"</p>"
     for k,v in doc["governance"].items():
         body+="<p>"+esc(k.replace("_"," "))+": "+esc(v)+"</p>"
-    body+="<form method='post' action='/collection-assessment-prepare'>"+_hidden("csrf",actor["csrf"])+"".join(_hidden(k,v) for k,v in form.items())+_hidden("approved_digest",doc["digest"])
-    body+="<label><input type='checkbox' name='confirm' value='yes' required> Approve these exact collected responses and prepared assessment inputs. This does not queue or execute evaluation.</label><button>Prepare assessment</button></form>"
+    if actor["role"]=="admin":
+        body+="<form method='post' action='/collection-assessment-prepare'>"+_hidden("csrf",actor["csrf"])+"".join(_hidden(k,v) for k,v in form.items())+_hidden("approved_digest",doc["digest"])
+        body+="<label><input type='checkbox' name='confirm' value='yes' required> Approve these exact collected responses and prepared assessment inputs. This does not queue or execute evaluation.</label><button>Prepare assessment</button></form>"
+    else:
+        body+="<p>An administrator must approve preparation.</p>"
     return page("Review collection assessment handoff",body)
 
 

@@ -282,7 +282,7 @@ def call_citation_trace(cfg,prompt,headers):
     return parsed["trace"]
 
 
-def execute(directory,identifier,approved_binding_hash,operator):
+def execute(directory,identifier,approved_binding_hash,operator,*,before_call=None):
     """No automatic retries; failed calls become explicit missing responses."""
     if not isinstance(operator,str) or not operator.strip() or len(operator)>200:
         raise buyer.BuyerError("record executing operator")
@@ -327,6 +327,8 @@ def execute(directory,identifier,approved_binding_hash,operator):
                 # stop further transmissions, not just invalidate the receipt.
                 if buyer_plan._digest(_config(directory,binding["connector_id"]))!=binding["connector_hash"]:
                     raise buyer.BuyerError("connector changed during collection")
+                if before_call is not None:
+                    before_call()
                 attempted+=1
                 try:
                     text=_call(cfg,item["prompt"],headers)
