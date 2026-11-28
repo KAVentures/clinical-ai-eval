@@ -43,7 +43,10 @@ class PipelineTests(unittest.TestCase):
 
     def test_duplicate_and_ahead_sequence(self):
         for key,seq in [('c',1),('d',3)]:
-            doc={**self.doc,'attempt_digest':key*64,'sequence':seq};relay.accept(self.path,doc,doc['attempt_digest'])
+            doc={**self.doc,'attempt_digest':key*64,'sequence':seq}
+            # Simulate a damaged or older relay database, bypassing admission.
+            with sqlite3.connect(self.path) as conn:
+                conn.execute('INSERT INTO batches VALUES(?,?,?,?,?,NULL,NULL)',(doc['attempt_digest'],seq,relay.canonical(doc),relay.digest(doc),NOW-120))
         issues=self.assess()['issues']
         self.assertIn('relay_sequence_ahead_of_outbox',issues);self.assertIn('relay_duplicate_sequences',issues)
         self.assertIn('local_cli_backlog_limit',issues)

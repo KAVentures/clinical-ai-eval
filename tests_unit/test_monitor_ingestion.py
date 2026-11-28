@@ -135,5 +135,89 @@ class IngestionTests(unittest.TestCase):
             api.check(self.root,self.token)
 
 
+    def test_commissioning_check_only_credential(self):
+        self.prepare(scopes=("check",))
+        def check(**changes):
+            return api.check_polling_credential(self.root,self.token,changes.get("monitor",self.ident),
+                changes.get("digest",self.p["digest"]),minimum_remaining=changes.get("remaining",60))
+        result=check()
+        self.assertEqual(result["scope"],"check")
+        self.assertFalse(result["live_http_checked"])
+        self.assertNotIn(self.token,json.dumps(result))
+        for change in ({"monitor":"other"},{"digest":"0"*64},{"remaining":601}):
+            with self.subTest(change=change),self.assertRaises(ValueError): check(**change)
+        api.revoke(self.root,self.admin,self.grant["grant_id"])
+        with self.assertRaises(ValueError): check()
+
+    def test_commissioning_refuses_overbroad_credential(self):
+        self.prepare()
+        with self.assertRaises(ValueError):
+            api.check_polling_credential(self.root,self.token,self.ident,self.p["digest"],minimum_remaining=60)
+        self.assertEqual(api.check(self.root,self.token)["monitor_id"],self.ident)
+
+    def test_expiry_at_receipt_audit_rolls_back(self):
+        self.prepare()
+        real_audit=api.u._audit
+        def audit(conn,actor,action,obj):
+            if action==api.USE:
+                with patch.object(api.time,"time",return_value=self.grant["expires"]):
+                    return real_audit(conn,actor,action,obj)
+            return real_audit(conn,actor,action,obj)
+        with patch.object(api.u,"_audit",side_effect=audit):
+            with self.assertRaises(ValueError):
+                api.submit(self.root,self.token,self.batch(("report",report(self.p))))
+        with access.db(self.root) as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM lifecycle_ingestion_requests").fetchone()[0],0)
+            self.assertEqual(conn.execute("SELECT count(*) FROM lifecycle_monitor_events").fetchone()[0],0)
+        self.assertEqual(api.grants(self.root,self.admin)[0]["used"],0)
+
+
+    def test_native_polling_grant_rotation_preserves_old_grant(self):
+        import os
+        import tempfile
+        from pathlib import Path
+        from caeval import monitor_credential_rotation as rotation, monitor_alert_worker as worker
+        if os.name!="posix":
+            self.skipTest("POSIX credential replacement")
+        self.prepare(scopes=("check",))
+        replacement=api.issue(self.root,self.admin,{"monitor_id":self.ident,"owner":self.operator["user_id"],
+            "scopes":["check"],"ttl_seconds":600,"max_uses":1},confirmed=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            directory=Path(tmp).resolve()
+            for name,token in (("check-token",self.token),("next-check-token",replacement["bearer_token"]),("relay-token","f"*64)):
+                fd=os.open(directory/name,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+                with os.fdopen(fd,"w") as handle:handle.write(token+"\n")
+            def validate(token):
+                return api.check_polling_credential(self.root,token,self.ident,self.p["digest"],minimum_remaining=60)
+            approved=rotation.preview(directory,"a"*64,validate)
+            result=rotation.rotate(directory,"a"*64,approved["approval_digest"],validate,confirmed=True)
+            self.assertTrue(result["credential_replaced"])
+            self.assertEqual(api.check(self.root,worker._secret(directory/"check-token")),api.check(self.root,self.token))
+            api.revoke(self.root,self.admin,self.grant["grant_id"])
+            self.assertEqual(api.check(self.root,worker._secret(directory/"check-token"))["monitor_id"],self.ident)
+            with self.assertRaises(ValueError):
+                api.check(self.root,self.token)
+
+
+    def test_expired_grant_frees_live_capacity_without_deleting_history(self):
+        self.prepare(scopes=("check",))
+        spec={"monitor_id":self.ident,"owner":self.operator["user_id"],"scopes":["check"],"ttl_seconds":600,"max_uses":1}
+        with patch.object(api.grant_capacity,"MAX_ACTIVE",1):
+            with self.assertRaises(ValueError):
+                api.issue(self.root,self.admin,spec,confirmed=True)
+            with patch.object(api.time,"time",return_value=self.grant["expires"]):
+                replacement=api.issue(self.root,self.admin,spec,confirmed=True)
+                inventory=api.grant_inventory(self.root,self.admin)
+                self.assertEqual(inventory["capacity"]["active"],1)
+                self.assertEqual(inventory["capacity"]["total"],2)
+                self.assertEqual(inventory["capacity"]["expired"],1)
+                self.assertEqual(api.check(self.root,replacement["bearer_token"])["monitor_id"],self.ident)
+                with self.assertRaises(ValueError):
+                    api.check(self.root,self.token)
+            with access.db(self.root) as conn:
+                self.assertEqual(conn.execute("SELECT count(*) FROM lifecycle_ingestion_grants").fetchone()[0],2)
+                api._inventory(conn)
+
+
 if __name__=="__main__":
     unittest.main()

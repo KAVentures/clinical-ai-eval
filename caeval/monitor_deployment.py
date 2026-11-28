@@ -118,6 +118,14 @@ def _check_dir(path):
         relay.require(not path.stat().st_mode & 0o077, 'service directory must be private')
 
 
+def _credential_status(p,spec):
+    from . import monitor_ingestion as ingestion
+    source=worker._secret(p['source_secret'])
+    relay.require(source!=worker._secret(p['sink_secret']), 'distinct credentials required')
+    return ingestion.check_polling_credential(p['workspace'],source,spec['monitor_id'],spec['plan_digest'],
+        minimum_remaining=spec['interval']+spec['cycle_deadline'])
+
+
 def check(spec):
     """Offline prerequisites, not a liveness test or permission simulation."""
     p = _validate(spec)
@@ -138,7 +146,7 @@ def check(spec):
         relay.require(not hb['run'] or hb['run']['state']!='running', 'active or interrupted run; stop and investigate first')
     with bridge.read_db(p['relay'],spec['monitor_id'],spec['plan_digest']):
         pass
-    relay.require(worker._secret(p['source_secret'])!=worker._secret(p['sink_secret']), 'distinct credentials required')
+    _credential_status(p,spec)
     return render(spec)
 
 
@@ -156,10 +164,34 @@ def export(spec, approval, output, *, confirmed=False):
     return doc
 
 
+def rotate_source(spec,approval=None,*,confirmed=False):
+    """Use the existing approved scope; never issue/revoke grants implicitly."""
+    from . import monitor_credential_rotation as rotation, monitor_ingestion as ingestion
+    p=_validate(spec)
+    if os.name!='posix':
+        raise ValueError('POSIX credential rotation required')
+    import pwd
+    uid=pwd.getpwnam(spec['account']).pw_uid
+    relay.require(uid!=0 and uid==os.geteuid(),'run rotation as configured non-root service account')
+    binding,state=worker._read_binding(p['outbox'],spec['approval'])
+    relay.require(state['scope']=={'monitor_id':spec['monitor_id'],'plan_digest':spec['plan_digest']} and
+                  binding['config']==worker._config(spec['source_port'],spec['sink_port'],spec['socket_timeout']),
+                  'outbox scope or endpoints mismatch')
+    def validate(token):
+        return ingestion.check_polling_credential(p['workspace'],token,spec['monitor_id'],spec['plan_digest'],
+            minimum_remaining=spec['interval']+spec['cycle_deadline'])
+    config_digest=render(spec)['digest']
+    if approval is None:
+        return rotation.preview(p['credentials'],config_digest,validate)
+    return rotation.rotate(p['credentials'],config_digest,approval,validate,confirmed=confirmed)
+
+
 def configure(parser):
     sub=parser.add_subparsers(dest='deployment_action',required=True)
-    for action in ('render','check','export'):
+    for action in ('render','check','export','credential-status','rotation-preview','rotate-source'):
         p=sub.add_parser(action);p.add_argument('spec')
+        if action=='rotate-source':
+            p.add_argument('--approved-digest',required=True);p.add_argument('--confirm-rotation',action='store_true')
         if action=='export':
             p.add_argument('output');p.add_argument('--approved-digest',required=True);p.add_argument('--confirm-export',action='store_true')
     parser.set_defaults(func=cli)
@@ -171,7 +203,10 @@ def cli(args):
         spec=outbox._read(args.spec)
         if args.deployment_action=='render': result=render(spec)
         elif args.deployment_action=='check': result=check(spec)
+        elif args.deployment_action=='credential-status': result=_credential_status(_validate(spec),spec)
+        elif args.deployment_action=='rotation-preview': result=rotate_source(spec)
+        elif args.deployment_action=='rotate-source': result=rotate_source(spec,args.approved_digest,confirmed=args.confirm_rotation)
         else: result=export(spec,args.approved_digest,args.output,confirmed=args.confirm_export)
         print(relay.canonical(result))
     except ERRORS:
-        raise SystemExit('Monitoring deployment configuration refused; no services installed.')
+        raise SystemExit('Monitoring deployment operation failed; inspect credential status before retrying. No services installed.')

@@ -102,7 +102,15 @@ def grants_view(directory,actor):
            "<label><input type='checkbox' name='report' value='yes'> Aggregate reports</label><label><input type='checkbox' name='incident' value='yes'> Incidents</label><label><input type='checkbox' name='check' value='yes'> Read-only alert polling</label>"+
            "<label>Lifetime in seconds<input type='number' name='ttl_seconds' min='60' max='86400' value='3600' required></label><label>Maximum distinct ingestion requests<input type='number' name='max_uses' min='1' max='300' value='20' required></label>"+
            "<label><input type='checkbox' name='confirm' value='yes' required> Issue this exact scoped local capability.</label><button>Issue capability</button></form>")
-    for r in api.grants(directory,actor):
+    inventory=api.grant_inventory(directory,actor)
+    cap=inventory["capacity"]
+    body+="<h2>Grant capacity</h2><p>"+esc(cap["active"])+" / "+esc(cap["active_limit"])+" time-active grants; "+esc(cap["total"])+" / "+esc(cap["history_limit"])+" retained records.</p>"
+    body+="<p>Time-active counts are not proof of enabled owner accounts. Expired and revoked grants remain in the audit inventory.</p>"
+    if not cap["issuance_available"]:
+        body+="<p>Issuance capacity exhausted. Investigate the live or historical limit; do not delete audit records.</p>"
+    if inventory["historical_rows_omitted"]:
+        body+="<p>"+esc(inventory["historical_rows_omitted"])+" older historical records omitted from this page.</p>"
+    for r in inventory["grants"]:
         body+="<section><pre>"+esc(json.dumps(r,indent=2))+"</pre>"
         if not r["revoked"]:
             body+=("<form method='post' action='/lifecycle-ingestion-revoke'>"+_hidden("csrf",actor["csrf"])+_hidden("id",r["id"])+

@@ -657,10 +657,11 @@ them using the existing commands. The service account must be non-root.
 Run prerequisite inspection as the intended service account where
 possible, with workers stopped. The check verifies the approved worker
 binding, scope, ports, heartbeat policy, relay scope, credential-file
-format and separation and absence of an active heartbeat marker. It
-does not test live endpoint availability, credential validity, service
-account access under systemd sandboxing, executable identity, or
-institutional ingestion grant scope. It uses existing store transaction
+format and separation and absence of an active heartbeat marker. It also authenticates the actual
+institutional check-only polling grant, verifies its exact monitor and frozen
+plan digest, and requires remaining lifetime of at least one configured
+interval plus cycle deadline. It does not test live endpoint availability,
+service account access under systemd sandboxing, or executable identity. It uses existing store transaction
 helpers, so it is not a strictly read-only filesystem inspection.
 
 ```sh
@@ -692,3 +693,96 @@ not a live systemd deployment. Production commissioning must verify
 the installed CLI, account ownership, grant expiry and rotation,
 scope, ports, live HTTP behavior, runtime sandbox compatibility,
 watchdog response, recovery and hospital-specific acceptance.
+
+
+### Relay sequence admission and recovery
+
+The local relay accepts an exact retry of a previously recorded attempt
+without creating another record. A new attempt must advance the largest
+accepted sequence and must not move the source date backwards. Sequence
+gaps remain valid because event-free outbox cycles do not deliver envelopes.
+New attempts are refused if duplicate sequence metadata exists in the
+relay, including duplicates inherited from an older database. Investigate
+the outbox and relay histories before restarting; do not delete records
+to make a sequence check pass. This admission rule is not a complete
+historical integrity audit and cannot detect a jointly restored older
+outbox and relay snapshot.
+
+### Polling credential commissioning and expiry
+
+Deployment `check` and `export` now require a dedicated, active **check-only**
+ingestion grant for the exact monitor and frozen plan. A multi-scope ingestion
+grant remains usable through its existing API but is not suitable for this
+least-privilege deployment preflight. The account must remain enabled.
+The minimum remaining lifetime is the configured polling interval plus cycle
+deadline. IT can inspect remaining lifetime without printing the token:
+
+```sh
+clinical-ai-eval monitor-deployment credential-status spec.json
+```
+
+This validates the credential against the local institutional ledger, not a
+live listener; it does not start or install services. Grants expire within
+24 hours under the existing policy. Arrange authorized rotation before expiry,
+using a private credential file and the approved service procedure. This change
+does not introduce automatic credential renewal. The deployment manifest
+contains paths, not tokens or dynamic expiry values. An ingestion transaction
+whose receipt audit timestamp reaches the grant expiry rolls back rather than
+persisting a receipt that would fail subsequent inventory verification.
+
+
+### Explicit atomic polling credential replacement
+
+A new check-only grant must first be issued by an authorized institutional
+administrator, using the existing grant procedure. Stage its token in
+credential_dir/next-check-token with mode 0600 and the configured service
+account as owner. The credential directory must be private and owned by
+that account. Stop scheduled worker cycles and coordinate any other
+credential writers before replacing credentials. Run the following as
+the configured non-root service account, not as root:
+
+```sh
+clinical-ai-eval monitor-deployment rotation-preview spec.json
+clinical-ai-eval monitor-deployment rotate-source spec.json --approved-digest ROTATION_DIGEST --confirm-rotation
+clinical-ai-eval monitor-deployment credential-status spec.json
+```
+
+The preview binds the current, staged and relay credentials, the approved
+deployment configuration and the staged grant expiry without displaying
+credential values or their individual hashes. Rotation revalidates the
+staged grant and exact worker binding, serializes cooperating rotation
+commands with a private advisory lock, writes and synchronizes a private
+temporary file, atomically replaces check-token, and synchronizes its
+directory. It never replaces the relay token or silently issues or revokes
+a grant. It intentionally retains next-check-token; remove that duplicate
+through the approved private-file procedure after verification.
+
+If replacement fails before rename, the current credential is retained.
+If synchronization fails after rename or a process is interrupted, the
+reported operation may have an ambiguous outcome: inspect credential status
+and the private files before retrying. A fresh preview is necessary for a
+different replacement. The advisory lock does not coordinate arbitrary file
+editors. Keep the old grant active until an actual source poll succeeds
+with the new credential; a worker cycle that only resumes pending delivery
+does not prove source connectivity. Once the old process has stopped and
+the new credential is verified, revoke the old grant in the institution.
+This is operator-assisted rotation, not automatic renewal, and the existing
+bounded grant inventory still applies.
+
+
+### Long-term grant inventory
+
+The live issuance ceiling is 200 time-active grants (unrevoked and not
+expired). Expired or revoked grants no longer consume that live capacity.
+A separate hard ceiling of 8,192 retained grant records applies to the
+whole workspace. All historical grant bindings, revocations, request
+receipts and audit events remain intact; no automatic deletion or
+authorization renewal is performed. The existing 5,000-receipt ceiling
+and maximum grant lifetime are unchanged. The administrator grant page
+shows live and historical capacity, every time-active grant and up to 100
+recent historical records. Counts are based on expiry and revocation;
+they do not establish that owner accounts remain enabled. The full
+administrative metadata API still returns all verified grant records.
+At the historical ceiling, plan a validated migration rather than deleting
+audit rows. Performance at the expanded history ceiling and production
+migration are not yet validated.

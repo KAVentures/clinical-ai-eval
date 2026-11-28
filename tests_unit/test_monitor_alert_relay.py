@@ -36,9 +36,45 @@ class RelayTests(unittest.TestCase):
             rows=list(pool.map(lambda _:relay.accept(self.path,d,d['attempt_digest']),range(8)))
         self.assertTrue(all(x==rows[0] for x in rows));self.assertEqual(relay.inbox(self.path)['pending_count'],1)
 
+    def test_sequence_gaps_exact_old_retry_and_restored_outbox_refusal(self):
+        first=envelope();relay.accept(self.path,first,first['attempt_digest'])
+        later={**first,'attempt_digest':'d'*64,'sequence':4}
+        relay.accept(self.path,later,later['attempt_digest'])
+        self.assertTrue(relay.accept(self.path,first,first['attempt_digest'])['accepted'])
+        for seq in (1,2,4):
+            rogue={**first,'attempt_digest':'e'*64,'sequence':seq}
+            with self.assertRaises(ValueError): relay.accept(self.path,rogue,rogue['attempt_digest'])
+        older={**first,'attempt_digest':'e'*64,'sequence':5,'as_of':'2026-11-25'}
+        with self.assertRaises(ValueError): relay.accept(self.path,older,older['attempt_digest'])
+        self.assertEqual(relay.inbox(self.path)['pending_count'],2)
+
+    def test_concurrent_different_attempts_same_sequence(self):
+        def submit(char):
+            doc={**envelope(),'attempt_digest':char*64}
+            try:
+                relay.accept(self.path,doc,doc['attempt_digest'])
+                return True
+            except ValueError:
+                return False
+        with ThreadPoolExecutor(2) as pool:
+            self.assertEqual(sum(pool.map(submit,('a','d'))),1)
+        self.assertEqual(relay.inbox(self.path)['pending_count'],1)
+
+    def test_legacy_duplicate_history_blocks_new_attempt(self):
+        doc=envelope();relay.accept(self.path,doc,doc['attempt_digest'])
+        duplicate={**doc,'attempt_digest':'d'*64}
+        with sqlite3.connect(self.path) as conn:
+            conn.execute('INSERT INTO batches VALUES(?,?,?,?,?,NULL,NULL)',(duplicate['attempt_digest'],1,relay.canonical(duplicate),relay.digest(duplicate),0))
+        newer={**doc,'attempt_digest':'e'*64,'sequence':2}
+        with self.assertRaises(ValueError): relay.accept(self.path,newer,newer['attempt_digest'])
+        self.assertTrue(relay.accept(self.path,doc,doc['attempt_digest'])['accepted'])
+
     def test_scope_and_invalid_transitions(self):
         for change in ({'plan_digest':'d'*64},{'events':[]},{'sequence':True},{'as_of':'20261126'}):
             d={**envelope(),**change}
+            with self.assertRaises(ValueError): relay.accept(self.path,d,d['attempt_digest'])
+        for event in (None, [], {}):
+            d={**envelope(),'events':[event]}
             with self.assertRaises(ValueError): relay.accept(self.path,d,d['attempt_digest'])
         d=envelope();d['events'].append(copy.deepcopy(d['events'][0]))
         with self.assertRaises(ValueError): relay.accept(self.path,d,d['attempt_digest'])
