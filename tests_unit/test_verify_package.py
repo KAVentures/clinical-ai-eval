@@ -131,5 +131,64 @@ class TestDefinitionDrift(unittest.TestCase):
         self.assertTrue(any("family.yaml" in k for k in defs))
 
 
+class TestUntrustedArchive(unittest.TestCase):
+    def test_bounded_extraction_and_portable_paths(self):
+        import io
+        import stat
+        import zipfile
+        from unittest.mock import patch
+        from caeval import buyer_research, cli
+        for names in (["../escape"],["a\\b"],["a","A"],["a","a/b"],["a/b","a"]):
+            raw=io.BytesIO()
+            with zipfile.ZipFile(raw,"w") as z:
+                for name in names:
+                    z.writestr(name,b"x")
+            with tempfile.TemporaryDirectory() as tmp, zipfile.ZipFile(raw) as z:
+                with self.assertRaises(ValueError):
+                    cli._safe_extract(z,Path(tmp))
+                self.assertEqual(list(Path(tmp).iterdir()),[])
+        raw=io.BytesIO()
+        with zipfile.ZipFile(raw,"w") as z:
+            info=zipfile.ZipInfo("link")
+            info.create_system=3
+            info.external_attr=(stat.S_IFLNK|0o777)<<16
+            z.writestr(info,b"outside")
+        with tempfile.TemporaryDirectory() as tmp, zipfile.ZipFile(raw) as z:
+            with self.assertRaises(ValueError):
+                cli._safe_extract(z,Path(tmp))
+        raw=io.BytesIO()
+        with zipfile.ZipFile(raw,"w",compression=zipfile.ZIP_DEFLATED) as z:
+            z.writestr("large",b"x"*100)
+        with tempfile.TemporaryDirectory() as tmp, zipfile.ZipFile(raw) as z, patch.object(buyer_research,"MAX_BYTES",50):
+            with self.assertRaises(ValueError):
+                cli._safe_extract(z,Path(tmp))
+            self.assertEqual(list(Path(tmp).iterdir()),[])
+
+    def test_exact_archive_digest_and_manifest_scope(self):
+        import argparse
+        import hashlib
+        import zipfile
+        from caeval import cli
+        ws=_package()
+        self.addCleanup(shutil.rmtree,ws)
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"evidence.zip"
+            with zipfile.ZipFile(path,"w") as z:
+                for p in ws.rglob("*"):
+                    if p.is_file():
+                        z.write(p,p.relative_to(ws).as_posix())
+            actual=hashlib.sha256(path.read_bytes()).hexdigest()
+            cli.cmd_verify_package(argparse.Namespace(package=str(path),verbose=False,expected_digest=actual))
+            with self.assertRaises(SystemExit):
+                cli.cmd_verify_package(argparse.Namespace(package=str(path),verbose=False,expected_digest="0"*64))
+            mp=ws/man.MANIFEST_FILE
+            obj=json.loads(mp.read_text())
+            obj["artifacts"]["analysis"]["path"]="../outside.json"
+            obj["manifest_hash"]=man.fingerprint(obj)
+            mp.write_text(json.dumps(obj))
+            with self.assertRaises(SystemExit):
+                cli.cmd_verify_package(argparse.Namespace(package=str(ws),verbose=False,expected_digest=None))
+
+
 if __name__ == "__main__":
     unittest.main()

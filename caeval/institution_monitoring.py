@@ -81,6 +81,11 @@ def _material(directory,baseline_job,exchange_id,connector_id,panel_id,governanc
         raise buyer.BuyerError("judge panel differs from baseline")
     if any(manifest.hash_file(manifest.definition_file(k))!=v for k,v in bound["scientific_definitions"].items()):
         raise buyer.BuyerError("baseline scientific definitions no longer current")
+    conditions=bound.get("conditions_hash")
+    if conditions is not None:
+        from . import buyer_risk_activation as activation
+        if activation.check(directory,exchange["plan_id"],exchange["pack_content_hash"],panel_id,raw)!=conditions:
+            raise buyer.BuyerError("retest requires the exact baseline procurement conditions")
     return {"schema":"longitudinal-regression/1","baseline_job":baseline_job,
             "baseline_packages":{p["family_id"]:p["manifest_hash"] for p in base["result"]["packages"]},
             "baseline_assessment":base["assessment_id"],
@@ -90,6 +95,7 @@ def _material(directory,baseline_job,exchange_id,connector_id,panel_id,governanc
             "panel_id":panel_id,"panel_hash":assessment._sha(raw),
             "governance":bound["governance"],"scientific_definitions":bound["scientific_definitions"],
             "mode":base["mode"],"real_judges":any(not j["mock"] for j in panel["judges"]),
+            **({"conditions_hash":conditions} if conditions is not None else {}),
             "decision_grade":False}
 
 
@@ -256,6 +262,10 @@ def _report(directory,b,job_id,collection_id):
         raise buyer.BuyerError("verified baseline and retest required")
     collection=connector.status(directory,collection_id)
     binding=manual._read(jobs._job_path(directory,job_id)/"binding.json")
+    baseline_binding=manual._read(jobs._job_path(directory,b["baseline_job"])/"binding.json")
+    if (baseline_binding.get("conditions_hash")!=b.get("conditions_hash") or
+            binding.get("conditions_hash")!=b.get("conditions_hash")):
+        raise buyer.BuyerError("monitoring cannot drop or change baseline procurement conditions")
     if (collection["state"]!="complete_unscored" or collection["binding"]!=b["connector_binding"]
             or binding["submission_id"]!=collection["receipt"]["submission_id"]
             or binding["exchange_id"]!=b["exchange_id"]
@@ -278,7 +288,9 @@ def _report(directory,b,job_id,collection_id):
             "collection_receipt_hash":collection["receipt"]["receipt_hash"],"baseline_packages":b["baseline_packages"],
             "retest_packages":hashes,"baseline_version":b["baseline_version"],"target_version":b["target_version"],
             "families":families,"required_but_not_run":retest["result"]["required_but_not_run"],
-            "alert_delta":b["alert_delta"],"decision_grade":False,
+            "alert_delta":b["alert_delta"],
+            **({"conditions_hash":b["conditions_hash"]} if b.get("conditions_hash") is not None else {}),
+            "decision_grade":False,
             "interpretation":"Descriptive fixed-pack matched-cell changes only; no statistical equivalence, clinical safety or deployment authorization."}
 
 
@@ -340,17 +352,20 @@ def run_due(directory,identifier,approved_digest,*,allow_candidate_calls=False,a
         if collection["binding"]!=b["connector_binding"]:
             raise buyer.BuyerError("collection binding changed")
         _active(directory,identifier,approved_digest)
-        collected=connector.execute(directory,collection_id,collection["binding_hash"],row["owner"])
+        collected=connector.execute(directory,collection_id,collection["binding_hash"],row["owner"],
+                                    before_call=lambda: _active(directory,identifier,approved_digest))
         if collected["state"]!="complete_unscored":
             state="incomplete" if collected["state"]=="incomplete" else "failed"
             result={"reason":"candidate collection did not complete","decision_grade":False}
         else:
             _current(directory,b)
             _active(directory,identifier,approved_digest)
-            prepared=assessment.prepare(directory,collected["receipt"]["submission_id"],b["panel_id"],b["governance"])
+            prepared=assessment.prepare(directory,collected["receipt"]["submission_id"],b["panel_id"],b["governance"],
+                                        conditions_hash=b.get("conditions_hash"))
             if (prepared["scientific_definitions"]!=b["scientific_definitions"]
                     or prepared["file_sha256"]["panel.toml"]!=b["panel_hash"]
-                    or prepared["mode"]!=b["mode"]):
+                    or prepared["mode"]!=b["mode"]
+                    or prepared.get("conditions_hash")!=b.get("conditions_hash")):
                 raise buyer.BuyerError("retest scientific binding changed")
             job=jobs.enqueue(directory,prepared["assessment_id"])
             job_id=job["id"]

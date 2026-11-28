@@ -61,6 +61,51 @@ class MonitoringTests(unittest.TestCase):
         with self.assertRaises(access.AccessDenied):
             self.run_occurrence(schedule,allow_candidate_calls=True)
 
+    def test_disable_during_collection_stops_subsequent_calls(self):
+        schedule=self.create()
+        calls=[]
+        def stop(cfg,prompt,headers):
+            calls.append(prompt)
+            monitor.disable(self.root,self.actor,schedule["id"])
+            return "Synthetic answer"
+        with patch.object(connector,"_call",side_effect=stop),patch.object(jobs,"execute") as run:
+            result=self.run_occurrence(schedule,allow_candidate_calls=True)
+            self.assertEqual(result["status"],"failed")
+            self.assertEqual(len(calls),1)
+            run.assert_not_called()
+
+    def test_version_reassessment_preserves_baseline_science(self):
+        from caeval import version_retest as version,buyer_manual as manual
+        cfg=json.loads(self.config.read_text())
+        self.config.write_text(json.dumps({**cfg,"target_version":"2.0"}))
+        args=(self.root,self.actor,self.baseline,"2.0","local")
+        with patch.object(connector,"_call",side_effect=AssertionError("no calls")):
+            d=version.preview(*args)
+            self.assertFalse(d["network_authorized"])
+            self.assertFalse((self.root/"plans"/(d["plan_id"]+".json")).exists())
+            with self.assertRaises(access.AccessDenied):
+                version.prepare(*args,d["digest"])
+            self.config.write_text(json.dumps({**cfg,"target_version":"2.0","timeout_seconds":6}))
+            with self.assertRaises(access.AccessDenied):
+                version.prepare(*args,d["digest"],confirmed=True)
+            self.config.write_text(json.dumps({**cfg,"target_version":"2.0"}))
+            self.assertEqual(version.prepare(*args,d["digest"],confirmed=True),d)
+            self.assertEqual(version.prepare(*args,d["digest"],confirmed=True),d)
+            old=manual._load(self.root,self.sub["exchange_id"])
+            new=manual._load(self.root,d["exchange_id"])
+            for k in ("slots","family_ids","pack_content_hash","scientific_definitions"):
+                self.assertEqual(old[k],new[k])
+            self.assertEqual(new["target"]["version"],"2.0")
+            self.assertEqual(monitor._material(self.root,self.baseline,d["exchange_id"],"local","mock",self.gov)["target_version"],"2.0")
+
+    def test_risk_bound_baseline_cannot_silently_drop_conditions(self):
+        base,bound,exchange,cfg=monitor._baseline(self.root,self.baseline)
+        from caeval import buyer_risk_activation as activation
+        with patch.object(monitor,"_baseline",return_value=(base,{**bound,"conditions_hash":"frozen"},exchange,cfg)), \
+             patch.object(activation,"check",return_value="different"):
+            with self.assertRaises(buyer.BuyerError):
+                self.create()
+
     def test_configuration_drift_prevents_calls(self):
         schedule=self.create()
         cfg=json.loads(self.config.read_text())

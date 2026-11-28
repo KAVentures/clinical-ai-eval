@@ -139,7 +139,7 @@ The same active grant may then GET
 /v1/evaluation-requests/REQUEST/packages/FAMILY with its bearer credential.
 The response is application/zip with X-Content-SHA256; compare the bytes
 against the independently communicated approved digest. Verify offline with
-clinical-ai-eval verify-package review.zip using matching scientific definitions.
+clinical-ai-eval verify-package review.zip --expected-digest SHA256 using matching scientific definitions. The verifier bounds archive expansion, refuses unsafe or ambiguous paths, checks the manifest read scope and removes temporary extraction files.
 The archive contains only manifest-listed artifacts and review inputs, not the
 entire execution workspace. The service checks the exact bytes and approval
 audit again before delivery. Changing bytes invalidates the existing approval;

@@ -15,6 +15,7 @@ def render(directory,actor):
         return "<label>"+esc(title)+"<input name='"+key+"' type='"+kind+"' required maxlength='300'></label>"
     body="<p><a href='/'>Workspace</a></p><p>Repeated synthetic or approved non-identifiable regression probes. Not patient surveillance, clinical safety certification or deployment approval. Network execution requires the separately approved local worker.</p>"
     if actor["role"]=="admin":
+        body+="<p><a href='/version-retest'>Prepare a new-version reassessment from a verified baseline</a></p>"
         fields="".join(field(k,t) for k,t in (("pilot_id","Lifecycle pilot ID"),("baseline_job","Verified baseline job ID"),("exchange_id","Approved exchange ID"),("connector_id","Approved local connector"),("panel_id","Approved judge panel")))
         for q in project.MANDATORY_GOVERNANCE:
             fields+=field(q,q.replace("_"," "))
