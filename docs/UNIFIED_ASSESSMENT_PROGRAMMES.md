@@ -115,5 +115,65 @@ versions can still be confidential.
 This release does not add live PACS/DICOMweb, direct vendor dispatch, new clinical
 executors, external validation, production identity federation, or an automatic
 clinical purchasing decision. The RAG trace executor is not yet integrated
-as a canonical institutional programme source. Browser source selection uses
-existing record identifiers, not automatic evidence matching or source discovery.
+as a canonical institutional programme source. Browser source discovery verifies eligible local records; it does not choose a best result or automatically lock evidence.
+
+
+## Evidence discovery and coordinated work
+
+Open an individual unlinked requirement and select **Find verified eligible
+evidence**. Discovery checks the existing source adapters and returns only
+eligible exact-scope records. It scans at most 200 candidate records, returns
+at most 20 matches, and discloses truncation. No ranking, best-result
+selection or automatic evidence lock takes place. Missing or invalid records
+may be omitted; use an exact known ID if necessary. The administrator still
+reviews scientific relevance and approves the source.
+
+For multiple associations, the administrator may paste an array of explicit
+requirement/source pairs into **Batch evidence association**:
+
+```json
+[
+  {"requirement_id": "text-safety", "source_id": "EXISTING_JOB_ID"},
+  {"requirement_id": "interoperability", "source_id": "EXISTING_REPORT_ID"}
+]
+```
+
+A batch accepts up to 40 distinct requirements. Preview validates every
+source. The digest binds the complete sorted selection and its verified
+metadata. Approval re-verifies every selected source before any writes;
+if any source, requirement or approval changes, the whole transaction is
+refused. No duplicate or already-locked requirement is allowed.
+
+**Native evaluation work and handoffs** is an operator/admin read-only view
+of exact-plan prepared text assessments and native text/conversation jobs.
+It distinguishes the native preparation, queue, execution and terminal
+states, without inferring that any job passed. A completed multi-family job
+can appear in more than one requirement. Navigation leads to the existing
+native workflows; queueing, cancellation, local worker execution and all
+network approvals remain there. Other modalities retain their native
+workflow links and evidence coverage; their intermediate jobs are not
+enumerated in this view. This is not an automatic cross-modality scheduler.
+
+## Version-only programme successors
+
+First create approved native version reassessments for the saved plans that
+need new versions. On the baseline programme's **Version reassessment history**
+screen, choose a current unchanged plan or an existing approved reassessment
+successor for every baseline plan. At least one exact version change is
+required. A separately created plan without native reassessment lineage is
+not eligible. Incompatible profile or suite-selection changes require a new
+explicitly scoped programme rather than the version-only route.
+
+Preview and approve the exact new programme and lineage. Both are frozen
+in a single institutional database transaction. No existing source association
+is copied, even for unchanged plans. The new programme requires explicit
+source selection and approval; old sources cannot meet a changed exact
+product version. The underlying scientific protocols determine whether
+source collection is prospective or repeatable.
+
+The coverage comparison shows baseline and successor version, source
+availability states and associated digests. It is not a model performance
+comparison, equivalence or noninferiority analysis. Native reassessment
+audit records are rechecked when programme lineage is read, and committee
+snapshots include the lineage. Source evaluation and any scientific
+comparison must still follow the appropriate native assessment protocol.

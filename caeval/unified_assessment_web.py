@@ -63,6 +63,9 @@ def detail(directory,actor,ident):
     doc=service.status(directory,actor,ident)
     p=doc["programme"]
     body="<p><a href='/unified-assessment'>Programmes</a></p><p>"+esc(doc["state"])+" · Frozen digest "+esc(p["digest"])+"</p>"
+    if actor["role"] in ("admin","operator"):
+        body+="<p><a href='/unified-assessment-work?id="+esc(ident)+"'>Native evaluation work and handoffs</a></p>"
+    body+="<p><a href='/unified-assessment-lineage?id="+esc(ident)+"'>Version reassessment history</a></p>"
     body+=_plan_table(p)
     body+="<h2>Evidence coverage</h2><p>Source available means its restricted metadata was verified and still matches the locked association. It does not mean the candidate passed.</p>"
     for row in doc["requirements"]:
@@ -73,11 +76,15 @@ def detail(directory,actor,ident):
             for key,value in source.items():
                 body+="<p>"+esc(key.replace("_"," "))+": "+esc(value)+"</p>"
         elif actor["role"]=="admin" and doc["state"]=="current":
+            body+="<p><a href='/unified-assessment-discover?id="+esc(ident)+"&amp;requirement="+esc(r["id"])+"'>Find verified eligible evidence</a></p>"
             body+=("<form method='post' action='/unified-assessment-link-preview'>"+_hidden("csrf",actor["csrf"])+_hidden("id",ident)+_hidden("requirement",r["id"])+
                    "<label>Existing source record ID<input name='source' required maxlength='128'></label><button>Verify and preview source</button></form>")
         body+="</section>"
     body+="<p>"+("All planned sources available." if doc["all_planned_sources_available"] else "Planned evidence incomplete or unavailable.")+" No clinical or procurement conclusion is implied.</p>"
     if actor["role"]=="admin":
+        if doc["state"]=="current":
+            body+=("<section><h2>Batch evidence association</h2><p>Paste explicitly selected requirement/source pairs. Every pair must be eligible; the whole batch is rejected if any source changes.</p><form method='post' action='/unified-assessment-batch-preview'>"+_hidden("csrf",actor["csrf"])+_hidden("id",ident)+
+                   "<label>JSON array of objects with requirement_id and source_id<textarea name='selections' required rows='6' maxlength='65536'></textarea></label><button>Verify selected batch</button></form></section>")
         export=service.export_preview(directory,actor,ident)
         body+=("<form method='post' action='/unified-assessment-export'>"+_hidden("csrf",actor["csrf"])+_hidden("id",ident)+_hidden("approval",export["digest"])+
                "<label><input type='checkbox' name='confirm' value='yes' required> Export this exact restricted administrative coverage snapshot. No raw clinical evidence included.</label><button>Download coverage snapshot</button></form>")

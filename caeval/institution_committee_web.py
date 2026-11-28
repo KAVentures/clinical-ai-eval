@@ -72,6 +72,9 @@ def _inventory(data):
             body+="<p>"+esc(r["vendor_id"])+" · "+esc(r["target"]["version"])+" · "+esc(r["requirement"]["kind"])+" · "+esc(r["state"])+" · "+esc(source["evidence_digest"] if source else "No source")+"</p>"
         for gap in p["unplanned_canonical_suites"]:
             body+="<p>Unplanned canonical suite: "+esc(gap["suite"])+" · "+esc(gap["state"])+"</p>"
+    for row in data.get("unified_assessment_successors",[]):
+        body+="<h3>Programme version reassessment</h3><p>"+esc(row["baseline_id"])+" → "+esc(row["successor_id"])+" · "+esc(row["digest"])+"</p>"
+        body+="<p>No prior evidence transferred. No performance comparison authorized.</p>"
     for row in data.get("diagnostic_imaging_studies",[]):
         body+="<h3>Diagnostic imaging study "+esc(row["id"])+"</h3><p>"+esc(row["state"])+" · "+esc(row.get("n_cases","unavailable"))+" cases; experimental evidence only.</p>"
     for row in data.get("diagnostic_imaging_reference_reviews",[]):
