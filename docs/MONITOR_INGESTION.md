@@ -339,3 +339,70 @@ failed or repeated handoffs. The worker does not verify source identity,
 detect same-day feed ordering, independently attest actual notification
 delivery, or perform clinical escalation actions. Nothing in this
 workflow constitutes clinical safety or deployment authorization.
+
+
+## Built-in local notification relay
+
+The optional reference relay implements the worker's local delivery contract
+without requiring an external notification provider. It durably accepts
+transition envelopes into an institution-controlled SQLite inbox. Acceptance
+does not establish that a human received a notification or resolved an alert.
+It is not a substitute for an approved hospital paging or emergency system.
+
+Initialize one relay database for the exact monitor and plan scope. Use a
+private directory on a local filesystem controlled by the authorized
+institutional OS account, with trusted non-symlink ancestors:
+
+```sh
+clinical-ai-eval monitor-alert-relay initialize /private/relay.sqlite3 MONITOR_ID PLAN_DIGEST
+clinical-ai-eval monitor-alert-relay serve /private/relay.sqlite3 --port 8773 --secret-file /private/relay-token
+```
+
+The secret file contains the same separate 64-character lowercase hex bearer
+credential used by the worker to contact the relay. Generate it in the
+institution's approved credential store, not in a command line or source
+file. Restrict the secret and database to the trusted OS account (POSIX
+mode 0600 or appropriate Windows ACLs). The secret is read on each request,
+so rotation can be coordinated with the worker. The relay listens only on
+127.0.0.1 and requires the exact Host, POST route, bearer, content type,
+idempotency key and bounded JSON. It refuses browser cookies, Origin and
+query strings. Do not expose this reference WSGI listener to an untrusted
+network or use it as a production-grade hospital messaging gateway.
+It has no production rate limiter, TLS, or local-process identity
+verification.
+
+Acceptance commits the exact payload to SQLite before returning the matching
+HTTP 200 receipt. Identical retries are idempotent even after a review has
+been recorded; conflicting content under an existing key is refused.
+The database retains accepted batches and review metadata. A digest binds
+payload content, but is not a signature or an independently trusted audit
+log. The relay trusts the approved worker and does not independently
+reconstruct the source feed or outbox attempt.
+
+An authorized local operator can inspect up to 200 unreviewed batches per call:
+
+```sh
+clinical-ai-eval monitor-alert-relay inbox /private/relay.sqlite3 --limit 100
+```
+
+The inbox returns the exact transition envelope and its payload digest.
+After completing the applicable external review procedure, the operator
+may record that review using the corresponding external record SHA-256:
+
+```sh
+clinical-ai-eval monitor-alert-relay review /private/relay.sqlite3 ATTEMPT_DIGEST PAYLOAD_DIGEST EXTERNAL_RECORD_DIGEST --confirm
+```
+
+This changes only the inbox review state. It does not resolve the original
+monitoring alert, verify the external record, or authorize a clinical action.
+There is no HTTP inbox or review endpoint; those operations are restricted
+by the local filesystem and OS account rather than hospital browser roles.
+
+The relay accepts at most 10,000 historical batches and 1 MiB per envelope.
+Plan disk capacity and monitor inbox backlog, service health and capacity
+exhaustion externally. No automatic pruning, migration, backup, human
+notification, or scheduler is installed. An old restored relay database may
+accept attempts previously accepted after the backup. Retain the relay and
+outbox together under an institution-managed recovery procedure; exactly-once
+delivery across restores is not established. A nonzero worker exit or
+unavailable relay must be treated as a monitoring failure.

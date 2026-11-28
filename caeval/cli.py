@@ -1874,6 +1874,10 @@ def main(argv=None):
     from . import monitor_alert_worker
     pworker = sub.add_parser("monitor-alert-worker", help="execute one approved local alert delivery cycle")
     monitor_alert_worker.configure(pworker)
+
+    from . import monitor_alert_relay
+    prelay = sub.add_parser("monitor-alert-relay", help="manage local durable notification acceptance and review")
+    monitor_alert_relay.configure(prelay)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")
