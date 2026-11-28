@@ -93,6 +93,8 @@ def freeze(spec,*,nonce=None,confirmed=False):
                 "questions":[{**q,"reference_ids":sorted(q["reference_ids"]),"distractor_ids":sorted(q["distractor_ids"])}
                              for q in sorted(questions,key=lambda r:r["id"])],
                 "candidates":sorted(candidates,key=lambda r:r["id"]),"reviewers":sorted(spec["reviewers"])}
+    # The frozen plan must not alias caller-owned nested dictionaries.
+    normalized=json.loads(json.dumps(normalized,allow_nan=False))
     return d._sealed({"schema":SCHEMA,"spec":normalized,"private_nonce":nonce,
                       "decision_grade":False,"limitations":LIMITATIONS[:]})
 

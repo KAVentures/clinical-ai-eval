@@ -148,6 +148,7 @@ def _dashboard(directory, actor):
         body += "<p><a href='/research'>Clinical research studio</a></p>"
     if role in ("admin","operator","observer"):
         body += "<p><a href='/unified-assessment'>Unified clinical AI assessment programmes</a></p>"
+        body += "<p><a href='/matched-regression'>Matched longitudinal research</a></p>"
     if role in ("admin","operator"):
         body += "<p><a href='/diagnostic-imaging'>Diagnostic imaging research</a></p>"
         body += "<p><a href='/rag-trace'>Synthetic RAG context rehearsal</a></p>"
@@ -653,6 +654,27 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=image_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
+            if path in ("/matched-regression","/matched-regression-detail") and method=="GET":
+                from . import institution_matched_regression_web as regression_web
+                q=_query(env)
+                if path=="/matched-regression" and not q:
+                    access.require(actor,"admin","operator","observer")
+                    return respond("200 OK",regression_web.home(self.directory,actor))
+                if path=="/matched-regression-detail" and set(q)=={"id"}:
+                    access.require(actor,"admin")
+                    return respond("200 OK",regression_web.detail(self.directory,actor,q["id"]))
+                raise access.AccessDenied("invalid longitudinal request")
+            if path in ("/matched-regression-preview","/matched-regression-freeze","/matched-regression-export") and method=="POST":
+                from . import institution_matched_regression_web as regression_web,buyer_plan
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/matched-regression-preview":
+                    return respond("200 OK",regression_web.preview(self.directory,actor,form))
+                result=regression_web.dispatch(self.directory,actor,path,form)
+                if path=="/matched-regression-export":
+                    return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="matched-version-regression.json"')],content_type="application/json; charset=utf-8")
+                return respond("303 See Other",extra=[("Location","/matched-regression-detail?id="+result)])
             if path=="/rag-comparison" and method=="GET":
                 from . import institution_rag_grounding_web as grounding_web
                 access.require(actor,"admin")

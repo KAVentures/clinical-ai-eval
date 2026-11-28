@@ -191,6 +191,8 @@ def overview(directory,actor):
     inventory["synthetic_rag_rehearsals"]=institution_rag.overview(root,actor)
     from . import institution_rag_grounding
     inventory["rag_grounding_studies"]=institution_rag_grounding.overview(root,actor)
+    from . import institution_matched_regression
+    inventory["matched_version_regressions"]=institution_matched_regression.overview(root,actor)
     from . import unified_successor
     inventory["unified_assessment_successors"]=unified_successor.inventory(root,actor)
     if buyer.load(root)!=source:
