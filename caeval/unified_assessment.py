@@ -14,7 +14,7 @@ LINK="unified-assessment-source-locked"
 MAX_PROGRAMMES=40
 MAX_PLANS=24
 MAX_REQUIREMENTS=80
-KINDS=("text","conversation","research","imaging","fhir","hl7","image_text")
+KINDS=("text","conversation","research","imaging","fhir","hl7","image_text","rag")
 ERRORS=(ValueError,RuntimeError,OSError,KeyError,TypeError,AttributeError,IndexError,StopIteration)
 LIMITATIONS=[
     "Administrative source coverage only; no combined score, ranking, procurement approval or deployment authorization.",
@@ -91,8 +91,9 @@ def _material(directory,spec):
         d._require(d._token(r["id"]) and r["id"] not in seen and r["kind"] in KINDS
                    and isinstance(r["plan_id"],str) and r["plan_id"] in by,"invalid requirement or plan")
         p=by[r["plan_id"]]
-        if r["kind"] in ("text","conversation"):
-            expected=executors.GENERIC_PAIRED_TEXT if r["kind"]=="text" else executors.PATIENT_EPISODE
+        if r["kind"] in ("text","conversation","rag"):
+            expected={"text":executors.GENERIC_PAIRED_TEXT,"conversation":executors.PATIENT_EPISODE,
+                      "rag":executors.RAG_TRACE}[r["kind"]]
             d._require(r["family"] in p["runnable_suites"] and executors.executor_for(r["family"])==expected,
                        "requirement must use exact runnable executor and suite")
         else:
@@ -211,6 +212,16 @@ def _source(directory,conn,actor,req,plan,source_id):
             raise access.AccessDenied("conversation job verification failed")
         result={"anchor":row["digest"],"evidence_digest":r["manifest_hash"],
                 "mode":b["mode"],"claim":r["claim"],"scope":"exact_buyer_plan"}
+    elif kind=="rag":
+        from . import institution_rag as rag
+        rag._schema(conn)
+        rag._inventory(conn)
+        frozen,evidence=rag._get(directory,conn,source_id)
+        if (not evidence or frozen["plan_id"]!=pid or frozen["vendor_id"]!=vid
+                or frozen["target"]!=target or frozen["family"]!=req["family"]):
+            raise access.AccessDenied("exact sealed synthetic RAG source required")
+        result={"anchor":frozen["digest"],"evidence_digest":evidence["digest"],
+                "mode":"demonstration","claim":"synthetic_context_rehearsal_only","scope":"exact_buyer_plan"}
     elif kind=="research":
         from . import research_program as research
         research._schema(conn)
@@ -501,10 +512,10 @@ def guided_spec(directory,actor,ident,choices):
         d._require(pid in known,"current saved plan required")
         kinds=choices[pid]
         d._require(isinstance(kinds,list) and len(set(kinds))==len(kinds)
-                   and set(kinds)<=set(KINDS)-{"text","conversation"},"invalid extra evidence selection")
+                   and set(kinds)<=set(KINDS)-{"text","conversation","rag"},"invalid extra evidence selection")
         for family in known[pid]["runnable_suites"]:
             executor=executors.executor_for(family)
-            kind={executors.GENERIC_PAIRED_TEXT:"text",executors.PATIENT_EPISODE:"conversation"}.get(executor)
+            kind={executors.GENERIC_PAIRED_TEXT:"text",executors.PATIENT_EPISODE:"conversation",executors.RAG_TRACE:"rag"}.get(executor)
             if kind:
                 requirements.append({"id":"p"+str(i)+"-"+family,"kind":kind,"plan_id":pid,"family":family})
         for kind in sorted(kinds):

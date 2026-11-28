@@ -1821,6 +1821,10 @@ def main(argv=None):
     from . import unified_assessment
     punified = sub.add_parser("unified-assessment", help="verify portable administrative programme coverage")
     unified_assessment.configure(punified)
+
+    from . import institution_rag_trace
+    pragtrace = sub.add_parser("verify-rag-rehearsal", help="replay private synthetic RAG trace evidence offline")
+    institution_rag_trace.configure(pragtrace)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")

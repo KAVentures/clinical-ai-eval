@@ -47,18 +47,18 @@ def work_view(directory,actor,ident):
     doc=work.work(directory,actor,ident)
     body="<p><a href='/unified-assessment-detail?id="+esc(ident)+"'>Back to programme</a></p><p>Read-only coordination. Native assessment workflows retain execution and approval controls. This page does not launch or cancel jobs.</p>"
     routes={"text":"/setup","conversation":"/conversation","research":"/research-programs",
-            "imaging":"/diagnostic-imaging","fhir":"/fhir","hl7":"/hl7","image_text":"/image-text"}
+            "imaging":"/diagnostic-imaging","rag":"/rag-trace","fhir":"/fhir","hl7":"/hl7","image_text":"/image-text"}
     for r in doc["requirements"]:
         body+="<section><h3>"+esc(r["requirement_id"])+"</h3><p>"+esc(r["vendor_id"])+" · "+esc(r["target"]["version"])+" · "+esc(r["coverage_state"])+"</p>"
         route=routes[r["kind"]]
-        if r["kind"] in ("fhir","hl7","image_text"):
+        if r["kind"] in ("fhir","hl7","image_text","rag"):
             route+="?plan_id="+r["plan_id"]
         if doc["programme_state"]=="current":
             body+="<p><a href='"+esc(route)+"'>Open native workflow</a></p>"
         for job in r["native_work_records"]:
             body+="<p>"+esc(job["id"])+" · "+esc(job["state"])+" · "+esc(job["mode"])+"</p>"
         if not r["native_work_records"]:
-            body+="<p>No exact-plan text or conversation work record shown for this requirement.</p>"
+            body+="<p>No exact-plan text, conversation or RAG work record shown for this requirement.</p>"
         body+="</section>"
     return page("Programme evaluation work",body)
 

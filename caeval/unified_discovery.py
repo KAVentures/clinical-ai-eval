@@ -32,6 +32,11 @@ def _candidates(directory,conn,req):
         from . import institution_conversation as module
         module._schema(conn)
         return [r["id"] for r in conn.execute("SELECT id FROM conversation_jobs WHERE status='completed' ORDER BY id LIMIT ?",(MAX_SCAN+1,))]
+    if kind=="rag":
+        from . import institution_rag as rag
+        rag._schema(conn)
+        rag._inventory(conn)
+        return [r["id"] for r in conn.execute("SELECT s.id FROM institution_rag_studies s JOIN institution_rag_reports r ON s.id=r.study WHERE s.plan_id=? ORDER BY s.id LIMIT ?",(pid,MAX_SCAN+1))]
     if kind=="research":
         from . import research_program as module
         module._schema(conn)
