@@ -2,7 +2,7 @@
 from . import unified_assessment as u
 from . import institution_access as access, institution_setup as setup
 from . import buyer_assessment as assessment, buyer_jobs as jobs
-from . import buyer_manual as manual
+from . import buyer_manual as manual, unified_native_work as native
 
 MAX_RECORDS=200
 
@@ -85,33 +85,31 @@ def work(directory,actor,ident):
             req=row["requirement"]
             rid=req["id"]
             _,plan=u._requirement(status["programme"],rid)
-            key=(req["kind"],req["plan_id"])
+            key=(req["kind"],req["plan_id"],req["family"] if req["kind"]=="rag" else None)
             if key not in cache:
-                records=[]
+                result={"records":[],"state":"stale_plan","scan_truncated":False,"unverified_records":None}
                 if status["state"]=="current":
-                    if req["kind"]=="text":
-                        records=_text_work(root,conn,plan)
-                    elif req["kind"]=="conversation":
-                        records=_conversation_work(root,conn,plan)
-                    elif req["kind"]=="rag":
-                        from . import institution_rag as rag
-                        rag._schema(conn)
-                        rag._inventory(conn)
-                        for item in conn.execute("SELECT id FROM institution_rag_studies WHERE plan_id=? ORDER BY id",(req["plan_id"],)):
-                            try:
-                                p,e=rag._get(root,conn,item["id"])
-                                records.append({"id":p["digest"],"state":"sealed" if e else "collecting",
-                                                "mode":"demonstration","network_authorized":False})
-                            except u.ERRORS:
-                                continue
-                cache[key]=records
+                    if req["kind"] in native.KINDS:
+                        result=native.collect(root,conn,actor,req,plan)
+                    else:
+                        try:
+                            records=(_text_work(root,conn,plan) if req["kind"]=="text" else
+                                     _conversation_work(root,conn,plan))
+                            result={"records":records,"state":"bounded_legacy_scan",
+                                    "scan_truncated":None,"unverified_records":None}
+                        except native.ERRORS:
+                            result={"records":[],"state":"unavailable","scan_truncated":False,"unverified_records":None}
+                cache[key]=result
+            result=cache[key]
             rows.append({"requirement_id":rid,"kind":req["kind"],"plan_id":req["plan_id"],
                          "vendor_id":row["vendor_id"],"target":row["target"],"family":req["family"],
-                         "coverage_state":row["state"],"native_work_records":cache[key],
+                         "coverage_state":row["state"],"native_work_records":result["records"],
+                         "work_inventory_state":result["state"],"scan_truncated":result["scan_truncated"],
+                         "unverified_records":result["unverified_records"],
                          "execution_authorized":False})
         return {"schema":"unified-assessment-work/1","programme_id":ident,
                 "programme_digest":status["programme"]["digest"],"programme_state":status["state"],
                 "requirements":rows,"decision_grade":False,"execution_authorized":False,
                 "limitations":["Read-only coordination. Native workflows own preparation, queueing, cancellation and execution.",
-                               "Only verified exact-plan text, conversation and synthetic RAG work is shown; absent entries do not prove no work exists.",
+                               "Bounded scans show exact-plan work or explicitly labelled vendor/version-only imaging and grounding studies; absence is not proof of no work.",
                                "The same multi-family job can be shown in several requirements. Completed work is not automatically locked."]}

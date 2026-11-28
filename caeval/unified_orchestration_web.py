@@ -55,10 +55,20 @@ def work_view(directory,actor,ident):
             route+="?plan_id="+r["plan_id"]
         if doc["programme_state"]=="current":
             body+="<p><a href='"+esc(route)+"'>Open native workflow</a></p>"
+        inventory=r["work_inventory_state"]
+        body+="<p>Work inventory: "+esc(inventory.replace("_"," "))+"</p>"
+        if inventory=="unavailable":
+            body+="<p>Native inventory unavailable. Do not infer that no work exists.</p>"
+        elif inventory=="partial":
+            body+="<p>Partial inventory: "+esc(r["unverified_records"])+" scanned records could not be verified.</p>"
+        if r["scan_truncated"]:
+            body+="<p>Scan limit reached; additional records may exist.</p>"
         for job in r["native_work_records"]:
-            body+="<p>"+esc(job["id"])+" · "+esc(job["state"])+" · "+esc(job["mode"])+"</p>"
-        if not r["native_work_records"]:
-            body+="<p>No exact-plan text, conversation or RAG work record shown for this requirement.</p>"
+            body+="<p>"+esc(job["id"])+" · "+esc(job["state"])+" · "+esc(job["mode"])+" · "+esc(job.get("scope","plan-level coordination; family coverage not verified"))+"</p>"
+        if not r["native_work_records"] and inventory not in ("unavailable","stale_plan"):
+            body+="<p>No matching verified work record shown in this bounded scan.</p>"
+        if r["kind"] in ("imaging","rag_grounding"):
+            body+="<p>Vendor/version-only experimental study matches do not establish exact buyer-plan evidence or source eligibility.</p>"
         body+="</section>"
     return page("Programme evaluation work",body)
 
