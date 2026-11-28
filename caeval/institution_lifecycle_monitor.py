@@ -117,6 +117,44 @@ def _get(conn,ident,today):
     return programme,p,records,status
 
 
+def _event_locked(directory,conn,actor,ident,kind,doc):
+    """Caller owns BEGIN IMMEDIATE and has checked the actor and inventory."""
+    if kind not in ("report","incident","action"):
+        raise access.AccessDenied("invalid monitor event")
+    today=_today()
+    _,p,records,status=_get(conn,ident,today)
+    if kind=="report":
+        sealed=m.report(p,doc)
+        item=str(doc["window_index"])
+        # No version-mixed aggregate after a reported version change.
+        changes=[m._date(r["incident"]["date"]) for r in records["incident"] if r["incident"]["category"]=="version_change"]
+        if changes and m.window(p,doc["window_index"])[1]>min(changes):
+            raise access.AccessDenied("window overlaps reported version change; use new version monitor")
+    elif kind=="incident":
+        sealed=m.incident(p,doc)
+        item=doc["incident_id"]
+        if len(records[kind])>=m.MAX_INCIDENTS:
+            raise access.AccessDenied("incident limit")
+    else:
+        sealed=m.action(p,doc,{a["id"] for a in status["alerts"]})
+        item=sealed["digest"]
+        if len(records[kind])>=m.MAX_ACTIONS:
+            raise access.AccessDenied("action limit")
+    prior=conn.execute("SELECT digest FROM lifecycle_monitor_events WHERE monitor=? AND kind=? AND item=?",(ident,kind,item)).fetchone()
+    if prior:
+        if prior["digest"]!=sealed["digest"]:
+            raise access.AccessDenied("immutable monitor record")
+        return sealed["digest"]
+    records[kind].append(sealed)
+    m.assess(p,records["report"],records["incident"],records["action"],today)
+    digest=sealed["digest"]
+    seq=u._audit(conn,actor,EVENT,ident+":"+kind+":"+item+":"+digest)
+    conn.execute("INSERT INTO lifecycle_monitor_events VALUES(?,?,?,?,?,?,?)",
+                 (ident,kind,item,json.dumps(sealed),digest,actor["user_id"],seq))
+    return digest
+
+
+
 def _event(directory,actor,ident,kind,doc,*,confirmed=False):
     if confirmed is not True:
         raise access.AccessDenied("explicit aggregate or external action attestation required")
@@ -125,38 +163,7 @@ def _event(directory,actor,ident,kind,doc,*,confirmed=False):
         conn.execute("BEGIN IMMEDIATE")
         u._actor(conn,actor,*(("admin",) if kind=="action" else ("admin","operator")))
         _inventory(conn)
-        today=_today()
-        _,p,records,status=_get(conn,ident,today)
-        if kind=="report":
-            sealed=m.report(p,doc)
-            item=str(doc["window_index"])
-            # No version-mixed aggregate after a reported version change.
-            changes=[m._date(r["incident"]["date"]) for r in records["incident"] if r["incident"]["category"]=="version_change"]
-            if changes and m.window(p,doc["window_index"])[1]>min(changes):
-                raise access.AccessDenied("window overlaps reported version change; use new version monitor")
-        elif kind=="incident":
-            sealed=m.incident(p,doc)
-            item=doc["incident_id"]
-            if len(records[kind])>=m.MAX_INCIDENTS:
-                raise access.AccessDenied("incident limit")
-        else:
-            sealed=m.action(p,doc,{a["id"] for a in status["alerts"]})
-            item=sealed["digest"]
-            if len(records[kind])>=m.MAX_ACTIONS:
-                raise access.AccessDenied("action limit")
-        prior=conn.execute("SELECT digest FROM lifecycle_monitor_events WHERE monitor=? AND kind=? AND item=?",(ident,kind,item)).fetchone()
-        if prior:
-            if prior["digest"]!=sealed["digest"]:
-                raise access.AccessDenied("immutable monitor record")
-            return sealed["digest"]
-        records[kind].append(sealed)
-        m.assess(p,records["report"],records["incident"],records["action"],today)
-        digest=sealed["digest"]
-        seq=u._audit(conn,actor,EVENT,ident+":"+kind+":"+item+":"+digest)
-        conn.execute("INSERT INTO lifecycle_monitor_events VALUES(?,?,?,?,?,?,?)",
-                     (ident,kind,item,json.dumps(sealed),digest,actor["user_id"],seq))
-        return digest
-
+        return _event_locked(directory,conn,actor,ident,kind,doc)
 
 def submit_report(directory,actor,ident,doc,*,confirmed=False):
     return _event(directory,actor,ident,"report",doc,confirmed=confirmed)

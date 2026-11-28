@@ -118,3 +118,7 @@ clinical-ai-eval verify-lifecycle-monitor evidence.json --expected-digest TRUSTE
 
 Keep exports, digests and external artifacts in the approved institutional
 environment. No result of this workflow authorizes use or establishes safety.
+
+## Optional collector integration
+
+The [scoped local ingestion API](MONITOR_INGESTION.md) accepts authorized aggregate report/incident batches and exposes a minimal alert feed for institution-managed polling. No scheduler or external delivery is installed by the application.

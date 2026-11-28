@@ -657,6 +657,21 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=image_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
+            if path=="/lifecycle-ingestion-grants" and method=="GET":
+                from . import institution_lifecycle_monitor_web as monitor
+                access.require(actor,"admin")
+                return respond("200 OK",monitor.grants_view(self.directory,actor))
+            if path in ("/lifecycle-ingestion-issue","/lifecycle-ingestion-revoke") and method=="POST":
+                from . import institution_lifecycle_monitor_web as monitor, monitor_ingestion, institution_imaging_web as forms
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/lifecycle-ingestion-issue":
+                    return respond("200 OK",monitor.issue_grant(self.directory,actor,form))
+                forms._exact(form,"id confirm")
+                forms._confirm(form)
+                monitor_ingestion.revoke(self.directory,actor,form["id"])
+                return respond("303 See Other",extra=[("Location","/lifecycle-ingestion-grants")])
             if path in ("/lifecycle-monitor","/lifecycle-monitor-detail") and method=="GET":
                 from . import institution_lifecycle_monitor_web as monitor
                 q=_query(env)
