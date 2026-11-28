@@ -18,6 +18,7 @@ def _groups():
     from . import institution_rag_comparison as comparison, institution_matched_regression as matched
     from . import institution_hospital_referral as referral, institution_lifecycle_monitor as monitor
     from . import monitor_ingestion as ingestion, monitor_reassessment as handoff
+    from . import institution_monitor_notifications as notifications
     programme=("unified_assessment_programmes","unified_assessment_links")
     monitoring=("lifecycle_monitors","lifecycle_monitor_events")
     return (
@@ -44,6 +45,8 @@ def _groups():
          (ingestion.ISSUE,ingestion.REVOKE,ingestion.USE),programme+monitoring,ingestion._inventory),
         ("monitor_version_handoffs",("monitor_version_handoffs",),(handoff.EVENT,),
          programme+monitoring+("unified_assessment_successors",),handoff._inventory),
+        ("monitor_notification_reviews",("monitor_notification_reviews",),(notifications.EVENT,),
+         programme+monitoring,notifications._inventory),
     )
 
 

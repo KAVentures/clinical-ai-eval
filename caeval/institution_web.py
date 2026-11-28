@@ -696,6 +696,22 @@ class InstitutionApp:
                 forms._confirm(form)
                 monitor_ingestion.revoke(self.directory,actor,form["id"])
                 return respond("303 See Other",extra=[("Location","/lifecycle-ingestion-grants")])
+            if path in ("/monitor-notifications","/monitor-notification-detail") and method=="GET":
+                from . import institution_monitor_notifications_web as notifications
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if path=="/monitor-notifications" and set(q)=={"id"}:
+                    return respond("200 OK",notifications.inbox(self.directory,actor,q["id"]))
+                if path=="/monitor-notification-detail" and set(q)=={"id","attempt"}:
+                    return respond("200 OK",notifications.detail(self.directory,actor,q["id"],q["attempt"]))
+                raise access.AccessDenied("invalid notification query")
+            if path=="/monitor-notification-review" and method=="POST":
+                from . import institution_monitor_notifications_web as notifications
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                ident,attempt=notifications.review(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/monitor-notification-detail?id="+ident+"&attempt="+attempt)])
             if path=="/monitor-reassessment" and method=="GET":
                 from . import monitor_reassessment_web as handoff
                 access.require(actor,"admin","operator")
