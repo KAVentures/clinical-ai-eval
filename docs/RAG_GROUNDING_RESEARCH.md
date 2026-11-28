@@ -164,7 +164,120 @@ The association has experimental claim scope, does not satisfy a canonical
 RAG family, and cannot authorize procurement or deployment.
 
 The private package contains source texts, candidate outputs and reviewer
-identifiers. Keep it within the approved institution. There is no automated
-vendor dispatch, arbitrary remote corpus ingestion, production retriever
-connector, clinical credential verification, statistical inference, citation
-entailment model, or clinical validation in this release.
+identifiers. Keep it within the approved institution. The optional governed local collection bridge below provides automated local dispatch to a compatible adapter. There is no remote vendor dispatch, arbitrary remote corpus ingestion, production retriever connector, clinical credential verification, statistical inference, citation entailment model, or clinical validation in this release.
+
+
+## Governed local retrieval-trace collection
+
+Instead of manually entering a trace, an institution may run a compatible
+candidate adapter on an approved host and collect the exact case-specific
+traces through the local CLI. This is a narrow transport contract, not an
+independently trusted execution or retrieval attestation.
+
+### Candidate integration
+
+Export the language-neutral OpenAPI 3.1 document:
+
+```sh
+clinical-ai-eval rag-collection openapi > rag-openapi.json
+```
+
+A candidate implements a POST endpoint, for example
+`http://127.0.0.1:8768/evaluate`. The request contains the versioned
+`clinical-ai-eval-rag-trace/1` protocol, a unique 128-bit request identifier,
+the exact declared product ID and version, and one case with an opaque slot,
+query, and exact allowed corpus documents with SHA-256 digests. There are no
+private reference labels or reviewer identifiers in the request. The response
+echoes protocol, request ID and exact product identity, and supplies one
+structured trace for that slot. Returned retrieval IDs/digests must refer to
+the exact allowed corpus; citations outside the allowed corpus are retained
+as defects, not filtered. Claim spans use Unicode code-point offsets.
+
+A Python adapter can call `caeval.rag_collection.validate_request` with its
+actual served product identity, then return `response(req, target=...,
+trace=...)`. The OpenAPI schema is a structural contract; runtime checks
+add semantic hashes, cross-message correlation, nonoverlapping offsets,
+byte limits, and unique inventories. An adapter must establish a fresh
+isolated retrieval environment for each call, with no withheld documents,
+external search or shared case memory. The collector cannot establish that
+the adapter does this, or that it actually invokes the declared product.
+The adapter is responsible for its own access controls and egress policy.
+
+### Local operator procedure
+
+1. Download the frozen candidate exchange from the institutional study.
+   Store it as a restricted organizational record. Do not transmit
+   unauthorized data or patient identifiers.
+2. Choose an existing private journal root, writable only by the authorized
+   operator, with trusted non-symlink ancestors. Preview the exact exchange,
+   endpoint and timeout without making any HTTP request:
+
+   ```sh
+   clinical-ai-eval rag-collection preview exchange.json --url http://127.0.0.1:8768/evaluate
+   ```
+
+3. Verify the candidate adapter, case inventory, approval digest, data handling
+   and local host configuration. Explicitly authorize that exact preview:
+
+   ```sh
+   clinical-ai-eval rag-collection collect exchange.json --url http://127.0.0.1:8768/evaluate --approved-digest PREVIEW_DIGEST --journal-root /private/approved-journal --confirm-local-corpus-transmission > receipt.json
+   ```
+
+   The collector allows only literal loopback HTTP with an explicit port; no
+   DNS names, proxy, redirect, embedded credentials, URL queries or remote
+   network endpoints. No authentication or TLS is implemented by this local
+   contract. Loopback does not prove that the adapter keeps data local.
+
+   The journal creates a single exclusive directory per exact exchange
+   digest, independent of endpoint selection. Each intent is written and
+   file-synced before dispatch, and the corresponding result is stored once.
+   Directory sync is used on POSIX where supported, not guaranteed on Windows.
+   Ordinary repeated dispatch from the same retained journal root is refused.
+   This is not a distributed exactly-once guarantee: changing machines,
+   modifying the exchange or deleting a journal can bypass the local guard.
+   If interrupted, do not blindly restart. The intent may have reached the
+   adapter; inspect the journal and resolve the study through an approved
+   new execution protocol. No automatic resume or retry occurs.
+
+   Bounds: 80 cases, 4 MiB exchange, 1 MiB request, 32 KiB reply, 550,000-byte
+   normalized trace JSON budget, 300 total declared claims, 1–60-second
+   socket timeout, and a 900-second between-call deadline. Collection stops
+   after three transport failures or an aggregate output-budget refusal.
+   The deadline is not a hard wall-clock process timeout. Unattempted,
+   failed or over-budget traces remain explicitly unavailable, with distinct
+   event states. A correlated candidate-declared unavailable outcome is not
+   counted as a transport failure.
+4. Verify the receipt:
+
+   ```sh
+   clinical-ai-eval rag-collection verify exchange.json receipt.json --expected-digest RECEIPT_DIGEST
+   ```
+
+   Replay rechecks the complete case inventory, approved request sizes and
+   hashes, reconstructed request and correlated response hashes, event order,
+   failure bounds and aggregate trace budget. It does not prove network
+   execution or receipt authenticity. The separately retained digest is
+   needed to establish the expected receipt identity.
+5. Use **Import local collection receipt** in the institutional study.
+   The trace and receipt are atomically locked, and receipt linkage is
+   checked before independent review and sealing. Plain manually imported
+   traces remain supported, but their provenance cannot be retrospectively
+   upgraded or stripped. The receipt does not change the independent
+   reviewers' scientific packet or consensus criteria.
+6. After sealing, export the private study evidence and separately approved
+   collection evidence package. Replay both together:
+
+   ```sh
+   clinical-ai-eval rag-collection verify-institution study.json collection.json --expected-digest COLLECTION_PACKAGE_DIGEST
+   ```
+
+   The private collection package binds the sealed study digest to the exact
+   receipt roster. It contains candidate answers and local configuration,
+   not proof of independently observed retrieval. The audit-linked receipt
+   digest is visible in restricted committee and buyer programme coverage.
+   No clinical claim, canonical promotion, product recommendation or deployment
+   authorization results from collection.
+
+Journal files, exchanges, receipts and private evidence packages are
+restricted organizational data. Manage their storage and deletion according
+to approved policy; do not remove a journal simply to permit redispatch.

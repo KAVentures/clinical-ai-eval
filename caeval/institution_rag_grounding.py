@@ -1,6 +1,6 @@
 """Institution-controlled prospective RAG grounding research ledger."""
 import json
-from . import (rag_grounding as g, diagnostic_imaging as d,
+from . import (rag_grounding as g, diagnostic_imaging as d, institution_rag_collection as collection,
                institution_access as access, unified_assessment as u)
 
 FROZEN="rag-grounding-frozen"
@@ -22,6 +22,7 @@ def _schema(conn):
     conn.execute("""CREATE TABLE IF NOT EXISTS rag_grounding_seals(
         study TEXT PRIMARY KEY REFERENCES rag_grounding_studies(id),digest TEXT NOT NULL,
         actor TEXT NOT NULL,audit_seq INTEGER NOT NULL UNIQUE)""")
+    collection.schema(conn)
 
 
 def _inventory(conn):
@@ -36,6 +37,7 @@ def _inventory(conn):
             "SELECT seq,actor,object_id FROM audit WHERE action=? AND outcome='ok'",(event,))}
         if len(expected)!=len(rows) or actual!=expected:
             raise access.AccessDenied("RAG grounding audit inventory mismatch")
+    collection.inventory(conn)
 
 
 def _roles(conn,plan):
@@ -61,6 +63,7 @@ def _get(conn,ident):
         docs.append(doc)
         seq=max(seq,r["audit_seq"])
     docs=g.locked_traces(plan,docs)
+    collection.check(conn,plan,docs)
     reviews={}
     packet=None
     last=seq
@@ -141,7 +144,9 @@ def overview(directory,actor):
                 if uid in plan["spec"]["reviewers"] and len(docs)==len(plan["spec"]["candidates"]):
                     out.append({"id":row["id"],"state":"sealed" if evidence else "locked" if uid in reviews else "assigned"})
             else:
-                out.append(_state(plan,docs,reviews,evidence))
+                state=_state(plan,docs,reviews,evidence)
+                state["collection_receipts"]=collection.coverage(conn,row["id"])
+                out.append(state)
         return out
 
 
@@ -153,6 +158,7 @@ def detail(directory,actor,ident):
         _inventory(conn)
         plan,docs,reviews,evidence=_get(conn,ident)
         state=_state(plan,docs,reviews,evidence)
+        state["collection_receipts"]=collection.coverage(conn,ident)
         state["submitted_candidates"]=[x["candidate"]["id"] for x in docs]
         if evidence and actor["role"]=="admin":
             state["results"]=evidence["results"]
@@ -183,7 +189,7 @@ def _insert(conn,actor,table,event,ident,item,doc):
     return digest
 
 
-def submit(directory,actor,ident,doc,*,confirmed=False):
+def submit(directory,actor,ident,doc,*,confirmed=False,receipt=None):
     if confirmed is not True:
         raise access.AccessDenied("explicit trace lock required")
     with access.db(directory) as conn:
@@ -196,12 +202,21 @@ def submit(directory,actor,ident,doc,*,confirmed=False):
             raise access.AccessDenied("reference review already started")
         normalized=g.locked_traces(plan,[doc])[0]
         cid=normalized["candidate"]["id"]
+        if receipt is not None:
+            if collection.validate(plan,receipt)!=cid or receipt["trace"]!=normalized:
+                raise access.AccessDenied("receipt does not match submitted trace")
         for old in docs:
             if old["candidate"]["id"]==cid:
                 if old!=normalized:
                     raise access.AccessDenied("candidate trace cannot be replaced")
+                prior=conn.execute("SELECT digest FROM rag_grounding_collection_receipts WHERE study=? AND item=?",(ident,cid)).fetchone()
+                if (prior["digest"] if prior else None)!=(receipt["digest"] if receipt is not None else None):
+                    raise access.AccessDenied("cannot change locked trace collection provenance")
                 return d._digest(old)
-        return _insert(conn,actor,"rag_grounding_traces",TRACE,ident,cid,normalized)
+        digest=_insert(conn,actor,"rag_grounding_traces",TRACE,ident,cid,normalized)
+        if receipt is not None:
+            collection.record(conn,actor,ident,receipt)
+        return digest
 
 
 def review_download(directory,actor,ident,kind):

@@ -1829,6 +1829,10 @@ def main(argv=None):
     from . import rag_grounding
     pgrounding = sub.add_parser("rag-grounding", help="verify controlled RAG grounding evidence")
     rag_grounding.configure(pgrounding)
+
+    from . import rag_collection
+    prcollection = sub.add_parser("rag-collection", help="approved local RAG trace collection and verification")
+    rag_collection.configure(prcollection)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")

@@ -220,9 +220,11 @@ def _source(directory,conn,actor,req,plan,source_id):
         candidates=[r for r in (evidence or {}).get("results",[]) if r["candidate"]=={"id":vid,"version":target["version"]}]
         if len(candidates)!=1 or not any(c["counts"]["n_available"] for c in candidates[0]["conditions"]):
             raise access.AccessDenied("sealed grounding study with exact available candidate version required")
+        from . import institution_rag_collection as collection
+        receipts=[r for r in collection.coverage(conn,source_id) if r["candidate_id"]==vid]
         result={"anchor":frozen["digest"],"evidence_digest":evidence["digest"],
                 "mode":"experimental_rag_grounding","claim":"not_canonical",
-                "scope":"vendor_id_and_version_only"}
+                "scope":"vendor_id_and_version_only","collection_receipt_digest":receipts[0]["receipt_digest"] if receipts else None}
     elif kind=="rag":
         from . import institution_rag as rag
         rag._schema(conn)
@@ -472,6 +474,8 @@ def verify_export(package,expected_digest=None):
             required="kind source_id anchor evidence_digest mode claim scope"
             if req["kind"]=="imaging":
                 required+=" reference_digest transport_receipt_digest complete_roster"
+            if req["kind"]=="rag_grounding" and "collection_receipt_digest" in source:
+                required+=" collection_receipt_digest"
             d._keys(source,required)
             d._require(source["kind"]==req["kind"] and d._hex(source["anchor"]) and d._hex(source["evidence_digest"])
                        and isinstance(source["source_id"],str) and row["state"]!="unlinked","invalid locked source")
