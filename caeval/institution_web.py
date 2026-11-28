@@ -653,6 +653,28 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=image_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
+            if path=="/rag-comparison" and method=="GET":
+                from . import institution_rag_grounding_web as grounding_web
+                access.require(actor,"admin")
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("invalid comparison request")
+                return respond("200 OK",grounding_web.comparison_result(self.directory,actor,q["id"]))
+            if path in ("/rag-comparison-preview","/rag-comparison-freeze","/rag-comparison-export") and method=="POST":
+                from . import institution_rag_grounding_web as grounding_web, institution_rag_comparison as comparison, institution_imaging_web as forms,buyer_plan
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/rag-comparison-preview":
+                    return respond("200 OK",grounding_web.comparison_preview(self.directory,actor,form))
+                forms._confirm(form)
+                if path=="/rag-comparison-freeze":
+                    forms._exact(form,"id spec approval confirm")
+                    comparison.freeze(self.directory,actor,form["id"],forms._parse(form["spec"]),form["approval"],confirmed=True)
+                    return respond("303 See Other",extra=[("Location","/rag-grounding-study?id="+form["id"])])
+                forms._exact(form,"id approval confirm")
+                result=comparison.export(self.directory,actor,form["id"],form["approval"],confirmed=True)
+                return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="rag-paired-analysis.json"')],content_type="application/json; charset=utf-8")
             if path in ("/rag-grounding","/rag-grounding-study","/rag-grounding-candidate","/rag-grounding-review","/rag-grounding-review-download") and method=="GET":
                 from . import institution_rag_grounding as grounding, institution_rag_grounding_web as grounding_web, buyer_plan
                 q=_query(env)

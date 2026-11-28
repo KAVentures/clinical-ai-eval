@@ -37,6 +37,31 @@ def study(directory,actor,ident):
     from .institution_web import page,esc,_hidden
     row=service.detail(directory,actor,ident)
     body="<p><a href='/rag-grounding'>Studies</a></p><p>"+esc(row["state"])+" · "+esc(row["n_questions"])+" paired questions · "+esc(row["n_traces_locked"])+" / "+esc(len(row["candidates"]))+" candidate inventories locked · "+esc(row["n_reviews_locked"])+" / 2 reviews locked</p>"
+    comparison=row["paired_comparison"]
+    body+="<section><h2>Prospective paired research analysis</h2><p>"+esc(comparison["state"])+"</p>"
+    if comparison["state"]=="not_prespecified" and actor["role"]=="admin" and len(row["candidates"])>=2:
+        body+="<p>Freeze one ordered pair and primary research endpoint before downloading candidate exchanges or locking any trace. No clinical acceptance decision is implied.</p><form method='post' action='/rag-comparison-preview'>"+_hidden("csrf",actor["csrf"])+_hidden("id",ident)
+        for key in ("baseline","candidate"):
+            body+="<label>"+esc(key)+"<select name='"+key+"' required>"
+            for candidate in row["candidates"]:
+                body+="<option value='"+esc(candidate["id"])+"'>"+esc(candidate["id"])+" · "+esc(candidate["version"])+"</option>"
+            body+="</select></label>"
+        from . import rag_paired_analysis as analysis
+        body+="<label>Primary endpoint<select name='primary_endpoint'>"
+        for endpoint in analysis.ENDPOINTS:
+            body+="<option value='"+esc(endpoint)+"'>"+esc(endpoint)+"</option>"
+        body+="</select></label><label>Familywise alpha (basis points, 500 = 5%)<input type='number' name='alpha_bp' min='100' max='1000' value='500' required></label>"
+        body+="<label>Research margin (basis points, candidate minus baseline)<input type='number' name='margin_bp' min='-10000' max='10000' value='0' required></label>"
+        body+="<label>Maximum unknown pair fraction (basis points)<input type='number' name='max_unknown_bp' min='0' max='10000' value='1000' required></label>"
+        body+="<label>Minimum clusters<input type='number' name='min_clusters' min='10' max='40' value='10' required></label>"
+        body+="<label><input type='checkbox' name='independent' value='yes'> I attest the scientific assumption of independent cluster observations (otherwise inference is withheld).</label><button>Preview analysis protocol</button></form>"
+    elif comparison["state"]=="unavailable_after_exposure":
+        body+="<p>A prospective protocol can no longer be added to this study.</p>"
+    elif comparison["state"] in ("frozen","sealed_research_analysis"):
+        body+="<p>Primary endpoint: "+esc(comparison["primary_endpoint"])+" · "+esc(comparison["baseline"]["id"])+" → "+esc(comparison["candidate"]["id"])+"</p>"
+        if comparison["state"]=="sealed_research_analysis" and actor["role"]=="admin":
+            body+="<a href='/rag-comparison?id="+esc(ident)+"'>Inspect paired research analysis</a>"
+    body+="</section>"
     for c in row["candidates"]:
         cid=esc(c["id"])
         body+="<section><h3>"+cid+" · "+esc(c["version"])+"</h3>"
@@ -117,3 +142,33 @@ def dispatch(directory,actor,path,form):
         forms._exact(form,"id approval confirm")
         return service.export(directory,actor,form["id"],form["approval"],confirmed=True)
     raise access.AccessDenied("unknown grounding action")
+
+
+def comparison_preview(directory,actor,form):
+    from .institution_web import page,esc,_hidden
+    from . import institution_rag_comparison as comparison
+    required={"id","baseline","candidate","primary_endpoint","alpha_bp","margin_bp","max_unknown_bp","min_clusters"}
+    if not required<=set(form) or set(form)-required-{"independent"} or form.get("independent","no") not in ("yes","no"):
+        raise access.AccessDenied("invalid paired analysis form")
+    spec={k:form[k] for k in ("baseline","candidate","primary_endpoint")}
+    spec.update({k:int(form[k]) for k in ("alpha_bp","margin_bp","max_unknown_bp","min_clusters")})
+    spec["independent_clusters_attested"]=form.get("independent")=="yes"
+    p=comparison.preview(directory,actor,form["id"],spec)
+    body="<p>Exact ordered pair and research parameters:</p><pre>"+esc(json.dumps(p["parameters"],indent=2))+"</pre><p>"+esc(p["digest"])+"</p><ul>"
+    for limit in p["limitations"]:
+        body+="<li>"+esc(limit)+"</li>"
+    body+=("</ul><form method='post' action='/rag-comparison-freeze'>"+_hidden("csrf",actor["csrf"])+_hidden("id",form["id"])+_hidden("spec",json.dumps(spec))+_hidden("approval",p["digest"])+
+    "<label><input type='checkbox' name='confirm' value='yes' required> Freeze the exact analysis protocol before recorded candidate exposure. Research only.</label><button>Freeze protocol</button></form>")
+    return page("Approve paired RAG analysis",body)
+
+
+def comparison_result(directory,actor,ident):
+    from .institution_web import page,esc,_hidden
+    from . import institution_rag_comparison as comparison
+    result=comparison.result(directory,actor,ident)
+    body="<p>Exploratory paired cluster-weighted contrasts, candidate minus baseline. Not a procurement pass, clinical correctness measure or deployment decision.</p><p>Primary research signal: "+esc(result["primary_research_signal"])+"</p>"
+    for endpoint in result["endpoints"]:
+        body+="<section><h2>"+esc(endpoint["endpoint"])+"</h2><pre>"+esc(json.dumps(endpoint,indent=2))+"</pre></section>"
+    body+=("<form method='post' action='/rag-comparison-export'>"+_hidden("csrf",actor["csrf"])+_hidden("id",ident)+_hidden("approval",result["digest"])+
+    "<label><input type='checkbox' name='confirm' value='yes' required> Export this exact restricted research analysis.</label><button>Download paired analysis</button></form>")
+    return page("Paired RAG research analysis",body)
