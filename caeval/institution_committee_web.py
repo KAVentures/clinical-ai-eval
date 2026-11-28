@@ -76,7 +76,37 @@ def _inventory(data):
             counts=row["summary"]
             body+="<p>Exact extraction: "+esc(counts["exact_match"])+" / "+esc(counts["planned"])+" · Mismatch: "+esc(counts["mismatch"])+" · Unavailable: "+esc(counts["unavailable"])+"</p>"
         body+="<p>Fixed synthetic extraction only; not diagnostic imaging accuracy or clinical validity.</p>"
-    if not any(data.get(k,[]) for k in ("assessments","reviews","pilots","schedules","experimental_research_programmes","buyer_risk_protocols","synthetic_fhir_assessments","synthetic_hl7_assessments","synthetic_image_text_assessments","mixed_evaluation_programmes")):
+    for programme in data.get("unified_assessment_programmes",[]):
+        p=programme["programme"]
+        body+="<h3>Unified assessment programme "+esc(p["programme_id"])+"</h3><p>"+esc(programme["state"])+" · "+esc(p["digest"])+"</p>"
+        body+="<p>Administrative evidence coverage only; no canonical pass or combined clinical result.</p>"
+        for r in programme["requirements"]:
+            source=r["locked_source"]
+            body+="<p>"+esc(r["vendor_id"])+" · "+esc(r["target"]["version"])+" · "+esc(r["requirement"]["kind"])+" · "+esc(r["state"])+" · "+esc(source["evidence_digest"] if source else "No source")+"</p>"
+        for gap in p["unplanned_canonical_suites"]:
+            body+="<p>Unplanned canonical suite: "+esc(gap["suite"])+" · "+esc(gap["state"])+"</p>"
+    for row in data.get("unified_assessment_successors",[]):
+        body+="<h3>Programme version reassessment</h3><p>"+esc(row["baseline_id"])+" → "+esc(row["successor_id"])+" · "+esc(row["digest"])+"</p>"
+        body+="<p>No prior evidence transferred. No performance comparison authorized.</p>"
+    for row in data.get("hospital_referral_policies",[]):
+        body+="<h3>Hospital referral policy "+esc(row["id"])+"</h3><p>"+esc(row["vendor_id"])+" · "+esc(row["target"]["version"])+" · "+esc(row["state"])+" · "+esc(row["n_reviewed"])+" / "+esc(row["n_gates"])+" reviewed.</p>"
+        body+="<p>Historical disposition: "+esc(row["disposition"] or "not recorded")+" · current snapshot: "+esc(row["snapshot_current"])+" · no deployment authorization.</p>"
+    for row in data.get("matched_version_regressions",[]):
+        body+="<h3>Matched historical version research</h3><p>"+esc(row["kind"])+" · "+esc(row["baseline"]["id"])+" · "+esc(row["baseline"]["version"])+" → "+esc(row["successor"]["version"])+" · "+esc(row["state"])+"</p>"
+        body+="<p>"+esc(row["primary_endpoint"])+" · "+esc(row["comparison_digest"] or row["id"])+" · descriptive only.</p>"
+    for row in data.get("rag_grounding_studies",[]):
+        body+="<h3>Experimental RAG grounding study "+esc(row["id"])+"</h3><p>"+esc(row["state"])+" · "+esc(row["n_traces_locked"])+" locked candidates · "+esc(row["n_reviews_locked"])+" independent reviews.</p>"
+        comparison=row.get("paired_comparison",{})
+        if comparison.get("analysis_plan_digest"):
+            body+="<p>Paired research protocol "+esc(comparison["state"])+" · "+esc(comparison["primary_endpoint"])+" · "+esc(comparison["analysis_plan_digest"])+"</p>"
+    for row in data.get("synthetic_rag_rehearsals",[]):
+        body+="<h3>Synthetic RAG context rehearsal "+esc(row["id"])+"</h3><p>"+esc(row["state"])+" · "+esc(row.get("vendor_id","unavailable"))+" · "+esc(row.get("target_version","unavailable"))+"</p>"
+        body+="<p>Fixed synthetic context and heuristic native flags only; no clinical or vendor retrieval validity.</p>"
+    for row in data.get("diagnostic_imaging_studies",[]):
+        body+="<h3>Diagnostic imaging study "+esc(row["id"])+"</h3><p>"+esc(row["state"])+" · "+esc(row.get("n_cases","unavailable"))+" cases; experimental evidence only.</p>"
+    for row in data.get("diagnostic_imaging_reference_reviews",[]):
+        body+="<h3>Independent imaging reference review "+esc(row["id"])+"</h3><p>"+esc(row["state"])+" · "+esc(row.get("n_primary_locked","unavailable"))+" primary reviews locked.</p>"
+    if not any(data.get(k,[]) for k in ("assessments","reviews","pilots","schedules","experimental_research_programmes","buyer_risk_protocols","synthetic_fhir_assessments","synthetic_hl7_assessments","synthetic_image_text_assessments","diagnostic_imaging_studies","diagnostic_imaging_reference_reviews","unified_assessment_programmes","synthetic_rag_rehearsals","rag_grounding_studies","matched_version_regressions","mixed_evaluation_programmes","unified_assessment_successors","hospital_referral_policies")):
         body+="<p>No lifecycle evidence recorded.</p>"
     return body+"</section>"
 

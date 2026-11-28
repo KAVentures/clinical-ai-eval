@@ -146,7 +146,18 @@ def _dashboard(directory, actor):
     body += "<p>Research and clinical assessment remain experimental. No procurement or deployment approval.</p>"
     if role in ("admin","operator","observer","reviewer"):
         body += "<p><a href='/research'>Clinical research studio</a></p>"
+    if role in ("admin","operator","observer"):
+        body += "<p><a href='/unified-assessment'>Unified clinical AI assessment programmes</a></p>"
+        body += "<p><a href='/matched-regression'>Matched longitudinal research</a></p>"
+    if role in ("admin","operator"):
+        body += "<p><a href='/diagnostic-imaging'>Diagnostic imaging research</a></p>"
+        body += "<p><a href='/rag-trace'>Synthetic RAG context rehearsal</a></p>"
+    if role in ("admin","operator","observer","reviewer"):
+        body += "<p><a href='/hospital-referral'>Hospital-specific referral policy</a></p>"
+    if role in ("admin","operator","reviewer"):
+        body += "<p><a href='/rag-grounding'>Independent RAG grounding research</a></p>"
     if role in ("admin","reviewer"):
+        body += "<p><a href='/imaging-reference'>Independent imaging reference review</a></p>"
         body += "<p><a href='/formal'>Formal independent clinical review</a></p>"
         body += "<p><a href='/validation'>Prospective validation cohorts</a></p>"
         body += "<p><a href='/patient-review'>Patient transcript physician review</a></p>"
@@ -645,6 +656,231 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=image_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
+            if path in ("/hospital-referral","/hospital-referral-detail","/hospital-referral-assigned") and method=="GET":
+                from . import institution_hospital_referral_web as referral
+                q=_query(env)
+                if path=="/hospital-referral" and not q:
+                    access.require(actor,"admin","operator","observer","reviewer")
+                    return respond("200 OK",referral.home(self.directory,actor))
+                if path=="/hospital-referral-detail" and set(q)=={"id"}:
+                    access.require(actor,"admin")
+                    return respond("200 OK",referral.detail(self.directory,actor,q["id"]))
+                if path=="/hospital-referral-assigned" and set(q)=={"id"}:
+                    access.require(actor,"reviewer")
+                    return respond("200 OK",referral.assigned(self.directory,actor,q["id"]))
+                raise access.AccessDenied("invalid hospital policy request")
+            if path in ("/hospital-referral-preview","/hospital-referral-freeze","/hospital-referral-snapshot-preview","/hospital-referral-start","/hospital-referral-rate","/hospital-referral-decision-preview","/hospital-referral-decide","/hospital-referral-export") and method=="POST":
+                from . import institution_hospital_referral_web as referral,buyer_plan
+                access.require(actor,*(("reviewer",) if path=="/hospital-referral-rate" else ("admin",)))
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/hospital-referral-preview":
+                    return respond("200 OK",referral.preview(self.directory,actor,form))
+                if path=="/hospital-referral-snapshot-preview":
+                    return respond("200 OK",referral.snapshot_preview(self.directory,actor,form))
+                if path=="/hospital-referral-decision-preview":
+                    return respond("200 OK",referral.decision_preview(self.directory,actor,form))
+                result=referral.dispatch(self.directory,actor,path,form)
+                if path=="/hospital-referral-export":
+                    return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="hospital-referral-evidence.json"')],content_type="application/json; charset=utf-8")
+                return respond("303 See Other",extra=[("Location",("/hospital-referral-assigned?id=" if path=="/hospital-referral-rate" else "/hospital-referral-detail?id=")+result)])
+            if path in ("/matched-regression","/matched-regression-detail") and method=="GET":
+                from . import institution_matched_regression_web as regression_web
+                q=_query(env)
+                if path=="/matched-regression" and not q:
+                    access.require(actor,"admin","operator","observer")
+                    return respond("200 OK",regression_web.home(self.directory,actor))
+                if path=="/matched-regression-detail" and set(q)=={"id"}:
+                    access.require(actor,"admin")
+                    return respond("200 OK",regression_web.detail(self.directory,actor,q["id"]))
+                raise access.AccessDenied("invalid longitudinal request")
+            if path in ("/matched-regression-preview","/matched-regression-freeze","/matched-regression-export") and method=="POST":
+                from . import institution_matched_regression_web as regression_web,buyer_plan
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/matched-regression-preview":
+                    return respond("200 OK",regression_web.preview(self.directory,actor,form))
+                result=regression_web.dispatch(self.directory,actor,path,form)
+                if path=="/matched-regression-export":
+                    return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="matched-version-regression.json"')],content_type="application/json; charset=utf-8")
+                return respond("303 See Other",extra=[("Location","/matched-regression-detail?id="+result)])
+            if path=="/rag-comparison" and method=="GET":
+                from . import institution_rag_grounding_web as grounding_web
+                access.require(actor,"admin")
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("invalid comparison request")
+                return respond("200 OK",grounding_web.comparison_result(self.directory,actor,q["id"]))
+            if path in ("/rag-comparison-preview","/rag-comparison-freeze","/rag-comparison-export") and method=="POST":
+                from . import institution_rag_grounding_web as grounding_web, institution_rag_comparison as comparison, institution_imaging_web as forms,buyer_plan
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/rag-comparison-preview":
+                    return respond("200 OK",grounding_web.comparison_preview(self.directory,actor,form))
+                forms._confirm(form)
+                if path=="/rag-comparison-freeze":
+                    forms._exact(form,"id spec approval confirm")
+                    comparison.freeze(self.directory,actor,form["id"],forms._parse(form["spec"]),form["approval"],confirmed=True)
+                    return respond("303 See Other",extra=[("Location","/rag-grounding-study?id="+form["id"])])
+                forms._exact(form,"id approval confirm")
+                result=comparison.export(self.directory,actor,form["id"],form["approval"],confirmed=True)
+                return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="rag-paired-analysis.json"')],content_type="application/json; charset=utf-8")
+            if path in ("/rag-grounding","/rag-grounding-study","/rag-grounding-candidate","/rag-grounding-review","/rag-grounding-review-download") and method=="GET":
+                from . import institution_rag_grounding as grounding, institution_rag_grounding_web as grounding_web, buyer_plan
+                q=_query(env)
+                if path=="/rag-grounding" and not q:
+                    access.require(actor,"admin","operator","reviewer")
+                    return respond("200 OK",grounding_web.home(self.directory,actor))
+                if path=="/rag-grounding-study" and set(q)=={"id"}:
+                    access.require(actor,"admin","operator")
+                    return respond("200 OK",grounding_web.study(self.directory,actor,q["id"]))
+                if path=="/rag-grounding-review" and set(q)=={"id"}:
+                    access.require(actor,"reviewer")
+                    return respond("200 OK",grounding_web.review_view(self.directory,actor,q["id"]))
+                if path=="/rag-grounding-candidate" and set(q)=={"id","candidate","kind"}:
+                    access.require(actor,"admin","operator")
+                    doc=grounding.candidate_download(self.directory,actor,q["id"],q["candidate"],q["kind"])
+                elif path=="/rag-grounding-review-download" and set(q)=={"id","kind"}:
+                    access.require(actor,"reviewer")
+                    doc=grounding.review_download(self.directory,actor,q["id"],q["kind"])
+                else:
+                    raise access.AccessDenied("invalid grounding request")
+                return respond("200 OK",buyer_plan._canonical(doc),extra=[("Content-Disposition",'attachment; filename="rag-grounding-exchange.json"')],content_type="application/json; charset=utf-8")
+            if path in ("/rag-grounding-preview","/rag-grounding-freeze","/rag-grounding-submit","/rag-grounding-review-lock","/rag-grounding-seal","/rag-grounding-evidence","/rag-grounding-collection-import","/rag-grounding-collection-evidence") and method=="POST":
+                from . import institution_rag_grounding_web as grounding_web,buyer_plan
+                roles=("reviewer",) if path=="/rag-grounding-review-lock" else ("admin","operator") if path in ("/rag-grounding-submit","/rag-grounding-collection-import") else ("admin",)
+                access.require(actor,*roles)
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/rag-grounding-preview":
+                    return respond("200 OK",grounding_web.preview(self.directory,actor,form))
+                result=grounding_web.dispatch(self.directory,actor,path,form)
+                if path in ("/rag-grounding-evidence","/rag-grounding-collection-evidence"):
+                    return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="private-rag-grounding-evidence.json"')],content_type="application/json; charset=utf-8")
+                return respond("303 See Other",extra=[("Location","/rag-grounding" if path=="/rag-grounding-review-lock" else "/rag-grounding-study?id="+result)])
+            if path in ("/rag-trace","/rag-trace-study","/rag-trace-download") and method=="GET":
+                from . import institution_rag as rag, institution_rag_web as rag_web, buyer_plan
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if path=="/rag-trace" and set(q)<= {"plan_id"}:
+                    return respond("200 OK",rag_web.home(self.directory,actor,q.get("plan_id")))
+                if path=="/rag-trace-study" and set(q)=={"id"}:
+                    return respond("200 OK",rag_web.detail(self.directory,actor,q["id"]))
+                if path=="/rag-trace-download" and set(q)=={"id","kind"}:
+                    doc=rag.download(self.directory,actor,q["id"],q["kind"])
+                    return respond("200 OK",buyer_plan._canonical(doc),extra=[("Content-Disposition",'attachment; filename="rag-rehearsal.json"')],content_type="application/json; charset=utf-8")
+                raise access.AccessDenied("invalid RAG rehearsal request")
+            if path in ("/rag-trace-preview","/rag-trace-freeze","/rag-trace-submit","/rag-trace-evidence") and method=="POST":
+                from . import institution_rag_web as rag_web,buyer_plan
+                access.require(actor,*(("admin","operator") if path=="/rag-trace-submit" else ("admin",)))
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/rag-trace-preview":
+                    return respond("200 OK",rag_web.preview(self.directory,actor,form))
+                result=rag_web.dispatch(self.directory,actor,path,form)
+                if path=="/rag-trace-evidence":
+                    return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="private-rag-evidence.json"')],content_type="application/json; charset=utf-8")
+                return respond("303 See Other",extra=[("Location","/rag-trace-study?id="+result)])
+            if path in ("/unified-assessment-discover","/unified-assessment-work","/unified-assessment-lineage","/unified-assessment-compare") and method=="GET":
+                from . import unified_orchestration_web as orchestration
+                q=_query(env)
+                if path=="/unified-assessment-discover" and set(q)=={"id","requirement"}:
+                    access.require(actor,"admin")
+                    return respond("200 OK",orchestration.discover(self.directory,actor,q["id"],q["requirement"]))
+                if path=="/unified-assessment-work" and set(q)=={"id"}:
+                    access.require(actor,"admin","operator")
+                    return respond("200 OK",orchestration.work_view(self.directory,actor,q["id"]))
+                if path=="/unified-assessment-lineage" and set(q)=={"id"}:
+                    access.require(actor,"admin","operator","observer")
+                    return respond("200 OK",orchestration.lineage(self.directory,actor,q["id"]))
+                if path=="/unified-assessment-compare" and set(q)=={"id"}:
+                    access.require(actor,"admin","operator","observer")
+                    return respond("200 OK",orchestration.compare(self.directory,actor,q["id"]))
+                raise access.AccessDenied("invalid orchestration request")
+            if path in ("/unified-assessment-batch-preview","/unified-assessment-batch-lock","/unified-assessment-successor-preview","/unified-assessment-successor-freeze") and method=="POST":
+                from . import unified_orchestration_web as orchestration
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/unified-assessment-batch-preview":
+                    return respond("200 OK",orchestration.batch_preview(self.directory,actor,form))
+                if path=="/unified-assessment-successor-preview":
+                    return respond("200 OK",orchestration.successor_preview(self.directory,actor,form))
+                result=orchestration.dispatch(self.directory,actor,path,form)
+                return respond("303 See Other",extra=[("Location","/unified-assessment-detail?id="+result)])
+            if path in ("/unified-assessment","/unified-assessment-detail") and method=="GET":
+                from . import unified_assessment_web as programme
+                access.require(actor,"admin","operator","observer")
+                q=_query(env)
+                if path=="/unified-assessment" and not q:
+                    return respond("200 OK",programme.home(self.directory,actor))
+                if path=="/unified-assessment-detail" and set(q)=={"id"}:
+                    return respond("200 OK",programme.detail(self.directory,actor,q["id"]))
+                raise access.AccessDenied("invalid programme request")
+            if path in ("/unified-assessment-preview","/unified-assessment-guided-preview","/unified-assessment-freeze","/unified-assessment-link-preview","/unified-assessment-lock","/unified-assessment-export") and method=="POST":
+                from . import unified_assessment_web as programme,buyer_plan
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/unified-assessment-preview":
+                    return respond("200 OK",programme.preview(self.directory,actor,form))
+                if path=="/unified-assessment-guided-preview":
+                    return respond("200 OK",programme.guided_preview(self.directory,actor,form))
+                if path=="/unified-assessment-link-preview":
+                    return respond("200 OK",programme.link_preview(self.directory,actor,form))
+                result=programme.dispatch(self.directory,actor,path,form)
+                if path=="/unified-assessment-export":
+                    return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="unified-assessment-coverage.json"')],content_type="application/json; charset=utf-8")
+                return respond("303 See Other",extra=[("Location","/unified-assessment-detail?id="+result)])
+            if path in ("/imaging-reference","/imaging-reference-review","/imaging-reference-finalize") and method=="GET":
+                from . import institution_imaging_reference_web as ref_web
+                q=_query(env)
+                if path=="/imaging-reference" and not q:
+                    access.require(actor,"admin","reviewer")
+                    return respond("200 OK",ref_web.home(self.directory,actor))
+                if path=="/imaging-reference-review" and set(q)=={"id"}:
+                    access.require(actor,"reviewer")
+                    return respond("200 OK",ref_web.review(self.directory,actor,q["id"]))
+                if path=="/imaging-reference-finalize" and set(q)=={"id"}:
+                    access.require(actor,"admin")
+                    return respond("200 OK",ref_web.final_preview(self.directory,actor,q["id"]))
+                raise access.AccessDenied("invalid imaging reference request")
+            if path in ("/imaging-reference-preview","/imaging-reference-freeze","/imaging-reference-lock","/imaging-reference-finalize","/imaging-reference-evidence") and method=="POST":
+                from . import institution_imaging_reference_web as ref_web, buyer_plan
+                access.require(actor,"reviewer" if path=="/imaging-reference-lock" else "admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/imaging-reference-preview":
+                    return respond("200 OK",ref_web.preview(self.directory,actor,form))
+                result=ref_web.dispatch(self.directory,actor,path,form)
+                if path=="/imaging-reference-evidence":
+                    return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="private-imaging-reference.json"')],content_type="application/json; charset=utf-8")
+                return respond("303 See Other",extra=[("Location","/imaging-reference")])
+            if path in ("/diagnostic-imaging","/diagnostic-imaging-study","/diagnostic-imaging-download") and method=="GET":
+                from . import institution_imaging as imaging, institution_imaging_web as imaging_web, buyer_plan
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if path=="/diagnostic-imaging" and not q:
+                    return respond("200 OK",imaging_web.home(self.directory,actor))
+                if path=="/diagnostic-imaging-study" and set(q)=={"id"}:
+                    return respond("200 OK",imaging_web.study(self.directory,actor,q["id"]))
+                if path=="/diagnostic-imaging-download" and set(q)=={"id","candidate","kind"}:
+                    doc=imaging.download(self.directory,actor,q["id"],q["candidate"],q["kind"])
+                    return respond("200 OK",buyer_plan._canonical(doc),extra=[("Content-Disposition",'attachment; filename="imaging-candidate.json"')],content_type="application/json; charset=utf-8")
+                raise access.AccessDenied("invalid imaging request")
+            if path in ("/diagnostic-imaging-preview","/diagnostic-imaging-freeze","/diagnostic-imaging-submit","/diagnostic-imaging-seal","/diagnostic-imaging-evidence","/diagnostic-imaging-transport-import","/diagnostic-imaging-transport-evidence") and method=="POST":
+                from . import institution_imaging_web as imaging_web, buyer_plan
+                access.require(actor,*(("admin","operator") if path in ("/diagnostic-imaging-submit","/diagnostic-imaging-transport-import") else ("admin",)))
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/diagnostic-imaging-preview":
+                    return respond("200 OK",imaging_web.preview(self.directory,actor,form))
+                result=imaging_web.dispatch(self.directory,actor,path,form)
+                if path in ("/diagnostic-imaging-evidence","/diagnostic-imaging-transport-evidence"):
+                    return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="private-imaging-evidence.json"')],content_type="application/json; charset=utf-8")
+                return respond("303 See Other",extra=[("Location","/diagnostic-imaging-study?id="+result)])
             if path=="/evaluator-requests" and method=="GET":
                 from . import evaluator_service_web
                 access.require(actor,"admin")

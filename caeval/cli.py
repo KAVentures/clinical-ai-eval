@@ -1877,6 +1877,38 @@ def main(argv=None):
     from . import diagnostic_imaging
     pdiag = sub.add_parser("diagnostic-imaging", help="offline exploratory diagnostic imaging study")
     diagnostic_imaging.configure(pdiag)
+
+    from . import imaging_transport
+    ptransport = sub.add_parser("imaging-transport", help="approved local exact-asset imaging collection")
+    imaging_transport.configure(ptransport)
+
+    from . import unified_assessment
+    punified = sub.add_parser("unified-assessment", help="verify portable administrative programme coverage")
+    unified_assessment.configure(punified)
+
+    from . import institution_rag_trace
+    pragtrace = sub.add_parser("verify-rag-rehearsal", help="replay private synthetic RAG trace evidence offline")
+    institution_rag_trace.configure(pragtrace)
+
+    from . import rag_grounding
+    pgrounding = sub.add_parser("rag-grounding", help="verify controlled RAG grounding evidence")
+    rag_grounding.configure(pgrounding)
+
+    from . import rag_collection
+    prcollection = sub.add_parser("rag-collection", help="approved local RAG trace collection and verification")
+    rag_collection.configure(prcollection)
+
+    from . import rag_paired_analysis
+    pcomparison = sub.add_parser("rag-comparison", help="verify paired RAG research comparison")
+    rag_paired_analysis.configure(pcomparison)
+
+    from . import matched_version_regression
+    pversionregression = sub.add_parser("verify-matched-regression", help="replay matched historical version research")
+    matched_version_regression.configure(pversionregression)
+
+    from . import hospital_referral
+    preferral = sub.add_parser("verify-hospital-referral", help="verify restricted administrative hospital gate evidence")
+    hospital_referral.configure(preferral)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")
