@@ -67,3 +67,45 @@ reviewer identities are added by the comparison.
 The Python entry point is available in an installed wheel through the same
 package discovery used by the rest of caeval; it is intentionally separate
 from the main CLI parser to preserve the existing stacked CLI changes.
+
+## Administrator browser workflow (same institutional workspace)
+
+1. Open **Unified assessment → Evidence gaps → Preview portable evidence-gap
+   handoff**. Approve and download the baseline. Record the displayed digest
+   independently in the approved evidence register.
+2. At a later review, open **Compare with previous approved handoff** from
+   the same programme. Paste the baseline JSON and independently recorded
+   digest. The browser import limit is 1 MiB (UTF-8 and canonical serialized
+   baseline); use the offline comparison CLI for larger handoffs.
+3. Review every required suite and requirement, flags, bounded work counts,
+   and new, persistent and no-longer-projected tasks. Record the baseline,
+   follow-up and exact review bundle digests independently.
+4. Confirm download of the exact private review bundle. If evidence changes
+   after preview, download is refused: preview again.
+
+No new server-side historical snapshot store is introduced. The browser uses
+the existing institutional account and origin/CSRF boundaries; only an active
+administrator can compare or download. A baseline must match the frozen local
+programme, pass native structural replay and have an existing successful local
+handoff-export audit event for that exact digest. A prior audit event is a
+local record, not an externally authenticated signature. The follow-up and
+bundle export events are committed together; the follow-up can be used as the
+next baseline. An identical handoff is explicitly shown as identical, not as
+a verified elapsed period. A failed export does not append successful export
+events. The private bundle contains both handoffs and the derived comparison;
+it adds no clinical raw responses or unassociated native job IDs.
+
+Replay the complete bundle on an approved server with no browser or network:
+
+```sh
+python -m caeval.institution_gap_review verify unified-gap-review.json \
+  --baseline-digest "$BASELINE_SHA" --followup-digest "$FOLLOWUP_SHA" \
+  --expected-digest "$BUNDLE_SHA"
+```
+
+Use independently recorded digests. Offline replay cannot verify the original
+local audit database, the actual chronology, or the source records. Store the
+bundle and its digests according to the hospital's existing governance and
+retention policy. There is no automatic committee disposition, clinical claim,
+or reassessment execution; changes in frozen programme scope must use the
+existing governed reassessment workflow.

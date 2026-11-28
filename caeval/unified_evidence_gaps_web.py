@@ -46,6 +46,7 @@ def render(directory,actor,ident):
     body+="<p>Projection digest "+esc(doc["digest"])+" (not a frozen approval or signature).</p>"
     if actor["role"]=="admin":
         body+="<p><a href='/unified-gap-handoff-preview?id="+esc(ident)+"'>Preview portable evidence-gap handoff</a></p>"
+        body+="<p><a href='/unified-gap-review?id="+esc(ident)+"'>Compare with previous approved handoff</a></p>"
     return page("Programme evidence gaps and next actions",body)
 
 def preview(directory,actor,ident):
