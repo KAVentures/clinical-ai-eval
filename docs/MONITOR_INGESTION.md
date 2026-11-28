@@ -535,3 +535,49 @@ A copied or older restored heartbeat is not proof of current worker
 state; stop all services and inspect the corresponding outbox and
 relay before restarting. No timer, external watchdog or paging
 service is automatically installed.
+
+
+## Consolidated monitoring pipeline health
+
+For the built-in local relay, an IT watchdog can inspect the approved worker
+binding, durable outbox, heartbeat and relay together:
+
+```sh
+clinical-ai-eval monitor-pipeline-health /private/alerts.sqlite3 /private/health.sqlite3 /private/relay.sqlite3 --approved-digest APPROVED_BINDING_DIGEST --backlog-limit 20 --backlog-age 3600
+```
+
+Select operational backlog thresholds locally. The example values are not
+clinical recommendations. The command emits a structured report and exits
+nonzero if any attention condition is detected or a required store is
+unavailable. No credential file or network request is involved.
+
+Checks include heartbeat binding and reported health, uninitialized or
+non-current UTC checkpoint dates, pending outbox attempts, matching pending
+relay envelopes, presence and sequence of the latest acknowledged delivery,
+duplicate relay sequence numbers, relay records ahead of the outbox and
+conflicting next-sequence records, capacity exhaustion and local CLI review
+backlog count/age. An accepted-but-pending delivery still needs attention:
+the local acknowledgment has not been completed.
+
+The command assumes a single outbox history per relay. Sequence gaps are
+normal when event-free batches are acknowledged. Only the most recent
+acknowledgment and current pending attempt can be reconciled with the
+outbox. Earlier acknowledgment histories are not retained by that store.
+The latest acknowledged delivery can be checked against receipt identity
+and sequence, not independently reconstructed from the previous transition
+inventory. Relay metadata is inspected within a bounded read transaction;
+only selected matching payloads are replayed. This is not a complete audit
+of all historical delivery records.
+
+The CLI backlog count refers to the separate local relay review procedure,
+not the institutional browser review ledger. If the institution uses the
+browser for review, inspect its independent inbox as well; a browser review
+does not remove the CLI backlog. Store reads are not an atomic cross-store
+snapshot, and an active cycle can produce temporary discrepancies.
+Investigate persistent issues or repeat the inspection with workers
+stopped. No state is advanced or automatically repaired.
+
+An issue-free report is not proof of current live source connectivity,
+clinician notification, independently verified delivery, or clinical safety.
+Run the independent watchdog and escalation mechanism even when the worker
+is stopped; the CLI does not install or configure a watchdog service.

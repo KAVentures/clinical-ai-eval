@@ -1882,6 +1882,10 @@ def main(argv=None):
     from . import monitor_alert_health
     phealth = sub.add_parser("monitor-alert-health", help="guard scheduled monitoring cycles and inspect operational heartbeat")
     monitor_alert_health.configure(phealth)
+
+    from . import monitor_pipeline_health
+    ppipeline = sub.add_parser("monitor-pipeline-health", help="reconcile local worker, outbox and relay state")
+    monitor_pipeline_health.configure(ppipeline)
     from . import portable_calibration
     pcal=sub.add_parser("verify-cohort-calibration",help="offline replay of a label-only validation cohort export")
     pcal.add_argument("package")
