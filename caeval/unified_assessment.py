@@ -453,6 +453,10 @@ def verify_export(package,expected_digest=None):
     d._require(p["schema"]=="unified-assessment-programme/1" and p["decision_grade"] is False
                and p["limitations"]==LIMITATIONS and d._digest({k:v for k,v in p.items() if k!="digest"})==p["digest"],
                "programme content digest mismatch")
+    from . import unified_coverage_contract as contract
+    contract.validate_programme(p,kinds=KINDS,executor_for=executors.executor_for,
+        executors={"text":executors.GENERIC_PAIRED_TEXT,"conversation":executors.PATIENT_EPISODE,"rag":executors.RAG_TRACE},
+        max_plans=MAX_PLANS,max_requirements=MAX_REQUIREMENTS)
     reqs,rows=p["requirements"],c["requirements"]
     d._require(isinstance(reqs,list) and isinstance(rows,list) and 1<=len(reqs)==len(rows)<=MAX_REQUIREMENTS,
                "coverage requirement inventory mismatch")
@@ -479,6 +483,7 @@ def verify_export(package,expected_digest=None):
             d._keys(source,required)
             d._require(source["kind"]==req["kind"] and d._hex(source["anchor"]) and d._hex(source["evidence_digest"])
                        and isinstance(source["source_id"],str) and row["state"]!="unlinked","invalid locked source")
+            contract.validate_source(req["kind"],source)
     d._require(c["all_planned_sources_available"] is all(r["state"]=="source_available" for r in rows),
                "coverage completeness mismatch")
     return {"status":"COVERAGE_STRUCTURE_VERIFIED","digest":package["digest"],

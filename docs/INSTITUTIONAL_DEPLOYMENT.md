@@ -410,6 +410,37 @@ software build, recheck research packages and job state, then test role boundari
 and service configuration before switching the approved proxy to the recovered
 workspace. File verification alone does not establish clinical validity.
 
+### Lifecycle integrity and recovery preflight
+
+Before reopening a restored institutional workspace, with the gateway,
+evaluation workers and ingestion listeners stopped, run:
+
+```sh
+clinical-ai-eval institution lifecycle-preflight /srv/caeval/restored \
+  --confirm-services-stopped --expect-restored
+```
+
+For an ordinary stopped-service integrity inspection omit
+`--expect-restored`. The read-only preflight checks bounded workspace
+inventory, SQLite storage integrity, foreign keys, and nine lifecycle
+audit inventories. It distinguishes unused modules from missing schema
+or records that no longer match their audit linkage. It exits nonzero
+when a check fails. The result contains counts, not bearer credentials
+or private research payloads.
+
+Restore revokes monitoring ingestion grants as well as browser sessions,
+agent grants and evaluator service grants, and disables recurring
+monitoring schedules. The original workspace is unaffected. Audit-linked
+ingestion receipts remain available as historical records. A new monitor
+ingestion grant must be explicitly issued after restoration. A corrupt
+ingestion grant ledger causes restore to fail closed rather than reopen
+the workspace with ambiguous authorization.
+
+The preflight is not a complete clinical evidence replay, a live snapshot,
+a security certification, or deployment approval. A stopped-service
+confirmation is an operator attestation, not proof that all processes are
+stopped.
+
 ## Integrated acceptance and storage guarantees
 
 The combined product uses a shared SQLite write lock for supported buyer

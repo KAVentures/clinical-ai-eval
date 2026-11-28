@@ -147,8 +147,10 @@ def _dashboard(directory, actor):
     if role in ("admin","operator","observer","reviewer"):
         body += "<p><a href='/research'>Clinical research studio</a></p>"
     if role in ("admin","operator","observer"):
+        body += "<p><a href='/lifecycle-cockpit'>Clinical AI lifecycle cockpit</a></p>"
         body += "<p><a href='/unified-assessment'>Unified clinical AI assessment programmes</a></p>"
         body += "<p><a href='/matched-regression'>Matched longitudinal research</a></p>"
+        body += "<p><a href='/lifecycle-monitor'>Clinical AI lifecycle monitoring</a></p>"
     if role in ("admin","operator"):
         body += "<p><a href='/diagnostic-imaging'>Diagnostic imaging research</a></p>"
         body += "<p><a href='/rag-trace'>Synthetic RAG context rehearsal</a></p>"
@@ -163,6 +165,7 @@ def _dashboard(directory, actor):
         body += "<p><a href='/patient-review'>Patient transcript physician review</a></p>"
         body += "<p><a href='/world-review'>Patient-world validity review</a></p>"
     if role == "reviewer":
+        body += "<p><a href='/my-independent-reviews'>My independent reviews</a></p>"
         body += "<h2>Assigned blinded reviews</h2>"
         for row in access.assignments(directory, actor):
             link = "/review?" + urllib.parse.urlencode({"job":row["job"],"family":row["family"]})
@@ -656,6 +659,96 @@ class InstitutionApp:
                 _csrf(actor,form)
                 ident=image_web.submit(self.directory,actor,form)
                 return respond("303 See Other",extra=[("Location","/image-text-report?id="+ident)])
+            if path=="/my-independent-reviews" and method=="GET":
+                from . import institution_reviewer_inbox as inbox
+                access.require(actor,"reviewer")
+                if _query(env):
+                    raise access.AccessDenied("invalid review inbox filter")
+                return respond("200 OK",inbox.render(self.directory,actor))
+            if path in ("/cockpit-policy-setup","/cockpit-monitor-setup") and method=="GET":
+                from . import institution_lifecycle_guided as guided
+                access.require(actor,"admin")
+                fn=guided.policy_form if path=="/cockpit-policy-setup" else guided.monitor_form
+                return respond("200 OK",fn(self.directory,actor,_query(env)))
+            if path in ("/cockpit-policy-preview","/cockpit-monitor-preview") and method=="POST":
+                from . import institution_lifecycle_guided as guided
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                fn=guided.policy_preview if path=="/cockpit-policy-preview" else guided.monitor_preview
+                return respond("200 OK",fn(self.directory,actor,form))
+            if path=="/lifecycle-cockpit" and method=="GET":
+                from . import institution_lifecycle_cockpit_web as cockpit
+                access.require(actor,"admin","operator","observer")
+                return respond("200 OK",cockpit.render(self.directory,actor,_query(env)))
+            if path=="/lifecycle-ingestion-grants" and method=="GET":
+                from . import institution_lifecycle_monitor_web as monitor
+                access.require(actor,"admin")
+                return respond("200 OK",monitor.grants_view(self.directory,actor))
+            if path in ("/lifecycle-ingestion-issue","/lifecycle-ingestion-revoke") and method=="POST":
+                from . import institution_lifecycle_monitor_web as monitor, monitor_ingestion, institution_imaging_web as forms
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/lifecycle-ingestion-issue":
+                    return respond("200 OK",monitor.issue_grant(self.directory,actor,form))
+                forms._exact(form,"id confirm")
+                forms._confirm(form)
+                monitor_ingestion.revoke(self.directory,actor,form["id"])
+                return respond("303 See Other",extra=[("Location","/lifecycle-ingestion-grants")])
+            if path in ("/monitor-notifications","/monitor-notification-detail") and method=="GET":
+                from . import institution_monitor_notifications_web as notifications
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if path=="/monitor-notifications" and set(q)=={"id"}:
+                    return respond("200 OK",notifications.inbox(self.directory,actor,q["id"]))
+                if path=="/monitor-notification-detail" and set(q)=={"id","attempt"}:
+                    return respond("200 OK",notifications.detail(self.directory,actor,q["id"],q["attempt"]))
+                raise access.AccessDenied("invalid notification query")
+            if path=="/monitor-notification-review" and method=="POST":
+                from . import institution_monitor_notifications_web as notifications
+                access.require(actor,"admin","operator")
+                form=_form(env)
+                _csrf(actor,form)
+                ident,attempt=notifications.review(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/monitor-notification-detail?id="+ident+"&attempt="+attempt)])
+            if path=="/monitor-reassessment" and method=="GET":
+                from . import monitor_reassessment_web as handoff
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("invalid reassessment handoff query")
+                return respond("200 OK",handoff.render(self.directory,actor,q["id"]))
+            if path in ("/monitor-reassessment-preview","/monitor-reassessment-lock") and method=="POST":
+                from . import monitor_reassessment_web as handoff
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/monitor-reassessment-preview":
+                    return respond("200 OK",handoff.preview(self.directory,actor,form))
+                ident=handoff.lock(self.directory,actor,form)
+                return respond("303 See Other",extra=[("Location","/monitor-reassessment?id="+ident)])
+            if path in ("/lifecycle-monitor","/lifecycle-monitor-detail") and method=="GET":
+                from . import institution_lifecycle_monitor_web as monitor
+                q=_query(env)
+                if path=="/lifecycle-monitor" and not q:
+                    access.require(actor,"admin","operator","observer")
+                    return respond("200 OK",monitor.home(self.directory,actor))
+                if path=="/lifecycle-monitor-detail" and set(q)=={"id"}:
+                    access.require(actor,"admin","operator")
+                    return respond("200 OK",monitor.detail(self.directory,actor,q["id"]))
+                raise access.AccessDenied("invalid monitoring request")
+            if path in ("/lifecycle-monitor-preview","/lifecycle-monitor-freeze","/lifecycle-monitor-report","/lifecycle-monitor-incident","/lifecycle-monitor-action","/lifecycle-monitor-export") and method=="POST":
+                from . import institution_lifecycle_monitor_web as monitor,buyer_plan
+                access.require(actor,*(("admin","operator") if path in ("/lifecycle-monitor-report","/lifecycle-monitor-incident") else ("admin",)))
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/lifecycle-monitor-preview":
+                    return respond("200 OK",monitor.preview(self.directory,actor,form))
+                result=monitor.dispatch(self.directory,actor,path,form)
+                if path=="/lifecycle-monitor-export":
+                    return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="lifecycle-monitor-evidence.json"')],content_type="application/json; charset=utf-8")
+                return respond("303 See Other",extra=[("Location","/lifecycle-monitor-detail?id="+result)])
             if path in ("/hospital-referral","/hospital-referral-detail","/hospital-referral-assigned") and method=="GET":
                 from . import institution_hospital_referral_web as referral
                 q=_query(env)
@@ -783,6 +876,43 @@ class InstitutionApp:
                 if path=="/rag-trace-evidence":
                     return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="private-rag-evidence.json"')],content_type="application/json; charset=utf-8")
                 return respond("303 See Other",extra=[("Location","/rag-trace-study?id="+result)])
+            if path=="/unified-gap-review" and method=="GET":
+                from . import institution_gap_review_web as gap_review
+                access.require(actor,"admin")
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("invalid longitudinal review query")
+                return respond("200 OK",gap_review.home(self.directory,actor,q["id"]))
+            if path in ("/unified-gap-review-preview","/unified-gap-review-export") and method=="POST":
+                from . import institution_gap_review_web as gap_review, institution_gap_review as review_service
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                if path=="/unified-gap-review-preview":
+                    return respond("200 OK",gap_review.preview(self.directory,actor,form))
+                result=gap_review.export(self.directory,actor,form)
+                return respond("200 OK",review_service.encode(result),extra=[("Content-Disposition",'attachment; filename="unified-gap-review.json"')],content_type="application/json; charset=utf-8")
+            if path=="/unified-gap-handoff-preview" and method=="GET":
+                from . import unified_evidence_gaps_web as gap_view
+                access.require(actor,"admin")
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("invalid handoff preview query")
+                return respond("200 OK",gap_view.preview(self.directory,actor,q["id"]))
+            if path=="/unified-gap-handoff-export" and method=="POST":
+                from . import unified_evidence_gaps_web as gap_view,buyer_plan
+                access.require(actor,"admin")
+                form=_form(env)
+                _csrf(actor,form)
+                result=gap_view.export(self.directory,actor,form)
+                return respond("200 OK",buyer_plan._canonical(result),extra=[("Content-Disposition",'attachment; filename="unified-evidence-gap-handoff.json"')],content_type="application/json; charset=utf-8")
+            if path=="/unified-assessment-gaps" and method=="GET":
+                from . import unified_evidence_gaps_web as gap_view
+                access.require(actor,"admin","operator")
+                q=_query(env)
+                if set(q)!={"id"}:
+                    raise access.AccessDenied("invalid evidence gap query")
+                return respond("200 OK",gap_view.render(self.directory,actor,q["id"]))
             if path in ("/unified-assessment-discover","/unified-assessment-work","/unified-assessment-lineage","/unified-assessment-compare") and method=="GET":
                 from . import unified_orchestration_web as orchestration
                 q=_query(env)
