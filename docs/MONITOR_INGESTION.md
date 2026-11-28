@@ -127,3 +127,46 @@ Scheduled native clinical regression evaluations retain their separate
 existing approved runner and controls. The ingestion listener cannot
 execute them. All outputs are administrative monitoring evidence, not
 clinical validation, safety certification or deployment authorization.
+
+
+## Replayable alert transitions
+
+For institution-managed notification delivery, the offline
+`monitor-alert-outbox` commands compare a successful feed with the last
+acknowledged checkpoint. They produce a deterministic pending batch and
+detect newly reported alerts, severity changes and alerts no longer reported.
+A disappeared alert is not a clinical resolution or proof of safety.
+
+First retain the output of a successful authenticated feed request in a
+restricted file. On the first run, omit `--previous`; on later runs:
+
+```sh
+clinical-ai-eval monitor-alert-outbox prepare current-feed.json --previous checkpoint.json > pending.json
+clinical-ai-eval monitor-alert-outbox verify pending.json
+```
+
+Use an institution-managed single-writer scheduler and private directory.
+The scheduler must atomically persist the pending file before delivery,
+retain it unchanged through failures, and deliver its event inventory
+using an approved notification system. Use the batch digest as the
+delivery idempotency key wherever the destination supports it. Do not
+overwrite an unacknowledged pending batch with a later poll; process it
+first. The commands deliberately do not install the scheduler, contact a
+notification provider or manage filesystem locking and durable writes.
+
+When delivery of the exact event batch has been acknowledged externally,
+advance the checkpoint using its verified batch digest:
+
+```sh
+clinical-ai-eval monitor-alert-outbox acknowledge pending.json --expected-digest BATCH_DIGEST --confirm-delivered > next-checkpoint.json
+```
+
+Atomically replace the previous checkpoint with the resulting checkpoint
+before retiring the pending file. An event-free batch may be acknowledged
+without `--confirm-delivered`. A failed HTTP poll or invalid feed must
+not be substituted by an empty list of alerts. Treat it as a separate
+monitoring failure. This contract rejects changed monitor/plan identity,
+backward dates, duplicate IDs, changed kinds under the same ID and
+inconsistent attention flags. Same-day feed order, actual source authenticity,
+delivery receipts and filesystem durability are not independently verified;
+a digest is not a signature. No distributed exactly-once delivery is claimed.
